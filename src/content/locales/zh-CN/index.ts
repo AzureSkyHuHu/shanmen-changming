@@ -2,6 +2,7 @@ import type { TextKey } from '../../../i18n/messages.ts';
 import type { MessageTemplate } from '../../../i18n/types.ts';
 
 export const zhCN = {
+  "expedition.ui.noSurvivorClear": "虽已战胜守关者，但无人归来，本次不计战役通关或个人首胜。",
   "expedition.ui.emergencyReviewHint": "审阅期间战斗已暂停。请核对当前真实陨落、道伤和未结算战利品损失；撤退后仍须完成返程。",
   "expedition.ui.emergencyAcknowledge": "我已了解列出的永久陨落、道伤与战利品损失。",
   "expedition.ui.addedInjury": "{name}：新增道伤 {amount}",

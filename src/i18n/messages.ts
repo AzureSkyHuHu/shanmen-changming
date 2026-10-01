@@ -4,6 +4,7 @@ const noParameters = { parameters: {} } as const;
 
 /** Registry of stable UI/content keys. Add a Chinese entry whenever adding a key. */
 export const messageSpecifications = {
+  "expedition.ui.noSurvivorClear": {"parameters": {}},
   "expedition.ui.emergencyReviewHint": {"parameters": {}},
   "expedition.ui.emergencyAcknowledge": {"parameters": {}},
   "expedition.ui.addedInjury": {"parameters": {"name": {"type": "string", "format": "text"}, "amount": {"type": "number", "format": "integer"}}},

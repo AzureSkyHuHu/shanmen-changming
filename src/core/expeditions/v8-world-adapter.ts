@@ -243,8 +243,11 @@ function applyEffect(world: WorldState, effect: Immutable<ExpeditionAdapterEffec
       next = { ...next, cultivation: { ...next.cultivation, revision: checkedAdd(next.cultivation.revision, 1),
         disciples: next.cultivation.disciples.map(profile => profile.activityOwner?.runId === run.runId ? { ...profile, activityOwner: null } : profile) },
         unlocks: [...new Set([...next.unlocks, ...effect.settlement.unlockIds])].sort(compareStable) };
-      const needsPersonalProof = effect.settlement.reason === 'victory' && effect.survivingDiscipleIds.some(discipleId => !next.builds.awards.some(award => award.discipleId === discipleId && award.ruleId === 'expedition.first-victory'));
-      if (effect.settlement.reason === 'victory') for (const discipleId of effect.survivingDiscipleIds) {
+      // A won battle stays won if the last traveler dies on the return leg.
+      // Settle its sealed terms and deaths, but campaign/personal victory needs a living returner.
+      const returnedVictory = effect.settlement.reason === 'victory' && effect.survivingDiscipleIds.length > 0;
+      const needsPersonalProof = returnedVictory && effect.survivingDiscipleIds.some(discipleId => !next.builds.awards.some(award => award.discipleId === discipleId && award.ruleId === 'expedition.first-victory'));
+      if (returnedVictory) for (const discipleId of effect.survivingDiscipleIds) {
         if (next.builds.awards.some(award => award.discipleId === discipleId && award.ruleId === 'expedition.first-victory')) continue;
         next = buildAuthority(next, { kind: 'milestone.award', commandId: `${run.runId}/award/${discipleId}`, expectedRevision: next.builds.revision,
           milestoneId: `milestone.first-expedition.${discipleId.replace(':', '-')}`, discipleId, ruleId: 'expedition.first-victory' });
@@ -256,8 +259,8 @@ function applyEffect(world: WorldState, effect: Immutable<ExpeditionAdapterEffec
         loot: copy(effect.settlement.loot), returnedSupplies: copy(effect.settlement.unusedSupplies), lostLoot: copy(effect.settlement.lostLoot),
         survivingDiscipleIds: [...effect.survivingDiscipleIds], deadDiscipleIds: [...effect.deadDiscipleIds], deathMappings: copy(bundle(next).deathMappings) };
       next = setBundle(next, { history: [...bundle(next).history, history], battle: null, travel: null });
-      const firstClear = effect.settlement.reason === 'victory' && !next.campaign.progress.clears.some(clear => clear.routeId === next.expedition.routeId);
-      if (effect.settlement.reason === 'victory') {
+      const firstClear = returnedVictory && !next.campaign.progress.clears.some(clear => clear.routeId === next.expedition.routeId);
+      if (returnedVictory) {
         const recorded = recordRegisteredCampaignVictoryV2(next.campaign.progress, next.expedition.routeId!, registered);
         if (!recorded.ok) reject('INVALID_STATE');
         next = { ...next, campaign: { ...next.campaign, progress: copy(recorded.state), clearEvidence: firstClear
