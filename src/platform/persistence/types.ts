@@ -1,4 +1,4 @@
-import type { SaveEnvelope, SaveErrorCode } from '../../core/kernel/save';
+import type { SaveEnvelope, SaveErrorCode, SaveMigration } from '../../core/kernel/save';
 import type { WorldState } from '../../core/world/types';
 
 export const CAMPAIGN_SLOT_IDS = ['campaign-1', 'campaign-2', 'campaign-3'] as const;
@@ -56,6 +56,8 @@ export interface SnapshotIssue {
 export interface LoadedSave extends SaveCommit {
   envelope: SaveEnvelope;
   world: WorldState;
+  /** Core migration describes the in-memory envelope; snapshot.text remains the original source. */
+  migration: SaveMigration | null;
   /** Fallback is read-only: loading never repairs or rewrites the current pointer. */
   recovered: boolean;
   issues: SnapshotIssue[];

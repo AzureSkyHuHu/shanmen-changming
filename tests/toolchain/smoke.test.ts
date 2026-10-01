@@ -10,21 +10,26 @@ import { inspectCoreSource } from '../../tools/check-boundaries/index.ts';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const coreFixture = path.join(root, 'src/core/example.ts');
 
-describe('foundation shell', () => {
-  it('renders a candid Chinese foundation preview by default', () => {
+describe('live sect foundation', () => {
+  it('renders a live Chinese sect interface with honest scope', () => {
     const html = renderToStaticMarkup(createElement(App));
     expect(html).toContain('lang="zh-CN"');
     expect(html).toContain('山门长明');
-    expect(html).toContain('完整玩法尚未开放');
+    expect(html).toContain('完整玩法');
+    expect(html).toContain('安排差事');
+    expect(html).toContain('临时像素画面');
+    expect(html).toContain('宗门库存');
     expect(html).toContain('<select');
-    expect(html).not.toContain('<button');
+    expect(html).toContain('<button');
+    expect(html).toContain('林青');
   });
 
   it('can render English without changing the approved proper name', () => {
     const html = renderToStaticMarkup(createElement(App, { initialLocale: 'en' }));
     expect(html).toContain('lang="en"');
     expect(html).toContain('山门长明');
-    expect(html).toContain('Foundation preview');
+    expect(html).toContain('Playable foundation');
+    expect(html).toContain('Assign a task');
     expect(html).toContain('value="en" selected');
   });
 

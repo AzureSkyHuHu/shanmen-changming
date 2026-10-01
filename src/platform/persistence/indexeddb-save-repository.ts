@@ -358,6 +358,7 @@ export class IndexedDbSaveRepository {
     return { slot, snapshot };
   }
 
+  /** Migration is in-memory only. A later explicit save creates a new-generation current envelope. */
   async loadSlot(slotId: CampaignSlotId): Promise<LoadedSave> {
     assertSlot(slotId);
     return this.transaction('readonly', async (transaction) => {
@@ -371,13 +372,13 @@ export class IndexedDbSaveRepository {
         if (!snapshot) { issues.push({ snapshotId: id, code: value === undefined ? 'MISSING_SNAPSHOT' : 'INVALID_SNAPSHOT_RECORD' }); continue; }
         const parsed = parseSaveFile(snapshot.text);
         if (!parsed.ok) { issues.push({ snapshotId: id, code: parsed.error.code }); continue; }
-        return { slot, snapshot, envelope: parsed.envelope, world: parsed.world, recovered: id !== slot.currentSnapshotId, issues };
+        return { slot, snapshot, envelope: parsed.envelope, world: parsed.world, migration: parsed.migration, recovered: id !== slot.currentSnapshotId, issues };
       }
       throw new PersistenceError('NO_VALID_SNAPSHOT', 'No retained snapshot passed validation; raw data was preserved', { issues });
     });
   }
 
-  /** Exports the validated current snapshot, or the explicitly reported recovery fallback. */
+  /** Exports original validated text, including a legacy source that was migrated only in memory. */
   async exportSlot(slotId: CampaignSlotId): Promise<SaveFile & { recovered: boolean; snapshotId: string }> {
     const loaded = await this.loadSlot(slotId);
     return { ...describeSaveFile(loaded.snapshot.text, loaded.envelope), recovered: loaded.recovered, snapshotId: loaded.snapshot.id };

@@ -17,7 +17,7 @@ export interface SaveFile {
   text: string;
 }
 
-/** Validate before offering an import target. No version guessing or migration occurs. */
+/** Validate before offering an import target. Only core-registered migrations run, without changing input text. */
 export function parseSaveFile(text: string): ParseSaveResult {
   if (typeof text !== 'string') return parseSave(text);
   if (text.length > MAX_SAVE_CHARACTERS || new TextEncoder().encode(text).byteLength > MAX_SAVE_FILE_BYTES) {

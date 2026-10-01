@@ -7,7 +7,7 @@ import type { SequenceState } from '../kernel/ids';
 export const MAX_DISCIPLES = 36;
 export interface GridPosition { x: number; y: number }
 export interface WorldTile extends GridPosition { terrain: 'grass' | 'path' | 'forest' | 'stone' | 'water'; walkable: boolean }
-export interface WorldMap { width: number; height: number; seed: string; generationVersion: 1; tiles: WorldTile[] }
+export interface WorldMap { width: number; height: number; seed: string; generationVersion: 1; navVersion: number; tiles: WorldTile[] }
 export interface Disciple {
   id: string;
   nameKey: string;
@@ -20,7 +20,7 @@ export interface Disciple {
   assignmentTransactionId: string | null;
   aptitude: number;
 }
-export interface WorldBuilding extends GridPosition { id: string; blueprintId: string; nameKey: string; operational: boolean }
+export interface WorldBuilding extends GridPosition { id: string; blueprintId: string; nameKey: string; operational: boolean; stationTransactionId: string | null }
 export interface WorldState {
   seed: string;
   simulationVersion: string;
@@ -34,6 +34,8 @@ export interface WorldState {
   inventory: InventoryLedger;
   reservations: Record<string, Reservation>;
   transactions: Record<string, ProductionTransaction>;
+  /** Source-owned live job index; historical ledgers are retained for idempotency. */
+  activeProductionTransactionIds: string[];
   commandReceipts: Record<string, CommandReceipt>;
   pendingCommands: Command[];
   events: DomainEvent[];

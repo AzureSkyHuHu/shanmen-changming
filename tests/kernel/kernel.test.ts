@@ -253,7 +253,7 @@ describe('command idempotency and atomic resource accounting', () => {
   it('commits one debit and one credit and rejects cancellation after completion', () => {
     const initial = createWorld('commit');
     const started = dispatchCommand(initial, start(initial));
-    const complete = advanceTicks(started.world, STARTER_RECIPES['craft.plank']!.workTicks);
+    const complete = advanceTicks(started.world, STARTER_RECIPES['craft.plank']!.workTicks + 100);
     expect(complete.inventory.wood.owned).toBe(initial.inventory.wood.owned - 3);
     expect(complete.inventory.wood.reserved).toBe(0);
     expect(complete.inventory.plank.owned).toBe(2);
@@ -332,7 +332,7 @@ describe('pure save envelopes', () => {
   });
   it('explicitly rejects the prior integer-mapping simulation version without rewriting its bytes', () => {
     const current = createSaveEnvelope(createWorld('prior-rng-version'), metadata);
-    expect(SIMULATION_VERSION).toBe('0.1.1');
+    expect(SIMULATION_VERSION).toBe('0.2.0');
     expect(RANDOM_ALGORITHM).toBe('xorshift32-nonzero-v2');
     const { checksum: _checksum, ...currentBody } = current;
     const previousBody = {
@@ -352,7 +352,7 @@ describe('pure save envelopes', () => {
   it.each(['missing', 'wrong-fingerprint', 'wrong-transaction'] as const)('rejects completed imports with a %s originating receipt', (problem) => {
     const initial = withProduction(`receipt-${problem}`);
     const transaction = Object.values(initial.transactions)[0]!;
-    const complete = advanceTicks(initial, transaction.requiredTicks);
+    const complete = advanceTicks(initial, transaction.requiredTicks + 100);
     const envelope = createSaveEnvelope(complete, metadata);
     if (problem === 'missing') envelope.payload.commandReceipts = {};
     else if (problem === 'wrong-fingerprint') envelope.payload.commandReceipts[transaction.commandId]!.fingerprint = canonicalStringify({ kind: 'production.start', payload: { recipeId: 'gather.herbs', workerId: transaction.workerId } });
@@ -365,7 +365,7 @@ describe('pure save envelopes', () => {
     const world = createWorld('duplicate-command-ownership');
     const first = dispatchCommand(world, start(world, 'origin.first', 'craft.plank', 1));
     const second = dispatchCommand(first.world, start(first.world, 'origin.second', 'craft.plank', 2));
-    const envelope = createSaveEnvelope(advanceTicks(second.world, 160), metadata);
+    const envelope = createSaveEnvelope(advanceTicks(second.world, 500), metadata);
     envelope.payload.transactions[second.result.transactionId!]!.commandId = 'origin.first';
     const { checksum: _checksum, ...body } = envelope;
     expect(validateWorldState(envelope.payload)).toContain('Duplicate transaction originating command ID');
@@ -399,7 +399,7 @@ describe('pure save envelopes', () => {
     const initial = withProduction(`terminal-${terminalState}`);
     const transaction = Object.values(initial.transactions)[0]!;
     let terminal: WorldState;
-    if (terminalState === 'Committed') terminal = advanceTicks(initial, transaction.requiredTicks);
+    if (terminalState === 'Committed') terminal = advanceTicks(initial, transaction.requiredTicks + 100);
     else {
       const cancelled = cancelProduction(initial, transaction.transactionId);
       if (!cancelled.ok) throw new Error('Cancellation failed');

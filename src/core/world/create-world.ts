@@ -4,8 +4,8 @@ import { allocateId, createSequences } from '../kernel/ids';
 import { createRandomStreams, drawInteger } from '../kernel/random';
 import type { Disciple, WorldBuilding, WorldState, WorldTile } from './types';
 
-/** 0.1.1 corrects RNG integer mapping. 0.1.0 saves must not be replayed with this version. */
-export const SIMULATION_VERSION = '0.1.1';
+/** 0.2.0 adds saved movement and delivery. v1/0.1.1 has an explicit migration; 0.1.0 RNG remains incompatible. */
+export const SIMULATION_VERSION = '0.2.0';
 export const CONTENT_VERSION = 'starter-0.1.0';
 
 /** Seeded starter fixture. The central road and all four resource stations are guaranteed reachable. */
@@ -36,16 +36,17 @@ export function createWorld(seed: string | number = 'shanmen-001'): WorldState {
     { blueprintId: 'workshop', nameKey: 'building.workshop', x: 11, y: 5 },
     { blueprintId: 'mine', nameKey: 'building.mine', x: 7, y: 8 },
     { blueprintId: 'spirit-vein', nameKey: 'building.spiritVein', x: 7, y: 0 },
+    { blueprintId: 'storage', nameKey: 'building.storage', x: 7, y: 5 },
   ];
   const buildings: WorldBuilding[] = locations.map((building) => {
     const allocated = allocateId(sequences, 'entity'); sequences = allocated.sequences;
-    return { ...building, id: allocated.id, operational: true };
+    return { ...building, id: allocated.id, operational: true, stationTransactionId: null };
   });
   return {
     seed: normalizedSeed, simulationVersion: SIMULATION_VERSION, contentVersion: CONTENT_VERSION,
     clock: createClock(), randomStreams, sequences,
-    map: { width: 14, height: 10, seed: normalizedSeed, generationVersion: 1, tiles },
-    disciples, buildings, inventory: createInventory(), reservations: {}, transactions: {}, commandReceipts: {}, pendingCommands: [], events: [],
+    map: { width: 14, height: 10, seed: normalizedSeed, generationVersion: 1, navVersion: 0, tiles },
+    disciples, buildings, inventory: createInventory(), reservations: {}, transactions: {}, activeProductionTransactionIds: [], commandReceipts: {}, pendingCommands: [], events: [],
     unlocks: ['recipe.gather', 'recipe.cooking', 'recipe.planks', 'route.first-breakthrough'], diagnostics: [],
   };
 }

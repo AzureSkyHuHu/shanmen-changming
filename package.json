@@ -18,8 +18,9 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "validate:locales": "node --experimental-strip-types tools/validate-locales/index.ts",
-    "check-content": "npm run validate:locales",
-    "check": "npm run check:boundaries && npm run check-content && npm test && npm run build"
+    "check-content": "npm run validate:locales && npm run validate:content",
+    "check": "npm run check:boundaries && npm run check-content && npm test && npm run build",
+    "validate:content": "node --experimental-strip-types tools/validate-content/index.ts"
   },
   "dependencies": {
     "phaser": "4.2.1",
