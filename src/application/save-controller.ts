@@ -4,13 +4,14 @@ import { createVersionedSaveEnvelope, serializeVersionedSave, type VersionedWorl
 import { exportWorldSave, MAX_SAVE_FILE_BYTES, parseSaveFile, type SaveFile } from '../platform/files/save-files';
 import {
   CAMPAIGN_SLOT_IDS, openSaveRepository, PersistenceError,
-  type CampaignSlotId, type IndexedDbSaveRepository, type SlotManifest, type WriterLease,
+  type CampaignSlotId, type IndexedDbSaveRepository, type RepositoryOptions, type SlotManifest, type WriterLease,
 } from '../platform/persistence';
 import type { TextKey } from '../i18n';
 import { persistenceMessage } from './status-messages';
 import { ApplicationSession, deepFreeze, type DeepReadonly } from './session';
 
 export interface ImportFileSource { readonly name: string; readonly size: number; text(): Promise<string> }
+export type NewWorldFactory = (seed: string) => VersionedWorldState;
 export interface ImportTarget { slotId: CampaignSlotId; revision: number; occupied: boolean }
 export interface SaveImportStatus {
   selectionId: number;
@@ -63,8 +64,12 @@ export class SaveController {
   private listeners = new Set<() => void>();
   private status: DeepReadonly<SaveStatus> = deepFreeze({ mode: 'opening', busy: false, slots: CAMPAIGN_SLOT_IDS.map((slotId) => ({ slotId, slot: null })), boundSlot: null, readOnly: false, lastSavedAt: null, notice: null, import: emptyImport() });
   private readonly ownerId = globalThis.crypto?.randomUUID?.() ?? `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  private readonly repositoryOptions: RepositoryOptions;
 
-  constructor(private readonly session: ApplicationSession, private readonly newWorldFactory: (seed: string) => VersionedWorldState = createWorld) {}
+  constructor(private readonly session: ApplicationSession, private readonly newWorldFactory: NewWorldFactory = createWorld, repositoryOptions: RepositoryOptions = {}) {
+    // Own the selected storage destination; later caller mutation cannot redirect this controller.
+    this.repositoryOptions = { ...repositoryOptions };
+  }
   readonly getSnapshot = (): DeepReadonly<SaveStatus> => this.status;
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -81,7 +86,7 @@ export class SaveController {
     this.importCandidate = null;
     this.update({ mode: 'opening', busy: false, import: emptyImport(++this.importSelection) });
     try {
-      const repository = await openSaveRepository();
+      const repository = await openSaveRepository(this.repositoryOptions);
       if (generation !== this.generation) { repository.close(); return; }
       this.repository = repository;
       const slots = await repository.listSlots();

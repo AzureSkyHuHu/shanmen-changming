@@ -1,16 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
-import { STARTER_RECIPES, TICKS_PER_SECOND, type ResourceLine } from '../core/kernel';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import { createWorld, STARTER_RECIPES, TICKS_PER_SECOND, type ResourceLine } from '../core/kernel';
 import { ApplicationSession, type DeepReadonly, type SessionProjection } from '../application/session';
 import { attachBrowserRuntime } from '../application/browser-runtime';
 import { registerGameStatus, type GameModelContext } from '../application/webmcp';
-import { SaveController } from '../application/save-controller';
+import { SaveController, type NewWorldFactory } from '../application/save-controller';
 import { disciplePresentation } from '../application/character-presentation';
 import { commandFeedbackKey } from '../application/status-messages';
 import { CultivationPanel } from './CultivationPanel';
 import { InventoryPanel } from './InventoryPanel';
 import { WorkPlansPanel } from './WorkPlansPanel';
 import { SaveImportPanel } from './SaveImportPanel';
-import { CampaignEntry } from './CampaignEntry';
+import { CampaignEntry, DEFAULT_CAMPAIGN_SEED } from './CampaignEntry';
 import { CampaignViews, submitCampaignViewCommand } from './CampaignViews';
 import type { CampaignRouteId } from '../core/campaign/types';
 import { ExpeditionPanel } from './ExpeditionPanel';
@@ -18,7 +18,7 @@ import { EmergencyRetreatDialog } from './EmergencyRetreatDialog';
 import { BuildPanel } from './BuildPanel';
 import { attachInput } from '../input/actions';
 import { PhaserWorld } from '../phaser/PhaserWorld';
-import type { CampaignSlotId } from '../platform/persistence';
+import type { CampaignSlotId, RepositoryOptions } from '../platform/persistence';
 import {
   DEFAULT_LOCALE, readLocalePreference, translate, writeLocalePreference,
   type Locale, type TextKey, type TranslationParams,
@@ -26,7 +26,19 @@ import {
 
 type Translator = (key: TextKey, parameters?: TranslationParams) => string;
 type Projection = DeepReadonly<SessionProjection>;
-export interface AppProps { initialLocale?: Locale; session?: ApplicationSession }
+export interface AppProps {
+  initialLocale?: Locale;
+  session?: ApplicationSession;
+  newWorldFactory?: NewWorldFactory;
+  saveRepositoryOptions?: RepositoryOptions;
+  previewNotice?: ReactNode;
+}
+
+/** Initial display and every later new campaign share one explicit factory and storage destination. */
+export function createAppServices({ session: suppliedSession, newWorldFactory = createWorld, saveRepositoryOptions }: Pick<AppProps, 'session' | 'newWorldFactory' | 'saveRepositoryOptions'> = {}) {
+  const session = suppliedSession ?? new ApplicationSession(newWorldFactory(DEFAULT_CAMPAIGN_SEED));
+  return { session, saves: new SaveController(session, newWorldFactory, saveRepositoryOptions) };
+}
 
 function discipleStatus(disciple: Projection['disciples'][number], summaries: Projection['cultivation']['summaries']): TextKey {
   if (disciple.lifeState === 'dead') return 'disciple.dead';
@@ -106,7 +118,7 @@ function Inspector({ session, world, t, readOnly, cultivationReview }: { session
   </aside>;
 }
 
-function SaveDialog({ controller, session, locale, t, hasCampaign, returnToEntry, onCampaignAvailable, onClose }: { controller: SaveController; session: ApplicationSession; locale: Locale; t: Translator; hasCampaign: boolean; returnToEntry: boolean; onCampaignAvailable: () => void; onClose: () => void }) {
+function SaveDialog({ controller, session, locale, t, hasCampaign, returnToEntry, previewNotice, onCampaignAvailable, onClose }: { controller: SaveController; session: ApplicationSession; locale: Locale; t: Translator; hasCampaign: boolean; returnToEntry: boolean; previewNotice?: ReactNode; onCampaignAvailable: () => void; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const status = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [confirmation, setConfirmation] = useState<{ slotId: CampaignSlotId; takeover: boolean } | null>(null);
@@ -134,6 +146,7 @@ function SaveDialog({ controller, session, locale, t, hasCampaign, returnToEntry
     } catch { setExportNotice('save.exportError'); }
   }
   return <dialog ref={dialog} className="save-dialog" aria-labelledby="save-title" aria-modal="true" onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); if (!status.busy) { if (confirmation) setConfirmation(null); else onClose(); } }}>
+    {previewNotice}
     <div className="dialog-heading"><div><span className="section-eyebrow">{t('app.title')}</span><h2 id="save-title">{t('save.title')}</h2></div><button onClick={onClose} disabled={status.busy}>{t(returnToEntry ? 'entry.back' : 'save.close')}</button></div>
     <p className={status.mode === 'memory' ? 'notice' : 'muted'}>{t(status.mode === 'opening' ? 'save.opening' : status.mode === 'browser' ? 'save.browser' : 'save.memory')}</p>
     {status.readOnly && <p className="notice">{t('save.readOnly')}</p>}
@@ -152,9 +165,9 @@ function SaveDialog({ controller, session, locale, t, hasCampaign, returnToEntry
   </dialog>;
 }
 
-export function App({ initialLocale, session: suppliedSession }: AppProps) {
-  const [session] = useState(() => suppliedSession ?? new ApplicationSession());
-  const [saves] = useState(() => new SaveController(session));
+export function App(props: AppProps) {
+  const { initialLocale, previewNotice } = props;
+  const [{ session, saves }] = useState(() => createAppServices(props));
   const [locale, setLocale] = useState<Locale>(() => initialLocale ?? readLocalePreference() ?? DEFAULT_LOCALE);
   // A single surface owns the transient overlay pause; swapping menus never releases it.
   const [overlay, setOverlay] = useState<'entry' | 'saves' | null>('entry');
@@ -203,6 +216,7 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
   function selectLocale(next: string) { if (next === 'zh-CN' || next === 'en') { setLocale(next); writeLocalePreference(next); } }
   const pauseReason = world.clock.pauseReasons.map((reason) => t(`pause.${reason}`)).join(' · ');
   return <main className="game-shell" lang={locale} style={{ '--disciple-atlas': `url("${import.meta.env.BASE_URL}assets/portraits/disciples-atlas-v1.png")`, ...Object.fromEntries([0, 1, 2, 3].map(index => [`--disciple-fallback-${index}`, `url("${import.meta.env.BASE_URL}assets/characters/disciple-${index}-96-v2.png")`])) } as CSSProperties}>
+    {previewNotice}
     <div className="campaign-world" inert={overlay !== null}>
     <header className="shell-header">
       <div className="brand"><svg className="brand-seal" viewBox="0 0 40 48" aria-hidden="true"><rect x="1" y="1" width="38" height="46" rx="3" /><path d="M9 32V20M20 32V13M31 32V20M9 32H31M10 38H30" /></svg><div><h1>{t('app.title')}</h1><p>{t('live.phase')}</p></div></div>
@@ -251,7 +265,7 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
     <footer className="shell-footer"><p>{t('live.help')}</p><p className={saveStatus.mode === 'memory' || saveStatus.readOnly ? 'warning-text' : ''}>{saveStatus.mode === 'memory' ? t('save.memory') : saveStatus.readOnly ? t('save.readOnly') : saveStatus.lastSavedAt ? t('save.lastSuccess', { date: dateLabel(saveStatus.lastSavedAt, locale) }) : t('save.neverSaved')}</p></footer>
     </div>
     <EmergencyRetreatDialog session={session} locale={locale} readOnly={saveStatus.readOnly || saveStatus.busy || overlay !== null} isBlocked={() => saves.getSnapshot().readOnly || saves.getSnapshot().busy || modalOpen.current} />
-    {overlay === 'entry' && <CampaignEntry controller={saves} session={session} locale={locale} hasCampaign={hasCampaign} onEnter={() => { setHasCampaign(true); setOverlay(null); }} onCampaignAvailable={() => setHasCampaign(true)} onManageSaves={() => { setSaveReturnToEntry(true); setOverlay('saves'); }} onLocaleChange={selectLocale} />}
-    {overlay === 'saves' && <SaveDialog controller={saves} session={session} locale={locale} t={t} hasCampaign={hasCampaign} returnToEntry={saveReturnToEntry || !hasCampaign} onCampaignAvailable={() => setHasCampaign(true)} onClose={() => setOverlay(saveReturnToEntry || !hasCampaign ? 'entry' : null)} />}
+    {overlay === 'entry' && <CampaignEntry controller={saves} session={session} locale={locale} hasCampaign={hasCampaign} previewNotice={previewNotice} onEnter={() => { setHasCampaign(true); setOverlay(null); }} onCampaignAvailable={() => setHasCampaign(true)} onManageSaves={() => { setSaveReturnToEntry(true); setOverlay('saves'); }} onLocaleChange={selectLocale} />}
+    {overlay === 'saves' && <SaveDialog controller={saves} session={session} locale={locale} t={t} hasCampaign={hasCampaign} previewNotice={previewNotice} returnToEntry={saveReturnToEntry || !hasCampaign} onCampaignAvailable={() => setHasCampaign(true)} onClose={() => setOverlay(saveReturnToEntry || !hasCampaign ? 'entry' : null)} />}
   </main>;
 }

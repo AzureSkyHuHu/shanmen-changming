@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { ApplicationSession } from '../application/session';
 import type { SaveController, SaveStatus } from '../application/save-controller';
 import type { CampaignSlotId } from '../platform/persistence';
@@ -31,6 +31,7 @@ export interface CampaignEntryProps {
   session: ApplicationSession;
   locale: Locale;
   hasCampaign: boolean;
+  previewNotice?: ReactNode;
   onEnter: () => void;
   onCampaignAvailable: () => void;
   onManageSaves: () => void;
@@ -43,7 +44,7 @@ const dateLabel = (value: string, locale: Locale): string => {
 const helpKeys: readonly TextKey[] = ['entry.help.production', 'entry.help.cultivation', 'entry.help.expedition', 'entry.help.builds'];
 
 /** One modal surface: confirmations replace its body rather than stacking dialogs. */
-export function CampaignEntry({ controller, session, locale, hasCampaign, onEnter, onCampaignAvailable, onManageSaves, onLocaleChange }: CampaignEntryProps) {
+export function CampaignEntry({ controller, session, locale, hasCampaign, previewNotice, onEnter, onCampaignAvailable, onManageSaves, onLocaleChange }: CampaignEntryProps) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -122,6 +123,7 @@ export function CampaignEntry({ controller, session, locale, hasCampaign, onEnte
   }
 
   return <dialog ref={dialog} className="campaign-entry" aria-labelledby={`${id}-title`} aria-describedby={`${id}-intro`} aria-modal="true" onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); cancel(); }}>
+    {previewNotice}
     <div className="entry-heading"><div><span className="section-eyebrow">{t('app.title')}</span><h2 id={`${id}-title`} ref={heading} tabIndex={-1}>{t('entry.title')}</h2></div><label className="language-control"><span className="sr-only">{t('settings.language.label')}</span><select value={locale} disabled={busy || confirmation !== null} onChange={(event) => onLocaleChange(event.target.value)} aria-label={t('settings.language.switch')}><option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option></select></label></div>
     <p id={`${id}-intro`} className="entry-intro">{t('entry.subtitle')}</p>
     <p className={status.mode === 'memory' ? 'entry-storage notice' : 'entry-storage muted'}>{t(status.mode === 'opening' ? 'save.opening' : status.mode === 'browser' ? 'save.browser' : 'save.memory')}</p>

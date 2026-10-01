@@ -3,6 +3,9 @@ import type { MessageTemplate } from '../../../i18n/types.ts';
 
 /** English may be incomplete; missing or whitespace-only entries fall back per key. */
 export const en = {
+  'candidate.banner': 'Campaign development preview · Separate saves · Not fully validated',
+  'candidate.locked': 'This development preview is disabled. No campaign or save storage will start.',
+  'candidate.unavailable': 'The development preview could not load. Refresh to try again.',
   "expedition.ui.noSurvivorClear": "The battles were won, but no one returned. This run grants no campaign clear or personal first-victory award.",
   "expedition.ui.emergencyReviewHint": "Combat is paused during this review. Check the actual deaths, injuries and unsecured loot losses shown; retreat still requires the return journey.",
   "expedition.ui.emergencyAcknowledge": "I acknowledge the permanent deaths, injuries and loot losses shown.",

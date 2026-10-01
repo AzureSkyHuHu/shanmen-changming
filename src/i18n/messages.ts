@@ -4,6 +4,9 @@ const noParameters = { parameters: {} } as const;
 
 /** Registry of stable UI/content keys. Add a Chinese entry whenever adding a key. */
 export const messageSpecifications = {
+  'candidate.banner': noParameters,
+  'candidate.locked': noParameters,
+  'candidate.unavailable': noParameters,
   "expedition.ui.noSurvivorClear": {"parameters": {}},
   "expedition.ui.emergencyReviewHint": {"parameters": {}},
   "expedition.ui.emergencyAcknowledge": {"parameters": {}},

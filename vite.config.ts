@@ -7,5 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true },
-  build: { target: 'es2023', sourcemap: false },
+  build: {
+    target: 'es2023', sourcemap: false,
+    // The candidate page remains locked unless its explicit build-time flag is exactly '1'.
+    rolldownOptions: { input: { main: 'index.html', candidate: 'candidate.html' } },
+  },
 });
