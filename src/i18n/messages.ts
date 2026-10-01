@@ -4,6 +4,18 @@ const noParameters = { parameters: {} } as const;
 
 /** Registry of stable UI/content keys. Add a Chinese entry whenever adding a key. */
 export const messageSpecifications = {
+  'sectV9.building.library': noParameters,
+  'sectV9.building.alchemy': noParameters,
+  'sectV9.research.basicMedicine': noParameters,
+  'sectV9.research.herbalCompatibility': noParameters,
+  'sectV9.recipe.gatherStone': noParameters,
+  'sectV9.recipe.extractSpiritStone': noParameters,
+  'sectV9.recipe.studyBasicInsight': noParameters,
+  'sectV9.recipe.craftWoundPowder': noParameters,
+  'sectV9.recipe.craftWoundPowderAlt': noParameters,
+  'sectV9.resource.spiritStone': noParameters,
+  'sectV9.resource.basicInsight': noParameters,
+  'sectV9.resource.woundPowder': noParameters,
   'candidate.banner': noParameters,
   'candidate.locked': noParameters,
   'candidate.unavailable': noParameters,

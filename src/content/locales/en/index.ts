@@ -3,6 +3,18 @@ import type { MessageTemplate } from '../../../i18n/types.ts';
 
 /** English may be incomplete; missing or whitespace-only entries fall back per key. */
 export const en = {
+  'sectV9.building.library': 'Scripture Library',
+  'sectV9.building.alchemy': 'Alchemy Hall',
+  'sectV9.research.basicMedicine': 'Basic Medicine',
+  'sectV9.research.herbalCompatibility': 'Herbal Compatibility',
+  'sectV9.recipe.gatherStone': 'Quarry Stone',
+  'sectV9.recipe.extractSpiritStone': 'Extract Spirit Stones',
+  'sectV9.recipe.studyBasicInsight': 'Compile Basic Insights',
+  'sectV9.recipe.craftWoundPowder': 'Craft Wound Powder',
+  'sectV9.recipe.craftWoundPowderAlt': 'Herbal Alternative',
+  'sectV9.resource.spiritStone': 'Spirit Stones',
+  'sectV9.resource.basicInsight': 'Basic Insights',
+  'sectV9.resource.woundPowder': 'Wound Powder',
   'candidate.banner': 'Campaign development preview · Separate saves · Not fully validated',
   'candidate.locked': 'This development preview is disabled. No campaign or save storage will start.',
   'candidate.unavailable': 'The development preview could not load. Refresh to try again.',

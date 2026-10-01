@@ -2,6 +2,18 @@ import type { TextKey } from '../../../i18n/messages.ts';
 import type { MessageTemplate } from '../../../i18n/types.ts';
 
 export const zhCN = {
+  'sectV9.building.library': '藏经阁',
+  'sectV9.building.alchemy': '丹房',
+  'sectV9.research.basicMedicine': '基础药理',
+  'sectV9.research.herbalCompatibility': '药性配伍',
+  'sectV9.recipe.gatherStone': '采石',
+  'sectV9.recipe.extractSpiritStone': '采灵',
+  'sectV9.recipe.studyBasicInsight': '整理基础心得',
+  'sectV9.recipe.craftWoundPowder': '制伤药',
+  'sectV9.recipe.craftWoundPowderAlt': '草木替代方',
+  'sectV9.resource.spiritStone': '灵石',
+  'sectV9.resource.basicInsight': '基础心得',
+  'sectV9.resource.woundPowder': '伤药',
   'candidate.banner': '开发中的战役预览 · 独立存档 · 未完整验收',
   'candidate.locked': '此开发预览尚未启用，不会启动战役或读取存档。',
   'candidate.unavailable': '开发预览未能载入，请刷新后重试。',
