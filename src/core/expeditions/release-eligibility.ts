@@ -24,7 +24,8 @@ export interface ReleaseEligibilityContext {
   readonly reachablePairs: readonly { readonly firstId: string; readonly secondId: string; readonly distanceUnits: number }[];
   readonly focusEnemyIds: readonly string[];
   /** Runtime highest-value/shared-budget source holder, including effective stats and install-order ties.
-   * Required for every team definition in this pool. A selected recipient is a separate identity. */
+   * Required for every team definition that can be installed. selectedTalisman has no
+   * anchor when no living equipped talisman-skill recipient exists; only that card fails. */
   readonly teamSourceHolders: readonly { readonly definitionId: string; readonly discipleId: string }[];
 }
 export type ReleaseEligibilityReason = 'MISSING_CONTEXT' | 'CONTEXT_IDENTITY_MISMATCH' | 'INVALID_CONTEXT'
@@ -590,6 +591,8 @@ function validateContext(state: ExpeditionState, catalog: ExpeditionCatalog, con
     || context.members.some(fact => !fact || !Array.isArray(fact.directDamageEnemyIds) || !Array.isArray(fact.controlEnemyIds))) return [note('INVALID_CONTEXT', 'All bounded encounter fact collections must be explicit')];
   if (!context.identity || context.identity.rulesId !== RELEASE_ELIGIBILITY_RULES_ID || context.identity.catalogHash !== catalogFingerprint(catalog)
     || context.identity.inputHash !== releaseEligibilityInputHash(state)) return [note('CONTEXT_IDENTITY_MISMATCH', 'Rebuild encounter context after catalog, casualty, loadout or binding changes')];
+  const hasTalismanRecipient = state.members.some(member => member.alive && member.permanentDeathId === null
+    && [...member.loadout.activeSkillIds, member.loadout.passiveSkillId].some(id => catalog.skills.some(skill => skill.id === id && skill.school === 'talisman')));
   const ids = [...state.members.map(member => member.discipleId), ...context.enemies.map(enemy => enemy.id)];
   if (!context.identity.encounterId || !context.identity.encounterRulesId || !context.identity.arenaId || !numeric(context.horizonTicks, 1)
     || state.members.length > 36 || context.enemies.length > 36 || !unique(ids) || !unique(context.members.map(member => member.discipleId))
@@ -597,7 +600,9 @@ function validateContext(state: ExpeditionState, catalog: ExpeditionCatalog, con
     || !unique(context.teamSourceHolders.map(source => source.definitionId))
     || context.teamSourceHolders.some(source => !catalog.talents.some(entry => entry.id === source.definitionId && entry.holderScope === 'team')
       || !state.members.some(member => member.discipleId === source.discipleId && member.alive && member.permanentDeathId === null))
-    || (state.members.some(member => member.alive && member.permanentDeathId === null) && catalog.talents.some(entry => entry.holderScope === 'team' && !context.teamSourceHolders.some(source => source.definitionId === entry.id)))
+    || (state.members.some(member => member.alive && member.permanentDeathId === null) && catalog.talents.some(entry => entry.holderScope === 'team'
+      && (entry.recipientBinding !== 'selectedTalisman' || hasTalismanRecipient)
+      && !context.teamSourceHolders.some(source => source.definitionId === entry.id)))
     || context.enemies.some(enemy => !numeric(enemy.controlResistanceBps, 0, 10000))
     || context.focusEnemyIds.some(id => !context.enemies.some(enemy => enemy.id === id))
     || context.reachablePairs.some(pair => !ids.includes(pair.firstId) || !ids.includes(pair.secondId) || !numeric(pair.distanceUnits, 0, 1_000_000))
@@ -621,6 +626,10 @@ export function evaluateReleaseEligibility(state: ExpeditionState, catalog: Expe
     if (!analysis.graph.limited && !analysis.diagnostics.some(note => note.code === 'INVALID_LOADOUT')) for (const entry of [...catalog.talents].sort((a, b) => compareStable(a.id, b.id))) {
       if (entry.id === 'talent.zoumai-chengfu' || !analysis.supported(entry.id)) {
         diagnostics.push({ code: entry.id === 'talent.zoumai-chengfu' ? 'UNSUPPORTED_EXTRA_TARGET_STAGGER' : 'UNSUPPORTED_DEFINITION', definitionId: entry.id, holderId: null, detail: 'Definition is not admitted by this opt-in protocol' }); continue;
+      }
+      if (entry.holderScope === 'team' && entry.recipientBinding === 'selectedTalisman' && !analysis.teamOwner(entry.id)) {
+        diagnostics.push({ code: 'NO_LIVING_RECIPIENT', definitionId: entry.id, holderId: null,
+          detail: 'No living equipped talisman-skill recipient; this card has no runtime source anchor' }); continue;
       }
       const holderIds: string[] = [];
       for (const member of analysis.members) {

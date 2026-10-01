@@ -1,0 +1,322 @@
+{
+  "entries": {
+    "campaign.growth.eyebrow": [
+      "归山 · 薪火",
+      "Homecoming · Legacy"
+    ],
+    "campaign.growth.title": [
+      "山门承续",
+      "The Sect Endures"
+    ],
+    "campaign.growth.intro": [
+      "归来所得，付诸修行。宗门的积累，交到合适的人手中。",
+      "Put each homecoming to work. Entrust the sect’s hard-won gains to the right disciples."
+    ],
+    "campaign.growth.sections": [
+      "成长与传承章节",
+      "Growth and legacy sections"
+    ],
+    "campaign.growth.count": [
+      "{count} 项",
+      "{count} entries"
+    ],
+    "campaign.growth.readOnly": [
+      "当前为只读状态，可以查看，不能领取或变更传承。",
+      "This session is read-only. You can inspect these records, but cannot claim or assign anything."
+    ],
+    "campaign.growth.busy": [
+      "正在处理存档，请稍候再操作。",
+      "A save operation is in progress. Please wait before making changes."
+    ],
+    "campaign.growth.activeRun": [
+      "远征进行中，暂不能补员或复兴。其他安排仅对当前符合条件的人选开放。",
+      "An expedition is active, so relief and recovery are unavailable. Other actions remain available for eligible recipients."
+    ],
+    "campaign.growth.pending": [
+      "指令已处理，正在等待最新宗门记录。请勿重复提交。",
+      "The command was processed. Waiting for updated sect records; please do not submit again."
+    ],
+    "campaign.growth.uncertain": [
+      "尚未收到完整操作结果，请先等待宗门记录刷新，避免重复消耗。",
+      "The full result has not arrived. Wait for updated sect records to avoid spending twice."
+    ],
+    "campaign.growth.applied": [
+      "宗门已确认本次安排；以更新后的记录为准。",
+      "The sect has confirmed this action. The updated records show its result."
+    ],
+    "campaign.growth.rejected": [
+      "本次安排未获确认。请检查最新条件，再选择接收人或重新审阅。",
+      "This action was not confirmed. Check the latest requirements, then choose a recipient or review again."
+    ],
+    "campaign.growth.separator": [
+      "、",
+      ", "
+    ],
+    "campaign.growth.costs": [
+      "所需物资",
+      "Resource cost"
+    ],
+    "campaign.growth.costLine": [
+      "{name} × {quantity} · 可用 {available}",
+      "{name} × {quantity} · {available} available"
+    ],
+    "campaign.growth.noCost": [
+      "无需物资",
+      "No resource cost"
+    ],
+    "campaign.growth.insufficientResources": [
+      "当前可用物资不足，不能执行；预留物资不计入可用量。",
+      "There are not enough available resources. Reserved stock cannot be spent."
+    ],
+    "campaign.growth.chooseDisciple": [
+      "请选择弟子",
+      "Choose a disciple"
+    ],
+    "campaign.growth.chooseSchool": [
+      "请选择学派",
+      "Choose a school"
+    ],
+    "campaign.growth.noDisciples": [
+      "暂无符合条件的接收弟子。",
+      "No eligible recipient is available."
+    ],
+    "campaign.growth.noStudents": [
+      "暂无可学习此典籍的弟子。",
+      "No eligible student is available for this manual."
+    ],
+    "campaign.growth.noSchools": [
+      "当前没有可选的招募学派。",
+      "No recruitment school is currently available."
+    ],
+    "campaign.growth.actionFor": [
+      "{action}：{name}",
+      "{action}: {name}"
+    ],
+    "campaign.growth.equipment.title": [
+      "首通馈赠",
+      "Earned Equipment"
+    ],
+    "campaign.growth.equipment.help": [
+      "只列出已取得且尚未领取的装备权益。领取后仍需前往配装。",
+      "Only earned, unclaimed equipment is listed. Equip it in the build panel after claiming."
+    ],
+    "campaign.growth.equipment.empty": [
+      "暂没有待领取的装备。",
+      "There is no equipment waiting to be claimed."
+    ],
+    "campaign.growth.equipment.select": [
+      "装备接收人",
+      "Equipment recipient"
+    ],
+    "campaign.growth.equipment.action": [
+      "领取装备",
+      "Claim equipment"
+    ],
+    "campaign.growth.manuals.title": [
+      "宗门藏经",
+      "Sect Manuals"
+    ],
+    "campaign.growth.manuals.help": [
+      "典籍留在宗门，每位弟子按真实条件与物资成本学习；学习后自行调整招式。",
+      "Manuals remain with the sect. Each disciple must meet the requirements and pay the resource cost, then adjust their equipped skills."
+    ],
+    "campaign.growth.manuals.empty": [
+      "宗门尚无可供学习的战役典籍。",
+      "The sect has no campaign manuals available to study yet."
+    ],
+    "campaign.growth.manuals.select": [
+      "研习弟子",
+      "Student"
+    ],
+    "campaign.growth.manuals.action": [
+      "研习典籍",
+      "Study manual"
+    ],
+    "campaign.growth.manuals.learnedBy": [
+      "已掌握：{names}",
+      "Learned by: {names}"
+    ],
+    "campaign.growth.manuals.unlearned": [
+      "尚无弟子掌握此典籍。",
+      "No disciple has learned this manual yet."
+    ],
+    "campaign.growth.recruits.title": [
+      "山门招贤",
+      "Welcome New Disciples"
+    ],
+    "campaign.growth.recruits.help": [
+      "每份邀请只使用一次。选定学派后，可查看新徒的真实资质与寿元。",
+      "Each invitation can be used once. Choose a school to inspect the recruit’s actual aptitude and lifespan."
+    ],
+    "campaign.growth.recruits.empty": [
+      "当前没有未使用的招募邀请。",
+      "There are no unused recruitment invitations."
+    ],
+    "campaign.growth.recruits.invitation": [
+      "{route} · 招募邀请",
+      "{route} · Recruitment invitation"
+    ],
+    "campaign.growth.recruits.school": [
+      "新徒学派",
+      "Recruit’s school"
+    ],
+    "campaign.growth.recruits.profile": [
+      "{name} · 年龄 {ageYears} 岁 {ageMonths} 月 · 寿元 {lifespanYears} 年 {lifespanMonths} 月 · 资质 {aptitude}",
+      "{name} · Age {ageYears} years {ageMonths} months · Lifespan {lifespanYears} years {lifespanMonths} months · Aptitude {aptitude}"
+    ],
+    "campaign.growth.recruits.action": [
+      "邀请入门",
+      "Use invitation"
+    ],
+    "campaign.growth.renewal.title": [
+      "续火重整",
+      "Tend the Flame"
+    ],
+    "campaign.growth.relief.title": [
+      "标准补员",
+      "Standard-mode Relief"
+    ],
+    "campaign.growth.relief.action": [
+      "请求补员",
+      "Request relief"
+    ],
+    "campaign.growth.recovery.title": [
+      "山门复兴",
+      "Rebuild the Sect"
+    ],
+    "campaign.growth.recovery.help": [
+      "仅在真实终局损失后的标准模式开放。先审阅损失、保留内容与新一代的所得。",
+      "Available only in standard mode after a finalized terminal loss. Review what was lost, what remains, and what the next generation receives."
+    ],
+    "campaign.growth.recovery.review": [
+      "审阅复兴后果",
+      "Review recovery consequences"
+    ],
+    "campaign.growth.recovery.confirmTitle": [
+      "确认承受损失，重续薪火",
+      "Acknowledge the Loss and Rebuild"
+    ],
+    "campaign.growth.recovery.confirmHelp": [
+      "本次操作不会复活亡者，也不会重置首通。请逐项确认以下真实后果，再开始新一代。",
+      "This action does not revive the fallen or reset first clears. Review each consequence before beginning a new generation."
+    ],
+    "campaign.growth.recovery.losses": [
+      "已失去的",
+      "What was lost"
+    ],
+    "campaign.growth.recovery.retained": [
+      "宗门保留的",
+      "What the sect retains"
+    ],
+    "campaign.growth.recovery.grants": [
+      "新一代取得的",
+      "What the new generation receives"
+    ],
+    "campaign.growth.recovery.stale": [
+      "宗门状态已改变，这次确认已失效。请返回后重新审阅。",
+      "The sect has changed. This confirmation has expired; go back and review the current consequences."
+    ],
+    "campaign.growth.recovery.confirm": [
+      "我已了解损失，确认复兴",
+      "I understand the loss. Rebuild the sect"
+    ],
+    "campaign.growth.recovery.cancel": [
+      "暂不复兴",
+      "Cancel recovery"
+    ],
+    "campaign.growth.estate.title": [
+      "宗门遗产库",
+      "Sect Estate"
+    ],
+    "campaign.growth.estate.help": [
+      "分配宗门保管的真实装备实例。装备不会复制；接收后仍需自行配装。",
+      "Assign actual equipment held by the sect. Items are transferred, never duplicated, and still need to be equipped."
+    ],
+    "campaign.growth.estate.empty": [
+      "遗产库暂无可分配的装备。",
+      "The estate has no equipment available to assign."
+    ],
+    "campaign.growth.estate.select": [
+      "传承接收人",
+      "Legacy recipient"
+    ],
+    "campaign.growth.estate.action": [
+      "交付装备",
+      "Assign equipment"
+    ],
+    "campaign.growth.managementUnavailable": [
+      "当前宗门边界暂不允许领取、学艺、招募或遗产交付。请先处理待决事项。",
+      "Claims, learning, recruitment, and estate assignments are currently blocked. Resolve the pending decision first."
+    ]
+  },
+  "parameters": {
+    "campaign.growth.count": {
+      "count": {
+        "type": "number",
+        "format": "integer"
+      }
+    },
+    "campaign.growth.costLine": {
+      "name": {
+        "type": "string",
+        "format": "text"
+      },
+      "quantity": {
+        "type": "number",
+        "format": "integer"
+      },
+      "available": {
+        "type": "number",
+        "format": "integer"
+      }
+    },
+    "campaign.growth.actionFor": {
+      "action": {
+        "type": "string",
+        "format": "text"
+      },
+      "name": {
+        "type": "string",
+        "format": "text"
+      }
+    },
+    "campaign.growth.manuals.learnedBy": {
+      "names": {
+        "type": "string",
+        "format": "text"
+      }
+    },
+    "campaign.growth.recruits.invitation": {
+      "route": {
+        "type": "string",
+        "format": "text"
+      }
+    },
+    "campaign.growth.recruits.profile": {
+      "name": {
+        "type": "string",
+        "format": "text"
+      },
+      "ageYears": {
+        "type": "number",
+        "format": "integer"
+      },
+      "ageMonths": {
+        "type": "number",
+        "format": "integer"
+      },
+      "lifespanYears": {
+        "type": "number",
+        "format": "integer"
+      },
+      "lifespanMonths": {
+        "type": "number",
+        "format": "integer"
+      },
+      "aptitude": {
+        "type": "number",
+        "format": "integer"
+      }
+    }
+  }
+}

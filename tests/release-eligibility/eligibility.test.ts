@@ -276,6 +276,21 @@ describe('casualties, identity, ordering and frozen legacy boundary', () => {
     expect(releaseEligibilityInputHash(changedInstallOrder)).not.toBe(releaseEligibilityInputHash(state));
     expect(evaluate(changedInstallOrder, catalog, base).diagnostics.some(note => note.code === 'CONTEXT_IDENTITY_MISMATCH')).toBe(true);
   });
+  it('keeps ordinary candidates when no equipped talisman recipient can supply selected-binding anchors', () => {
+    const state = only(party(), 'entity:1', 'entity:2'); const facts = context(state);
+    const selected = new Set(catalog.talents.filter(talent => talent.recipientBinding === 'selectedTalisman').map(talent => talent.id));
+    const withoutImpossibleAnchors = { ...facts, teamSourceHolders: facts.teamSourceHolders.filter(source => !selected.has(source.definitionId)) };
+    const result = evaluate(state, catalog, withoutImpossibleAnchors);
+    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(result.candidates.some(candidate => selected.has(candidate.definitionId))).toBe(false);
+    expect(result.diagnostics.some(note => note.code === 'INVALID_CONTEXT')).toBe(false);
+    expect(result.diagnostics.some(note => note.code === 'NO_LIVING_RECIPIENT' && selected.has(note.definitionId ?? ''))).toBe(true);
+    const missingOrdinaryAnchor = { ...withoutImpossibleAnchors, teamSourceHolders: withoutImpossibleAnchors.teamSourceHolders.slice(1) };
+    expect(evaluate(state, catalog, missingOrdinaryAnchor).diagnostics.some(note => note.code === 'INVALID_CONTEXT')).toBe(true);
+    const partyWithTalisman = party(); const full = context(partyWithTalisman);
+    expect(evaluate(partyWithTalisman, catalog, { ...full, teamSourceHolders: full.teamSourceHolders.filter(source => !selected.has(source.definitionId)) })
+      .diagnostics.some(note => note.code === 'INVALID_CONTEXT')).toBe(true);
+  });
   it('enforces rank, symmetric exclusions and selected recipient using only the selected catalog', () => {
     const state = own(party(), 'kairen-liuhen', 'entity:1');
     expect(holders(state, 'kairen-liuhen')).toBeUndefined();
