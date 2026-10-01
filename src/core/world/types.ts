@@ -27,7 +27,8 @@ export interface Disciple {
   aptitude: number;
 }
 export interface WorldBuilding extends GridPosition { id: string; blueprintId: string; nameKey: string; operational: boolean; stationTransactionId: string | null }
-export interface WorldState {
+/** Fields shared by frozen legacy schemas and v8. Domain authority stays in the selected version. */
+export interface WorldStateBase<TDisciple extends Disciple = Disciple> {
   seed: string;
   simulationVersion: string;
   contentVersion: string;
@@ -35,11 +36,8 @@ export interface WorldState {
   randomStreams: RandomStreams;
   sequences: SequenceState;
   map: WorldMap;
-  disciples: Disciple[];
+  disciples: TDisciple[];
   buildings: WorldBuilding[];
-  cultivation: CultivationState;
-  builds: BuildData;
-  expedition: WorldExpeditionState;
   sectEconomy: SectEconomyState;
   history: HistoryArchive;
   automaticProduction: AutomaticProductionState;
@@ -53,6 +51,12 @@ export interface WorldState {
   events: DomainEvent[];
   unlocks: string[];
   diagnostics: CoreDiagnostic[];
+}
+/** The live alias remains v7 until the complete v8 admission/budget boundary is ready. */
+export interface WorldState extends WorldStateBase {
+  cultivation: CultivationState;
+  builds: BuildData;
+  expedition: WorldExpeditionState;
 }
 
 /** Internal bootstrap/migration boundary before permanent builds and expedition state are attached. */

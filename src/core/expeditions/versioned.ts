@@ -32,7 +32,7 @@ function routeMatches(routeId: string, run: ExpeditionState | ReleaseExpeditionS
   const actual = copy(run.origin.route); actual.regularEncounterIds.sort(); return same(actual, expected);
 }
 /** Existing source is fully replayed under the frozen algorithm. Nothing inside the run is relabeled. */
-export function pinLegacyExpedition(run: ExpeditionState): RegisteredExpedition {
+export function pinLegacyExpedition(run: ExpeditionState): Extract<RegisteredExpedition, { protocol: 'legacy-v2' }> {
   const restored = restoreLegacy(serializeLegacy(run), LEGACY_V7_CONTENT.combat);
   if (!routeMatches('route.qingfeng-trial', restored, contentIdentity(LEGACY_V7_CONTENT))) throw new TypeError('Unknown legacy World route');
   return freeze({ schemaVersion: 1, identity: contentIdentity(LEGACY_V7_CONTENT), routeId: 'route.qingfeng-trial', protocol: 'legacy-v2', run: restored });

@@ -1,4 +1,10 @@
 import type { Command } from './contracts';
+import { LEGACY_V7_CONTENT } from '../../content/registry';
+import { getWorldContent } from '../world/content-access';
+import { validateWorldProgressionV8 } from '../world/validate-progression-v8';
+import { validateCultivationFrameV3, expandDeceasedCultivator } from '../cultivation/v3';
+import type { CultivationState as CultivationStateV3 } from '../cultivation/v3';
+import type { WorldStateV8 } from '../world/v8-types';
 import { automaticCycle, isAutomaticJobId } from '../economy/automatic-production';
 import type { AutomaticProductionState } from '../economy/automatic-types';
 import { validateAutomaticProductionShape, validateAutomaticProductionReferences } from '../world/validate-automatic';
@@ -44,7 +50,10 @@ export function validateLegacyWorldStateV3(value: unknown): string[] { return va
 export function validateLegacyWorldStateV4(value: unknown): string[] { return validateWorldSchema(value, 4); }
 export function validateLegacyWorldStateV5(value: unknown): string[] { return validateWorldSchema(value, 5); }
 export function validateLegacyWorldStateV6(value: unknown): string[] { return validateWorldSchema(value, 6); }
-function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7): string[] {
+export function validateLegacyWorldStateV7(value: unknown): string[] { return validateWorldSchema(value, 7); }
+/** Additive v8 boundary; not selected by current save/create APIs until admission is ready. */
+export function validateWorldStateV8(value: unknown): string[] { return validateWorldSchema(value, 8); }
+function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8): string[] {
   const legacy = version === 1;
   const current = version === 7;
   const hasHistory = version >= 6;
@@ -52,10 +61,13 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
   const hasEconomy = version >= 5;
   const hasProgression = version >= 4;
   const hasCultivation = version >= 3;
+  const hasCampaign = version >= 8;
   const errors: string[] = [];
   const fail = (message: string): string[] => [message];
   if (!object(value)) return fail('World must be an object');
-  if (!text(value.seed) || value.simulationVersion !== (legacy ? '0.1.1' : version === 2 ? '0.2.0' : current ? SIMULATION_VERSION : version === 6 ? '0.6.0' : version === 5 ? '0.5.0' : version === 4 ? '0.4.0' : '0.3.0') || value.contentVersion !== CONTENT_VERSION) return fail('Unsupported world identity/version');
+  if (!text(value.seed) || value.simulationVersion !== (hasCampaign ? '0.8.0' : legacy ? '0.1.1' : version === 2 ? '0.2.0' : current ? '0.7.0' : version === 6 ? '0.6.0' : version === 5 ? '0.5.0' : version === 4 ? '0.4.0' : '0.3.0')) return fail('Unsupported world identity/version');
+  if (hasCampaign) { try { getWorldContent(value as unknown as WorldStateV8); } catch { return fail('Unsupported World content identity'); } }
+  else if (value.contentVersion !== LEGACY_V7_CONTENT.worldContentVersion) return fail('Unsupported world content version');
   const clock = value.clock;
   if (!object(clock) || !isNonNegativeInteger(clock.simulationTick) || !isNonNegativeInteger(clock.calendarTick) || !isNonNegativeInteger(clock.encounterTick) || clock.calendarTick + clock.encounterTick !== clock.simulationTick || !['management', 'combat'].includes(clock.mode as string) || ![1, 3].includes(clock.speed as number) || !list(clock.pauseReasons) || !unique(clock.pauseReasons) || !clock.pauseReasons.every((reason) => PAUSE_REASONS.includes(reason as typeof PAUSE_REASONS[number]) && (hasAutomatic || reason !== 'save-capacity') && (hasCultivation || reason !== 'cultivation') && (hasProgression || reason !== 'expedition'))) return fail('Invalid clock');
   const simulationTick = clock.simulationTick;
@@ -81,6 +93,16 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
     // Living ages must match their birth timestamp. Dead disciples retain age at death.
     if (disciple.lifeState !== 'dead' ? disciple.ageMonths !== chronologicalAgeMonths : disciple.ageMonths > chronologicalAgeMonths) return fail('Disciple age does not match birth calendar tick');
     entityIds.push(disciple.id as string);
+    if (hasCampaign && (typeof disciple.presentationId !== 'string' || !/^disciple-[0-3]$/.test(disciple.presentationId))) return fail('Invalid persistent disciple presentation');
+  }
+  const archivedIdentities = hasCampaign && object(value.legacy) && list(value.legacy.archivedIdentities) ? value.legacy.archivedIdentities : [];
+  if (hasCampaign) {
+    if (!object(value.legacy) || !list(value.legacy.archivedIdentities)) return fail('Missing deceased identity registry');
+    for (const identity of archivedIdentities) {
+      if (!object(identity) || idNumber(identity.discipleId, 'entity') === null || !finiteInteger(identity.birthCalendarTick)
+        || !isNonNegativeInteger(identity.ageMonths) || Math.floor((clock.calendarTick - identity.birthCalendarTick) / CALENDAR_TICKS_PER_MONTH) < identity.ageMonths) return fail('Invalid deceased chronology');
+      entityIds.push(identity.discipleId as string);
+    }
   }
   for (const building of value.buildings) {
     if (!object(building) || idNumber(building.id, 'entity') === null || !text(building.nameKey) || !text(building.blueprintId) || !inMap(building) || typeof building.operational !== 'boolean') return fail('Invalid building');
@@ -95,12 +117,12 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
   })) return fail('Invalid inventory');
   if (!object(value.reservations) || !object(value.transactions) || !object(value.commandReceipts) || !list(value.pendingCommands) || !value.pendingCommands.every((command) => isCommand(command) && (hasAutomatic || (command.kind !== 'inventory.discard' && (command.kind !== 'production.cancel' || !isAutomaticJobId(command.payload.transactionId)))) && (hasCultivation || command.kind !== 'cultivation.command') && (hasProgression || (command.kind !== 'build.command' && command.kind !== 'expedition.command')) && (hasEconomy || (command.kind !== 'sect-economy.command' && (command.kind !== 'production.start' || LEGACY_RECIPE_IDS.has(command.payload.recipeId)))))) return fail('Invalid ledgers or command queue');
   if (!legacy && (!list(value.activeProductionTransactionIds) || !unique(value.activeProductionTransactionIds) || !value.activeProductionTransactionIds.every(text) || value.activeProductionTransactionIds.length > MAX_DISCIPLES)) return fail('Invalid active production index');
-  let cultivation: CultivationState | null = null;
+  let cultivation: CultivationState | CultivationStateV3 | null = null;
   if (hasCultivation) {
     if (!object(value.cultivation)) return fail('Missing cultivation authority');
-    const cultivationErrors = (hasProgression ? validateCultivationFrame : validateLegacyCultivationFrameV1)({ cultivation: value.cultivation, inventory, randomStreams, sequences });
+    const cultivationErrors = (hasCampaign ? validateCultivationFrameV3 : hasProgression ? validateCultivationFrame : validateLegacyCultivationFrameV1)({ cultivation: value.cultivation, inventory, randomStreams, sequences });
     if (cultivationErrors.length) return fail(`Invalid cultivation: ${cultivationErrors[0]}`);
-    cultivation = value.cultivation as unknown as CultivationState;
+    cultivation = value.cultivation as unknown as CultivationState | CultivationStateV3;
     if (cultivation.calendarMonth !== Math.floor(clock.calendarTick / CALENDAR_TICKS_PER_MONTH) || cultivation.disciples.length !== value.disciples.length) return fail('Cultivation calendar/entity projection mismatch');
     for (const profile of cultivation.disciples) {
       const projected = value.disciples.find((d) => object(d) && d.id === profile.discipleId);
@@ -116,7 +138,8 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
   if (hasProgression) {
     if (!object(value.builds) || !object(value.expedition)) return fail('Missing build/expedition authority');
     let progressionErrors: string[];
-    try { progressionErrors = validateWorldProgression(version === 4 ? projectLegacyWorldV4Controller(value) : value as unknown as WorldState); }
+    try { progressionErrors = hasCampaign ? validateWorldProgressionV8(value as unknown as WorldStateV8)
+      : validateWorldProgression(version === 4 ? projectLegacyWorldV4Controller(value) : value as unknown as WorldState); }
     catch { return fail('Invalid legacy combat controller'); }
     if (progressionErrors.length) return fail(progressionErrors[0]!);
   } else if (Object.hasOwn(value, 'builds') || Object.hasOwn(value, 'expedition')) return fail('Legacy world contains an unsupported progression schema');
@@ -192,7 +215,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
       if (a.sample) instanceIds.push(a.sample.sampleId);
       if (a.reservation.state === 'reserved') for (const line of a.reservation.lines) reservedTotals[line.resourceId] = reservedTotals[line.resourceId]! + line.quantity;
     }
-    for (const d of cultivation.disciples) {
+    for (const d of [...cultivation.disciples, ...(cultivation.schemaVersion === 3 ? cultivation.archivedDisciples.map(expandDeceasedCultivator) : [])]) {
       instanceIds.push(...d.talents.map((talent) => talent.sourceInstanceId));
       if (d.teaching) instanceIds.push(d.teaching.teachingId);
       instanceIds.push(...d.knowledge.flatMap((knowledge) => knowledge.teachingId ? [knowledge.teachingId] : []));
@@ -206,7 +229,9 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
     if (!object(transaction) || transaction.transactionId !== key || (autoCycle === null && idNumber(key, 'instance') === null) || idNumber(transaction.rootActionId, 'action') === null || (autoCycle === null && !text(transaction.commandId)) || !text(transaction.recipeId) || !getRecipe(transaction.recipeId) || (!hasEconomy && !LEGACY_RECIPE_IDS.has(transaction.recipeId)) || !text(transaction.workerId) || !text(transaction.reservationId) || !['Running', 'Blocked', 'Committed', 'Cancelled'].includes(transaction.state as string) || !isNonNegativeInteger(transaction.activeTicks) || !isNonNegativeInteger(transaction.requiredTicks) || transaction.requiredTicks !== getRecipe(transaction.recipeId)!.workTicks || transaction.activeTicks > transaction.requiredTicks || !isNonNegativeInteger(transaction.startedTick) || transaction.startedTick > clock.simulationTick || !(transaction.completedTick === null || isNonNegativeInteger(transaction.completedTick) && transaction.completedTick >= transaction.startedTick && transaction.completedTick <= clock.simulationTick) || !(transaction.resultEventId === null || text(transaction.resultEventId)) || !(transaction.blockedReason === null || (legacy ? ['CAPACITY_EXCEEDED'] : PRODUCTION_BLOCKED_REASONS).includes(transaction.blockedReason as never))) return fail('Invalid production transaction');
     if (autoCycle === null) { instanceIds.push(key); manualRootActions.add(transaction.rootActionId as string); }
     if (idNumber(transaction.rootActionId, 'action')! >= (sequences.nextAction as number)) return fail('Invalid action sequence continuity');
-    const worker = value.disciples.find((disciple) => object(disciple) && disciple.id === transaction.workerId);
+    const activeWorker = value.disciples.find((disciple) => object(disciple) && disciple.id === transaction.workerId);
+    const archivedWorker = archived && archivedIdentities.find((disciple) => object(disciple) && disciple.discipleId === transaction.workerId);
+    const worker = activeWorker ?? (object(archivedWorker) ? { id: archivedWorker.discipleId, lifeState: 'dead' } : undefined);
     if (!object(reservation) || reservation.reservationId !== transaction.reservationId || reservation.ownerTransactionId !== key || (!object(worker) && (legacy || transaction.state !== 'Cancelled'))) return fail('Invalid transaction references');
     const active = transaction.state === 'Running' || transaction.state === 'Blocked';
     if (!legacy && (value.activeProductionTransactionIds as string[]).includes(key) !== active) return fail('Active production index does not match transactions');
@@ -382,7 +407,8 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7)
         const command = sourceCommand.payload.command;
         const workerId = command.kind === 'plan.set' && object(command.plan) ? command.plan.workerId : null;
         if (canonicalStringify(result.economyResult) !== canonicalStringify({ kind: command.kind, workerId })
-          || (workerId !== null && !value.disciples.some((disciple) => object(disciple) && disciple.id === workerId))) return fail('Work plan receipt projection mismatch');
+          || (workerId !== null && !value.disciples.some((disciple) => object(disciple) && disciple.id === workerId)
+            && !archivedIdentities.some(disciple => object(disciple) && disciple.discipleId === workerId))) return fail('Work plan receipt projection mismatch');
       } else if (automatic && isAutomaticJobId(result.transactionId)) {
         const pin = automatic.pins[result.transactionId];
         if (!pin || pin.retention !== 'exact-receipt' || !object(sourceCommand) || !isCommand({ ...sourceCommand, commandId: key, sequence: 0, issuedTick: 0 }) || sourceCommand.kind !== 'production.cancel'

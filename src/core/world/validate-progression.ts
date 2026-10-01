@@ -1,8 +1,9 @@
-import { validateBuildFrame } from '../builds/builds';
-import { EXPEDITION_COMBAT_CATALOG } from '../expeditions/encounter-catalog';
-import { validateWorldExpedition } from '../expeditions/world-adapter';
+import { validateLegacyBuildFrameV1 as validateBuildFrame } from '../builds/legacy-v1';
+import { LEGACY_V7_CONTENT } from '../../content/registry';
+import { validateLegacyWorldExpeditionV1 as validateWorldExpedition } from '../expeditions/legacy-world-validation';
 import { REALMS } from '../cultivation/types';
-import type { WorldState } from './types';
+import type { LegacyWorldStateV7 as WorldState } from './legacy-types';
+const EXPEDITION_COMBAT_CATALOG = LEGACY_V7_CONTENT.combat;
 
 /** Include removed source instances retained by the immutable build receipt history. */
 export function buildOwnedInstanceIds(world: WorldState): string[] {
