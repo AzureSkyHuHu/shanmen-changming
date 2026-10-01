@@ -14,7 +14,7 @@ import { canonicalStringify, cloneJson } from '../kernel/serialization';
 import { validateWorldStateV8 } from '../kernel/validation';
 import { canonicalUtf8ByteLength, measureWorldSaveBytes, SAVE_FILE_LIMIT_BYTES } from '../save-budget';
 import { measureProgressionRecord } from '../save-budget/progression-bounds';
-import { assessCoveredBoundaryCapacityV8 } from './runtime-capacity-v8';
+import { assessCoveredBoundaryCapacityV8 } from './covered-capacity-v8';
 import { worldBuildHistoryObligationFacts } from './progression-obligations';
 import { permanentTeachingLesson } from './teaching-provenance';
 import { assessRunReturnInventory } from './expedition-return-capacity';
@@ -42,14 +42,7 @@ function allocatedIdentity(value: string, prefix: 'run' | 'instance'): boolean {
   const ordinal = Number(value.slice(prefix.length + 1));
   return Number.isSafeInteger(ordinal) && ordinal > 0 && ordinal < MAX && value === `${prefix}:${ordinal}`;
 }
-/** Outer kernel grammar plus the complete derived domain effect ID. This helper
- * never clips, hashes, rewrites or allocates an identity. */
-export function isRegisteredExitCommandId(runId: string, commandId: string): boolean {
-  return allocatedIdentity(runId, 'run')
-    && /^[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(commandId)
-    && !['constructor', 'prototype', '__proto__'].includes(commandId)
-    && `${runId}/command/${commandId}`.length <= 120;
-}
+export { isRegisteredExitCommandId } from './covered-capacity-v8';
 export type ExitEntry = 'emergency-retreat' | 'safe-retreat' | 'finish-checkpoint-then-retreat' | 'finish-return' | 'already-ended';
 export interface RegisteredExitPlan {
   runId: string; entry: ExitEntry; calendarTicks: number; monthBoundaries: number; birthdayActions: number;

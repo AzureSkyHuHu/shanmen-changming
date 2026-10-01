@@ -1,3 +1,4 @@
+import { isRegisteredExitCommandId } from '../world/covered-capacity-v8';
 import { assessDepartureReturnInventory, assessRunReturnInventory } from '../world/expedition-return-capacity';
 import { cloneWorldWithSharedHistory, worldEventCursor, worldEventsSince } from '../world/history-access';
 import { applyBuildAuthorityCommandV2 as applyBuildAuthorityCommand, buildCombatLoadoutV2 as buildCombatLoadout } from '../builds/v2';
@@ -317,6 +318,7 @@ function startDeparture(world: WorldState, request: ExpeditionDepartureRequest, 
     }
   }
   const runId = id(next, 'action').replace('action:', 'run:');
+  if (!isRegisteredExitCommandId(runId, commandId)) reject('INVALID_COMMAND');
   const members: ExpeditionMemberInput[] = preview.squadIds.map(discipleId => {
     const profile = next.cultivation.disciples.find(entry => entry.discipleId === discipleId)!;
     const loadout = buildCombatLoadout({ builds: next.builds, sequences: next.sequences }, discipleId, buildContext(next));
@@ -339,6 +341,7 @@ export function dispatchWorldExpeditionV8(world: WorldState, command: PlayerExpe
     if (command.kind === 'expedition.depart') next = startDeparture(next, command.request, command.commandId);
     else {
       const run = active(next);
+      if (next.expedition.protocol === 'release-v3' && !isRegisteredExitCommandId(run.runId, command.commandId)) reject('INVALID_COMMAND');
       if (hasCultivationDecision(next)) reject('BLOCKED_BY_DECISION');
       switch (command.kind) {
         case 'expedition.continue':

@@ -9,9 +9,11 @@ import { remainingRunCommandReserve, returnClearanceReservation } from '../../sr
 import { assessCoveredBoundaryCapacityV8 } from '../../src/core/world/runtime-capacity-v8';
 import { registeredWorldRun } from '../../src/core/expeditions/v8-world-adapter';
 import { applyRegisteredExpeditionCommand } from '../../src/core/expeditions/versioned';
-import { canonicalStringify, cloneJson } from '../../src/core/kernel/serialization';
+import { canonicalStringify, cloneJson, stableHash } from '../../src/core/kernel/serialization';
 import { measureWorldSaveBytes, SAVE_FILE_LIMIT_BYTES } from '../../src/core/save-budget';
 import { tickWorldAutomaticWorkV8 } from '../../src/core/world/automatic-work-bridge-v8';
+import { assessRegisteredExpeditionExitBudget } from '../../src/core/world/expedition-exit-budget';
+import type { ExpeditionCommand, ExpeditionReceipt } from '../../src/core/expeditions/types';
 type Body<T> = T extends T ? Omit<T, 'commandId'> : never;
 function act(world: WorldStateV8, body: Body<PlayerExpeditionCommandV8>, commandId = `recovery:${world.clock.simulationTick}:${world.expedition.run?.revision ?? 0}`) {
   return dispatchCommandV8(world, { commandId, sequence: world.sequences.nextAction, issuedTick: world.clock.simulationTick, kind: 'expedition.command',
@@ -60,28 +62,49 @@ describe('v8 bounded expedition recovery admission', () => {
     const refused = dispatchWorldExpeditionV8(world, { commandId: 'impossible-fallback', kind: 'expedition.supplies', offerId: offer.offerId, offerRevision: offer.revision });
     expect(refused).toEqual({ ok: false, code: 'INVENTORY_FULL' }); expect(canonicalStringify(world)).toBe(before);
   });
-  it('keeps a funded last run row usable by real month completion and rejects row deficits without losing the boundary', () => {
-    let world = depart('run-rows');
-    const initialReserve = remainingRunCommandReserve(world).reserved;
-    // Genuine replayable legacy-compatible no-effect time.admit records model an
-    // imported crowded run. The new player adapter itself no longer permits these.
-    while (world.expedition.run!.commandLog.length < 512 - initialReserve) {
-      const registered = registeredWorldRun(world); const checkpoint = registered.run.admittedCheckpoint!;
-      const result = applyRegisteredExpeditionCommand(registered, { kind: 'time.admit', commandId: `legacy-fill:${registered.run.revision}`,
-        expectedRevision: registered.run.revision, checkpointId: checkpoint.checkpointId, expectedCalendarMonth: checkpoint.expectedCalendarMonth });
-      if (!result.ok) throw new Error(result.code); world = { ...world, expedition: { ...world.expedition, run: result.expedition.run } };
+  it('keeps the actual paid-exit last run row usable and rejects its deficit without demanding all future victories', () => {
+    const initial = depart('run-rows');
+    const initialBudget = assessRegisteredExpeditionExitBudget(initial); expect(initialBudget.fits).toBe(true);
+    const initialReserve = initialBudget.plan!.requiredRunCommands;
+    // The older counter reserves every optional remaining battle/reward as well.
+    // It is deliberately larger than the now-enforced immediate exit obligation.
+    expect(remainingRunCommandReserve(initial).reserved).toBeGreaterThan(initialReserve);
+    const seedRun = initial.expedition.run!; const checkpoint = seedRun.admittedCheckpoint!;
+    const commandLog = [...seedRun.commandLog]; const receipts = [...seedRun.receipts]; let revision = seedRun.revision;
+    while (commandLog.length < 512 - initialReserve) {
+      const command: ExpeditionCommand = { kind: 'time.admit', commandId: `row:${revision}`, expectedRevision: revision,
+        checkpointId: checkpoint.checkpointId, expectedCalendarMonth: checkpoint.expectedCalendarMonth };
+      revision += 1;
+      const receipt: ExpeditionReceipt = { commandId: command.commandId, commandHash: stableHash(command), kind: command.kind,
+        revision, effectIds: [], resultId: checkpoint.checkpointId };
+      commandLog.push(command); receipts.push(receipt);
     }
-    expect(validateWorldStateV8(world)).toEqual([]); const reserved = remainingRunCommandReserve(world);
-    expect(reserved.current + reserved.reserved).toBe(512); expect(reserved.fits).toBe(true);
-    const next = step(world, 1200); const after = remainingRunCommandReserve(next);
-    expect(next.expedition.run?.phase).toBe('AtNode'); expect(after.current + after.reserved).toBe(512);
-    const crowded = cloneJson(world); const registered = registeredWorldRun(crowded); const checkpoint = registered.run.admittedCheckpoint!;
-    const extra = applyRegisteredExpeditionCommand(registered, { kind: 'time.admit', commandId: 'one-too-many', expectedRevision: registered.run.revision,
+    // Linear imported-history construction, checked against the real first reducer
+    // step and the strict query's complete final World/domain replay.
+    const sampleBody = commandLog[seedRun.commandLog.length]!;
+    if (sampleBody.kind !== 'time.admit') throw new Error('Expected imported no-effect admission row');
+    const sample = applyRegisteredExpeditionCommand(registeredWorldRun(initial), { kind: 'time.admit', commandId: sampleBody.commandId,
+      expectedRevision: sampleBody.expectedRevision, checkpointId: sampleBody.checkpointId, expectedCalendarMonth: sampleBody.expectedCalendarMonth });
+    expect(sample.ok).toBe(true); if (!sample.ok) throw new Error(sample.code);
+    expect(sample.effects).toEqual([]); expect(sample.expedition.run.commandLog.at(-1)).toEqual(commandLog[seedRun.commandLog.length]);
+    expect(sample.expedition.run.receipts.at(-1)).toEqual(receipts[seedRun.receipts.length]);
+    const world = { ...initial, expedition: { ...initial.expedition, run: { ...seedRun, commandLog, receipts, revision } } };
+    const budget = assessRegisteredExpeditionExitBudget(world); expect(budget.supported).toBe(true);
+    expect(budget.costs.runCommands).toBe(512); expect(budget.fits).toBe(true);
+    const next = step(world, 1200);
+    expect(next.expedition.run?.phase).toBe('AtNode'); expect(next.expedition.run!.commandLog.length).toBe(world.expedition.run!.commandLog.length + 1);
+    const beforeRows = next.expedition.run!.commandLog.length;
+    // The committed month spends one row and releases exactly one required row.
+    expect(beforeRows + initialReserve - 1).toBe(512);
+    const extra = applyRegisteredExpeditionCommand(registeredWorldRun(world), { kind: 'time.admit', commandId: 'one-too-many', expectedRevision: revision,
       checkpointId: checkpoint.checkpointId, expectedCalendarMonth: checkpoint.expectedCalendarMonth });
-    if (!extra.ok) throw new Error(extra.code); crowded.expedition.run = extra.expedition.run;
+    if (!extra.ok) throw new Error(extra.code);
+    const crowded = { ...world, expedition: { ...world.expedition, run: extra.expedition.run } };
+    expect(validateWorldStateV8(crowded)).toEqual([]);
+    const bytes = canonicalStringify(crowded);
     const refused = dispatchCommandV8(crowded, { commandId: 'unrelated', sequence: 1, issuedTick: crowded.clock.simulationTick,
       kind: 'sect-economy.command', payload: { command: { kind: 'enabled.set', enabled: false } } });
-    expect(refused.result.rejection?.code).toBe('SAVE_CAPACITY_EXCEEDED'); expect(refused.world).toBe(crowded);
+    expect(refused.result.rejection?.code).toBe('SAVE_CAPACITY_EXCEEDED'); expect(refused.world).toBe(crowded); expect(canonicalStringify(crowded)).toBe(bytes);
   }, 30_000);
   it('spends a real final-return discard reservation across bytes, archive charges, rows and IDs, then settles once', () => {
     let world = endingWithRealController(); const continued = act(world, { kind: 'expedition.continue' }); expect(continued.result.status).toBe('accepted'); world = continued.world;

@@ -126,6 +126,8 @@ export function dispatchCommandV8(world: WorldState, command: unknown, _context?
   try {
     let operation = dispatchUncheckedCommand(world, command);
     if (operation.world === world) return operation;
+    // Only the private tick runner consumes an authenticated queue occurrence.
+    // The public context boolean never authorizes deleting any saved queue row.
     let candidate = cleanupAutomaticPendingPins(operation.world);
     if (candidate.cultivation.disciples.some(profile => profile.lifeState === 'dead')) {
       const estates = prepareWorldEstateSettlement(candidate);

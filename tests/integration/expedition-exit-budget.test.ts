@@ -392,7 +392,18 @@ describe('standalone registered v8 paid-exit budget', () => {
     const result = dispatchWorldCultivationV8(atNode, { kind: 'training.set', commandId, expectedRevision: atNode.cultivation.revision,
       discipleId: atNode.disciples[2]!.id, mode: 'duty' });
     if (!result.ok) throw new Error(result.code);
-    const imported = kind === 'combat' ? act(result.world, { kind: 'expedition.continue' }) : result.world;
+    let imported = result.world;
+    if (kind === 'combat') {
+      const commandId = 'exit:imported-combat-boundary';
+      const body = { kind: 'expedition.continue' as const, commandId };
+      const refused = dispatchCommandV8(result.world, { commandId, sequence: result.world.sequences.nextAction,
+        issuedTick: result.world.clock.simulationTick, kind: 'expedition.command', payload: { command: body } });
+      expect(refused.result.rejection?.code).toBe('SAVE_OBLIGATION_UNBOUNDED'); expect(refused.world).toBe(result.world);
+      // Import-only fixture: the authentic adapter constructs the full battle;
+      // public admission above correctly refuses to publish this known collision.
+      const boundary = dispatchWorldExpeditionV8(result.world, body);
+      expect(boundary.ok).toBe(true); if (!boundary.ok) throw new Error(boundary.code); imported = boundary.world;
+    }
     expect(validateWorldStateV8(imported)).toEqual([]); const before = canonicalStringify(imported);
     expect(assess(imported).unknowns.join()).toContain(`identity already occupied: cultivation:${commandId}`); expect(canonicalStringify(imported)).toBe(before);
   });
@@ -425,7 +436,17 @@ describe('standalone registered v8 paid-exit budget', () => {
     expect(validateWorldStateV8(world)).toEqual([]); target.cultivation = 120;
     const preview = previewWorldBreakthroughV8(world, target.discipleId, { method: 'standard', arraySupport: 0 });
     world = cultivate(world, { commandId: 'exit:future-realm', kind: 'breakthrough.confirm', expectedRevision: world.cultivation.revision, preview });
-    world = depart(world); expect(validateWorldStateV8(world)).toEqual([]);
+    const commandId = 'exit:imported-milestone-boundary';
+    const body = { kind: 'expedition.depart' as const, commandId,
+      request: { routeId: 'route.qingfeng-trial' as const, squadIds: world.disciples.slice(0, 2).map(actor => actor.id) } };
+    const refused = dispatchCommandV8(world, { commandId, sequence: world.sequences.nextAction, issuedTick: world.clock.simulationTick,
+      kind: 'expedition.command', payload: { command: body } });
+    expect(refused.result.rejection?.code).toBe('SAVE_OBLIGATION_UNBOUNDED'); expect(refused.world).toBe(world);
+    // Keep the imported negative boundary reachable by the authentic lower-level
+    // adapter for reader/certificate testing, without weakening public admission.
+    const boundary = dispatchWorldExpeditionV8(world, body);
+    expect(boundary.ok).toBe(true); if (!boundary.ok) throw new Error(boundary.code); world = boundary.world;
+    expect(validateWorldStateV8(world)).toEqual([]);
     const before = canonicalStringify(world); expect(assess(world).unknowns.join()).toContain(`identity already occupied: build-milestone:${milestoneId}`);
     expect(canonicalStringify(world)).toBe(before);
   });
