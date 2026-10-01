@@ -11,7 +11,10 @@ import { InventoryPanel } from './InventoryPanel';
 import { WorkPlansPanel } from './WorkPlansPanel';
 import { SaveImportPanel } from './SaveImportPanel';
 import { CampaignEntry } from './CampaignEntry';
+import { CampaignViews, submitCampaignViewCommand } from './CampaignViews';
+import type { CampaignRouteId } from '../core/campaign/types';
 import { ExpeditionPanel } from './ExpeditionPanel';
+import { EmergencyRetreatDialog } from './EmergencyRetreatDialog';
 import { BuildPanel } from './BuildPanel';
 import { attachInput } from '../input/actions';
 import { PhaserWorld } from '../phaser/PhaserWorld';
@@ -159,12 +162,15 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
   const [saveReturnToEntry, setSaveReturnToEntry] = useState(false);
   const overlayFocus = useRef<HTMLElement | null>(null);
   const entryButton = useRef<HTMLButtonElement>(null);
-  const [view, setView] = useState<'sect' | 'expedition' | 'builds'>('sect');
+  const [view, setView] = useState<'sect' | 'expedition' | 'builds' | 'routes' | 'growth'>('sect');
+  const [campaignPreparation, setCampaignPreparation] = useState<{ routeId: CampaignRouteId; request: number } | null>(null);
+  const preparationSequence = useRef(0);
   const [cultivationReview, setCultivationReview] = useState<{ discipleId: string; request: number } | null>(null);
   const modalOpen = useRef(false);
   modalOpen.current = overlay !== null;
   const world = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const battleController = useSyncExternalStore(session.subscribe, session.getBattleController, session.getBattleController);
+  const campaign = useSyncExternalStore(session.subscribe, session.getCampaignProjection, session.getCampaignProjection);
   const buildFrame = useSyncExternalStore(session.subscribe, session.getBuildFrame, session.getBuildFrame);
   const saveStatus = useSyncExternalStore(saves.subscribe, saves.getSnapshot, saves.getSnapshot);
   const t: Translator = (key, parameters) => translate(locale, key, parameters);
@@ -180,6 +186,8 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
     }
   }, [session, overlay]);
   useLayoutEffect(() => () => session.setOverlayPaused(false), [session]);
+  useEffect(() => { setCampaignPreparation(null); setView('sect'); }, [world.sessionEpoch]);
+  useEffect(() => { if (!campaign && (view === 'routes' || view === 'growth')) setView('sect'); }, [campaign, view]);
   useEffect(() => { if (world.expedition.encounterId) setView('expedition'); }, [world.sessionEpoch, world.expedition.encounterId]);
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -201,7 +209,7 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
       <div className="clock-cluster"><p className="calendar">{t('live.calendar', { year: world.calendar.year, month: world.calendar.month })}</p><div className="time-controls" role="group" aria-label={t('live.monthProgress')}><button className="pause-button" aria-pressed={world.clock.pauseReasons.includes('player')} onClick={() => session.togglePlayerPause()} disabled={saveStatus.readOnly}>{t(world.clock.pauseReasons.includes('player') ? 'time.resume' : 'time.pause')}</button><button aria-pressed={world.clock.speed === 1} onClick={() => session.setSpeed(1)} disabled={saveStatus.readOnly}>{t('time.normal')}</button><button aria-pressed={world.clock.speed === 3} onClick={() => session.setSpeed(3)} disabled={saveStatus.readOnly}>{t('time.fast')}</button></div></div>
       <div className="header-actions"><button ref={entryButton} className="secondary" onClick={(event) => { overlayFocus.current = event.currentTarget; setOverlay('entry'); }}>{t('entry.open')}</button><button className="secondary" onClick={(event) => { overlayFocus.current = event.currentTarget; setSaveReturnToEntry(false); setOverlay('saves'); }}>{t('save.open')}</button><label className="language-control"><span className="sr-only">{t('settings.language.label')}</span><select value={locale} onChange={(event) => selectLocale(event.target.value)} aria-label={t('settings.language.switch')}><option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option></select></label></div>
     </header>
-    <nav className="game-view-tabs" aria-label={t('expedition.ui.navigation')}><button className="secondary" aria-pressed={view === 'sect'} onClick={() => setView('sect')}>{t('expedition.ui.sect')}</button><button className="secondary" aria-pressed={view === 'expedition'} onClick={() => setView('expedition')}>{t('expedition.ui.title')}</button><button className="secondary" aria-pressed={view === 'builds'} onClick={() => setView('builds')}>{t('expedition.ui.builds')}</button>{world.expedition.phase !== 'none' && world.expedition.phase !== 'Ended' && <span className="active-run-label">{t(`expedition.phase.${world.expedition.phase}`)}</span>}</nav>
+    <nav className="game-view-tabs" aria-label={t('expedition.ui.navigation')}><button className="secondary" aria-pressed={view === 'sect'} onClick={() => setView('sect')}>{t('expedition.ui.sect')}</button><button className="secondary" aria-pressed={view === 'expedition'} onClick={() => { setCampaignPreparation(null); setView('expedition'); }}>{t('expedition.ui.title')}</button><button className="secondary" aria-pressed={view === 'builds'} onClick={() => setView('builds')}>{t('expedition.ui.builds')}</button>{campaign && <><button className="secondary" aria-pressed={view === 'routes'} onClick={() => setView('routes')}>{t('campaign.ui.title')}</button><button className="secondary" aria-pressed={view === 'growth'} onClick={() => setView('growth')}>{t('campaign.growth.title')}</button></>}{world.expedition.phase !== 'none' && world.expedition.phase !== 'Ended' && <span className="active-run-label">{t(`expedition.phase.${world.expedition.phase}`)}</span>}</nav>
     <section className="resource-strip" aria-label={t('live.resources')}>{world.resources.map((resource) => <div className={`resource resource-${resource.resourceId}`} key={resource.resourceId} title={t('live.capacity', { capacity: resource.capacity })}><span className="resource-glyph" aria-hidden="true" /><div><div className="resource-topline"><span>{t(`resource.${resource.resourceId}`)}</span><strong>{resource.owned}</strong></div><span className="resource-detail">{t('live.available', { available: resource.available, reserved: resource.reserved })}</span></div></div>)}</section>
     {world.clock.pauseReasons.includes('save-capacity') && <p className="notice warning-text" role="status">{t(world.capacityStop === 'SAVE_OBLIGATION_UNBOUNDED' ? 'command.error.saveObligation' : 'command.error.saveCapacity')}</p>}
     <InventoryPanel resources={world.resources} sessionEpoch={world.sessionEpoch} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error')} t={t}
@@ -209,7 +217,15 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
         ? world.resources.map((resource) => ({ resourceId: resource.resourceId, quantity: Math.max(0, resource.owned + [...world.expedition.settlement!.loot, ...world.expedition.settlement!.unusedSupplies].filter((line) => line.resourceId === resource.resourceId).reduce((sum, line) => sum + line.quantity, 0) - resource.capacity) })).filter((line) => line.quantity > 0) : []}
       onDiscard={(request, guard) => session.dispatchInventoryDiscard(request, guard)} />
     {world.cultivation.decisions.length > 0 && <section className="cultivation-alerts" aria-live="polite"><p>{t('cultivation.ui.pending', { count: world.cultivation.decisions.length })}</p>{world.cultivation.decisions.map((decision) => { const disciple = world.disciples.find((entry) => entry.id === decision.discipleId); return disciple ? <button className="secondary" key={`${decision.kind}:${decision.discipleId}`} onClick={() => { setView('sect'); session.select({ kind: 'disciple', id: decision.discipleId }); setCultivationReview((prior) => ({ discipleId: decision.discipleId, request: (prior?.request ?? 0) + 1 })); }}>{t('cultivation.ui.review', { name: t(disciple.nameKey as TextKey) })}</button> : null; })}</section>}
-    {view === 'sect' ? <>
+    {campaign && (view === 'routes' || view === 'growth') ? <CampaignViews session={session} world={world} projection={campaign} locale={locale} view={view}
+      readOnly={saveStatus.readOnly || overlay !== null || world.clock.pauseReasons.includes('error')} busy={saveStatus.busy}
+      onCommand={(request, guard) => submitCampaignViewCommand(session, () => saves.getSnapshot(), () => modalOpen.current, request, guard)}
+      onPrepare={(routeId, guard) => {
+        const current = session.getCampaignProjection(); const snapshot = session.getSnapshot(); const storage = saves.getSnapshot();
+        if (modalOpen.current || storage.busy || storage.readOnly || snapshot.clock.pauseReasons.includes('error') || snapshot.sessionEpoch !== guard.sessionEpoch
+          || !current || current.basisStamp !== guard.basisStamp || current.activeRun || !current.routes.some(route => route.routeId === routeId && route.available)) return { ok: false };
+        setCampaignPreparation({ routeId, request: ++preparationSequence.current }); setView('expedition'); return { ok: true };
+      }} /> : view === 'sect' ? <>
     <div className="play-layout">
       <section className="world-panel" aria-labelledby="world-title"><div className="map-heading"><div><p className="section-eyebrow">{t('live.mapSubtitle')}</p><h2 id="world-title">{t('live.mapTitle')}</h2></div><p className={`time-status ${world.paused ? 'is-paused' : ''}`}>{t(world.paused ? 'time.paused' : 'time.running', world.paused ? { reason: pauseReason } : undefined)}</p></div><PhaserWorld session={session} locale={locale} /><div className="map-footer"><span>{t('live.provisional')}</span><span>{t('live.tick', { tick: world.clock.simulationTick })}</span></div></section>
       <Inspector session={session} world={world} t={t} readOnly={saveStatus.readOnly} cultivationReview={cultivationReview} />
@@ -217,7 +233,8 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
     <section className="sect-roster" aria-labelledby="roster-title"><h2 id="roster-title">{t('live.disciples')}</h2><div className="disciple-list">{world.disciples.map((disciple, index) => <button className="disciple-chip" key={disciple.id} aria-pressed={world.selection?.kind === 'disciple' && world.selection.id === disciple.id} onClick={() => session.select({ kind: 'disciple', id: disciple.id })}><span className={`disciple-dot disciple-dot-${disciplePresentation(disciple, index).index}`} aria-hidden="true" /><span>{t(disciple.nameKey as TextKey)}</span><small>{t(discipleStatus(disciple, world.cultivation.summaries))}</small></button>)}</div></section>
     <div className="lower-details"><details><summary>{t('live.buildings')}</summary><div className="building-list">{world.buildings.map((building) => <button className="secondary" key={building.id} aria-pressed={world.selection?.kind === 'building' && world.selection.id === building.id} onClick={() => session.select({ kind: 'building', id: building.id })}>{t(building.nameKey as TextKey)}</button>)}</div></details><details><summary>{t('live.events')}</summary>{world.recentEvents.length ? <ol className="event-list">{world.recentEvents.map((event) => {
       const eventTransaction = world.transactions.find((entry) => entry.transactionId === event.transactionId);
-      const name = world.disciples.find((entry) => entry.id === (event.discipleId ?? event.workerId ?? eventTransaction?.workerId))?.nameKey;
+      const actorId = event.discipleId ?? event.workerId ?? eventTransaction?.workerId;
+      const name = actorId ? session.getDiscipleNameKey(actorId) : null;
       if (event.kind === 'campaign.committed') return <li key={event.eventId}>{t('event.campaign.committed')}</li>;
       if (event.kind === 'inventory.discarded') return <li key={event.eventId}>{t('event.inventory.discarded', { resource: event.resourceId ? t(`resource.${event.resourceId}`) : '', quantity: event.quantity ?? 0 })}</li>;
       if (event.kind.startsWith('cultivation.')) return <li key={event.eventId}>{t(`event.${event.kind}` as TextKey, { name: name ? t(name as TextKey) : '' })}</li>;
@@ -226,13 +243,14 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
       if (event.kind === 'production.blocked') return <li key={event.eventId}>{t('event.production.paused', { name: name ? t(name as TextKey) : '', reason: typeof event.reason === 'string' ? t(`production.blocked.${event.reason}` as TextKey) : t('command.error.unavailable') })}</li>;
       return <li key={event.eventId}>{t(`event.${event.kind}`, { name: name ? t(name as TextKey) : '', recipe: recipe ? t(recipe.nameKey as TextKey) : '' })}</li>;
     })}</ol> : <p className="muted small">{t('live.noEvents')}</p>}</details></div>
-    </> : view === 'expedition' ? <ExpeditionPanel key={world.sessionEpoch} session={session} world={world} controller={battleController} locale={locale} readOnly={saveStatus.readOnly} onReturnSect={() => setView('sect')} /> : <section className="build-view-shell">
+    </> : view === 'expedition' ? <ExpeditionPanel key={world.sessionEpoch} session={session} world={world} controller={battleController} locale={locale} {...(campaignPreparation ? { selectedRouteId: campaignPreparation.routeId, preparationRequest: campaignPreparation.request } : {})} readOnly={saveStatus.readOnly} onReturnSect={() => setView('sect')} /> : <section className="build-view-shell">
       <label className="build-view-selector">{t('live.disciples')}<select value={buildDiscipleId} onChange={(event) => session.select({ kind: 'disciple', id: event.target.value })}>{world.disciples.map((disciple) => <option value={disciple.id} key={disciple.id}>{t(disciple.nameKey as TextKey)}</option>)}</select></label>
       <BuildPanel key={`${world.sessionEpoch}:${buildDiscipleId}`} frame={buildFrame} catalog={session.getCombatCatalog()} context={session.getBuildContentContext()} lifeState={buildDisciple?.lifeState} discipleId={buildDiscipleId} locale={locale} discipleName={buildDisciple ? t(buildDisciple.nameKey as TextKey) : t('expedition.ui.none')} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error') || buildDisciple?.lifeState !== 'alive' || world.clock.mode !== 'management'} locked={!!buildFrame.builds.disciples.find((entry) => entry.discipleId === buildDiscipleId)?.lock} onCommand={(request) => { const result = session.dispatchBuild(request); return result.status === 'accepted' ? { ok: true } : result.rejection?.buildCode ? { ok: false, code: result.rejection.buildCode } : { ok: false }; }} />
       <button className="secondary" onClick={() => setView('sect')}>{t('expedition.ui.returnSect')}</button>
     </section>}
     <footer className="shell-footer"><p>{t('live.help')}</p><p className={saveStatus.mode === 'memory' || saveStatus.readOnly ? 'warning-text' : ''}>{saveStatus.mode === 'memory' ? t('save.memory') : saveStatus.readOnly ? t('save.readOnly') : saveStatus.lastSavedAt ? t('save.lastSuccess', { date: dateLabel(saveStatus.lastSavedAt, locale) }) : t('save.neverSaved')}</p></footer>
     </div>
+    <EmergencyRetreatDialog session={session} locale={locale} readOnly={saveStatus.readOnly || saveStatus.busy || overlay !== null} isBlocked={() => saves.getSnapshot().readOnly || saves.getSnapshot().busy || modalOpen.current} />
     {overlay === 'entry' && <CampaignEntry controller={saves} session={session} locale={locale} hasCampaign={hasCampaign} onEnter={() => { setHasCampaign(true); setOverlay(null); }} onCampaignAvailable={() => setHasCampaign(true)} onManageSaves={() => { setSaveReturnToEntry(true); setOverlay('saves'); }} onLocaleChange={selectLocale} />}
     {overlay === 'saves' && <SaveDialog controller={saves} session={session} locale={locale} t={t} hasCampaign={hasCampaign} returnToEntry={saveReturnToEntry || !hasCampaign} onCampaignAvailable={() => setHasCampaign(true)} onClose={() => setOverlay(saveReturnToEntry || !hasCampaign ? 'entry' : null)} />}
   </main>;

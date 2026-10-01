@@ -8,9 +8,9 @@ import type { ExpeditionDepartureRequestV8 } from '../core/expeditions/v8-world-
 import { previewWorldBreakthrough } from '../core/world/cultivation-bridge';
 import { previewWorldBreakthroughV8 } from '../core/world/cultivation-bridge-v8';
 import { previewWorldExpedition, projectWorldExpedition } from '../core/expeditions/world-adapter';
-import { previewWorldExpeditionV8, projectWorldExpeditionV8 } from '../core/expeditions/v8-world-adapter';
+import { previewWorldExpeditionV8, projectWorldExpeditionV8, previewWorldEmergencyRetreatV8 } from '../core/expeditions/v8-world-adapter';
 import { STARTER_ROUTE_ID } from '../core/expeditions/encounter-catalog';
-import { projectWorldCampaign, previewWorldCampaign } from '../core/world/campaign-queries';
+import { projectWorldCampaign, previewWorldCampaign, worldCampaignStateStamp } from '../core/world/campaign-queries';
 import type { WorldState } from '../core/world/types';
 import type { WorldStateV8 } from '../core/world/v8-types';
 import type { BuildStateFrame } from '../core/builds';
@@ -67,6 +67,18 @@ export function engineDeparturePreview(state: OwnedSessionWorld, request: Expedi
   if (state.version === 8) return previewWorldExpeditionV8(state.world, request);
   if (request.routeId !== STARTER_ROUTE_ID) throw new TypeError('This route is unavailable in a legacy campaign');
   return previewWorldExpedition(state.world, { ...request, routeId: STARTER_ROUTE_ID });
+}
+export function engineEmergencyRetreatPreview(state: OwnedSessionWorld) {
+  return state.version === 8 ? previewWorldEmergencyRetreatV8(state.world) : null;
+}
+export function engineCampaignBasisStamp(state: OwnedSessionWorld): string | null {
+  return state.version === 8 ? worldCampaignStateStamp(state.world) : null;
+}
+/** Identity-only query: never export/copy replay history to resolve a visible name. */
+export function engineDiscipleNameKey(state: OwnedSessionWorld, discipleId: string): string | null {
+  const live = state.world.disciples.find(member => member.id === discipleId);
+  if (live) return live.nameKey;
+  return state.version === 8 ? state.world.legacy.archivedIdentities.find(member => member.discipleId === discipleId)?.nameKey ?? null : null;
 }
 export function engineCampaignProjection(state: OwnedSessionWorld) {
   return state.version === 8 ? projectWorldCampaign(state.world) : null;

@@ -1,3 +1,4 @@
+import { assessDepartureReturnInventory, assessRunReturnInventory } from '../world/expedition-return-capacity';
 import { cloneWorldWithSharedHistory, worldEventCursor, worldEventsSince } from '../world/history-access';
 import { applyBuildAuthorityCommandV2 as applyBuildAuthorityCommand, buildCombatLoadoutV2 as buildCombatLoadout } from '../builds/v2';
 import { getWorldContent, getWorldRunCombatCatalog, getWorldRunEncounter, getWorldBuildContentContext } from '../world/content-access';
@@ -110,6 +111,7 @@ export function previewWorldExpeditionV8(world: WorldState, request: ExpeditionD
   const supplies = sortedLines(request.supplies ?? minimumSupplies);
   if ((supplies.find(line => line.resourceId === 'meal')?.quantity ?? 0) < minimumSupplies[0]!.quantity
     || supplies.some(line => availableResource(world.inventory[line.resourceId]) < line.quantity)) blockers.add('INSUFFICIENT_SUPPLIES');
+  if (route && !assessDepartureReturnInventory(world, { ...request, supplies }).fits) blockers.add('INVENTORY_FULL');
   for (const discipleId of request.squadIds) {
     const profile = world.cultivation.disciples.find(member => member.discipleId === discipleId);
     const disciple = world.disciples.find(member => member.id === discipleId);
@@ -338,13 +340,19 @@ export function dispatchWorldExpeditionV8(world: WorldState, command: PlayerExpe
       switch (command.kind) {
         case 'expedition.continue':
           if (run.phase === 'AtNode') next = domain(next, { kind: 'encounter.begin' }, command.commandId);
-          else if ((run.phase === 'Travelling' || run.phase === 'Ending') && registeredTimeCheckpoint(registeredWorldRun(world))) next = admitTravel(next, command.commandId);
+          else if ((run.phase === 'Travelling' || run.phase === 'Ending') && registeredTimeCheckpoint(registeredWorldRun(world))) {
+            if (next.expedition.travel || run.admittedCheckpoint) reject('INVALID_PHASE');
+            next = admitTravel(next, command.commandId);
+          }
           else if (run.phase === 'Ending') next = settleReady(next);
           else reject('INVALID_PHASE');
           break;
         case 'expedition.choose': next = domain(next, { kind: 'offer.choose', offerId: command.offerId, offerRevision: command.offerRevision, definitionId: command.definitionId, holderId: command.holderId }, command.commandId); break;
         case 'expedition.reroll': next = domain(next, { kind: 'offer.reroll', offerId: command.offerId, offerRevision: command.offerRevision }, command.commandId); break;
-        case 'expedition.supplies': next = domain(next, { kind: 'offer.supplies', offerId: command.offerId, offerRevision: command.offerRevision }, command.commandId); break;
+        case 'expedition.supplies':
+          next = domain(next, { kind: 'offer.supplies', offerId: command.offerId, offerRevision: command.offerRevision }, command.commandId);
+          if (!assessRunReturnInventory(next).fits) reject('INVENTORY_FULL');
+          break;
         case 'expedition.retreat': next = domain(next, { kind: 'run.end', reason: 'safeRetreat' }, command.commandId); break;
         case 'expedition.emergency-retreat': {
           const preview = previewWorldEmergencyRetreatV8(next);

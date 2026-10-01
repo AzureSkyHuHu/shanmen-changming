@@ -5,23 +5,25 @@ import {
   type Command, type CommandResult, type Disciple, type DomainEvent, type PauseReason, type PlayerCultivationCommand,
   type ProductionTransaction, type SimulationSpeed, type WorldBuilding, type WorldMap, type WorldState,
 } from '../core/kernel';
+import type { CampaignPlayerRequest, PlayerCampaignCommand, WorldCampaignError, WorldCampaignPreview, WorldCampaignProjection } from '../core/world/campaign-types';
 import type { BuildCommand, BuildData } from '../core/builds';
 import type { BuildDataV2 } from '../core/builds/v2-types';
 import type { CombatControllerState } from '../core/combat/ai';
 import type { OfferState, EndRunSettlement, RouteNode, RunTalent } from '../core/expeditions/types';
-import type { ExpeditionDepartureRequestV8 as ExpeditionDepartureRequest, PlayerExpeditionCommandV8 as PlayerExpeditionCommand, WorldExpeditionPreviewV8 as WorldExpeditionPreview, WorldExpeditionProjectionV8 as WorldExpeditionProjection } from '../core/expeditions/v8-world-types';
+import type { ExpeditionDepartureRequestV8 as ExpeditionDepartureRequest, PlayerExpeditionCommandV8 as PlayerExpeditionCommand, WorldExpeditionPreviewV8 as WorldExpeditionPreview, WorldExpeditionProjectionV8 as WorldExpeditionProjection, WorldEmergencyRetreatPreview } from '../core/expeditions/v8-world-types';
+import type { WorldExpeditionError } from '../core/expeditions/world-types';
 import { REALM_RULES } from '../core/cultivation/rules';
 import { cloneWorldWithSharedHistory, lookupCommandReceipt, lookupProduction, recentWorldEvents } from '../core/world/history-access';
 import type { BreakthroughAttempt, BreakthroughPreparation, BreakthroughPreview, Cultivator, DeathCause } from '../core/cultivation/types';
 import type { SectEconomyCommand, SectEconomyState } from '../core/sect-economy/types';
 import { matchesWorkPlanGuard, type WorkPlanEditGuard } from './work-plan-contract';
 import { measureWorldSaveBytes, SAVE_FILE_LIMIT_BYTES } from '../core/save-budget';
-import { ownSessionWorld, exportSessionWorld, sessionBuildFrame, sessionSaveMetadata, withSessionClock, dispatchEngineCommand, advanceEngineTicks, engineAutomaticWorkPreview, engineBreakthroughPreview, engineDeparturePreview, engineExpeditionProjection, type SessionWorld, type OwnedSessionWorld, type SessionBuildFrame, type SessionEngineCommand } from './world-engine';
+import { ownSessionWorld, exportSessionWorld, sessionBuildFrame, sessionSaveMetadata, withSessionClock, dispatchEngineCommand, advanceEngineTicks, engineAutomaticWorkPreview, engineBreakthroughPreview, engineDeparturePreview, engineExpeditionProjection, engineCampaignProjection, engineCampaignPreview, engineCampaignBasisStamp, engineDiscipleNameKey, engineEmergencyRetreatPreview, type SessionWorld, type OwnedSessionWorld, type SessionBuildFrame, type SessionEngineCommand } from './world-engine';
 import { lookupLiveProduction } from '../core/economy/automatic-production';
 import type { ProductionWork } from '../core/economy/automatic-types';
 import { matchesInventoryDiscardGuard, type InventoryDiscardRequest, type InventoryDiscardGuard, type InventoryDiscardCommandResult } from './inventory-contract';
 
-import { getWorldCombatCatalog, getWorldRunContent, getWorldBuildContentContext } from '../core/world/content-access';
+import { getWorldCombatCatalog, getWorldRunContent, getWorldBuildContentContext, getWorldContent } from '../core/world/content-access';
 
 export type DeepReadonly<T> = T extends (...args: never[]) => unknown ? T : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
 export type Selection = { kind: 'disciple' | 'building'; id: string } | null;
@@ -30,6 +32,21 @@ type WithoutCommandId<T> = T extends unknown ? Omit<T, 'commandId'> : never;
 export type CultivationRequest = WithoutCommandId<PlayerCultivationCommand>;
 export type BuildRequest = WithoutCommandId<BuildCommand>;
 export type ExpeditionRequest = WithoutCommandId<PlayerExpeditionCommand>;
+export type CampaignRequest = CampaignPlayerRequest;
+export interface CampaignProposal {
+  request: CampaignPlayerRequest; preview: WorldCampaignPreview;
+  /** Global projection stamp; the dispatch token is preview.basisStamp instead. */
+  basisStamp: string; sessionEpoch: number;
+}
+export type CampaignCommandResult =
+  | { ok: true; result: DeepReadonly<CommandResult> }
+  | { ok: false; code: WorldCampaignError | NonNullable<CommandResult['rejection']>['code']; result?: DeepReadonly<CommandResult> };
+export interface EmergencyRetreatReview {
+  reviewId: string; sessionEpoch: number; preview: WorldEmergencyRetreatPreview;
+}
+export type EmergencyRetreatCommandResult =
+  | { ok: true; result: DeepReadonly<CommandResult> }
+  | { ok: false; code: WorldExpeditionError | NonNullable<CommandResult['rejection']>['code'] | 'PREVIEW_STALE' | 'LOSS_ACKNOWLEDGEMENT_REQUIRED'; result?: DeepReadonly<CommandResult> };
 export interface DepartureProposal { request: ExpeditionDepartureRequest; preview: DeepReadonly<WorldExpeditionPreview>; basisStamp: string; sessionEpoch: number }
 export type OfferProjection = Pick<OfferState, 'offerId' | 'revision' | 'candidateDefinitionIds' | 'eligibleHolderIdsByCard' | 'remainingRerolls' | 'diagnostics' | 'supplyFallback'>;
 export interface ExpeditionProjection extends Omit<WorldExpeditionProjection, 'battle' | 'currentOffer' | 'talentInstances'> {
@@ -124,12 +141,16 @@ export class ApplicationSession {
   private foreground = { visible: true, focused: true };
   private storageReadOnly = false;
   private overlayPaused = false;
+  private emergencyReview: DeepReadonly<EmergencyRetreatReview> | null = null;
+  private reviewSequence = 0;
   private invariantStopped = false;
   private readonly ephemeralPauses = new Set<PauseReason>();
   private capacityStop: 'SAVE_CAPACITY_EXCEEDED' | 'SAVE_OBLIGATION_UNBOUNDED' | null = null;
   private snapshot: DeepReadonly<SessionProjection>;
   private automaticQuerySource: SessionWorld | null = null;
   private automaticQuery: DeepReadonly<ReturnType<typeof engineAutomaticWorkPreview>> | null = null;
+  private campaignQuerySource: SessionWorld | null = null;
+  private campaignQuery: DeepReadonly<WorldCampaignProjection> | null = null;
   private buildQuerySource: BuildData | BuildDataV2 | null = null;
   private buildQuery: SessionBuildFrame | null = null;
 
@@ -218,6 +239,7 @@ export class ApplicationSession {
     for (const event of recentEvents) if (typeof event.payload.transactionId === 'string') visibleTransactionIds.add(event.payload.transactionId);
     const visibleTransactions = [...visibleTransactionIds].map((id) => lookupLiveProduction(this.world, id)?.transaction ?? lookupProduction(this.world, id)).filter((transaction): transaction is ProductionWork => transaction !== undefined);
     let displayClock = this.capacityStop ? setPauseReason(this.world.clock, 'save-capacity', true) : this.world.clock;
+    if (this.emergencyReview) displayClock = setPauseReason(displayClock, 'choice', true);
     if (this.invariantStopped) displayClock = setPauseReason(displayClock, 'error', true);
     for (const reason of this.ephemeralPauses) displayClock = setPauseReason(displayClock, reason, true);
     return deepFreeze(cloneJson({
@@ -243,7 +265,7 @@ export class ApplicationSession {
         quantity: typeof event.payload.quantity === 'number' ? event.payload.quantity : null,
       })),
       cultivation: this.cultivationProjection(), sectEconomy: this.world.sectEconomy, expedition: this.expeditionProjection(),
-      selection: this.selection, lastCommand: this.lastCommand, paused: isPaused(this.world.clock) || this.storageReadOnly || this.overlayPaused || this.capacityStop !== null || this.ephemeralPauses.size > 0 || this.invariantStopped, capacityStop: this.capacityStop,
+      selection: this.selection, lastCommand: this.lastCommand, paused: isPaused(this.world.clock) || this.storageReadOnly || this.overlayPaused || this.emergencyReview !== null || this.capacityStop !== null || this.ephemeralPauses.size > 0 || this.invariantStopped, capacityStop: this.capacityStop,
     }));
   }
 
@@ -277,6 +299,7 @@ export class ApplicationSession {
   /** Registered immutable definitions follow the saved World/run identity; never inferred by UI. */
   readonly getCombatCatalog = () => getWorldCombatCatalog(this.world);
   readonly getRunContent = () => getWorldRunContent(this.world);
+  readonly getWorldContent = () => getWorldContent(this.world);
   readonly getBuildContentContext = () => getWorldBuildContentContext(this.world);
 
   /** Full semantic build frame is queried only when its authority branch changes, never per tick. */
@@ -288,6 +311,98 @@ export class ApplicationSession {
     return this.buildQuery;
   };
 
+  /** Narrow immutable campaign DTO, rebuilt only when its semantic state stamp changes. */
+  readonly getCampaignProjection = (): DeepReadonly<WorldCampaignProjection> | null => {
+    if (this.campaignQuerySource !== this.world) {
+      const stamp = engineCampaignBasisStamp(this.engineState);
+      if (stamp === null) this.campaignQuery = null;
+      else if (!this.campaignQuery || this.campaignQuery.basisStamp !== stamp) {
+        this.campaignQuery = deepFreeze(cloneJson(engineCampaignProjection(this.engineState)!));
+      }
+      this.campaignQuerySource = this.world;
+    }
+    return this.campaignQuery;
+  };
+
+  readonly getDiscipleNameKey = (discipleId: string): string | null => engineDiscipleNameKey(this.engineState, discipleId);
+
+  prepareCampaign(request: CampaignPlayerRequest): DeepReadonly<CampaignProposal> | null {
+    const projection = this.getCampaignProjection();
+    if (!projection) return null;
+    return deepFreeze(cloneJson({ request, preview: engineCampaignPreview(this.engineState, request)!,
+      basisStamp: projection.basisStamp, sessionEpoch: this.sessionEpoch }));
+  }
+
+  isCampaignProposalCurrent(proposal: DeepReadonly<CampaignProposal>): boolean {
+    try {
+      if (this.engineState.version !== 8 || proposal.sessionEpoch !== this.sessionEpoch
+        || proposal.basisStamp !== this.getCampaignProjection()?.basisStamp) return false;
+      const preview = engineCampaignPreview(this.engineState, cloneJson(proposal.request) as CampaignPlayerRequest);
+      return canonicalStringify(preview) === canonicalStringify(proposal.preview);
+    } catch { return false; }
+  }
+
+  /** Guard rejection is not a submitted command and consumes no command or domain IDs. */
+  confirmCampaign(proposal: DeepReadonly<CampaignProposal>): CampaignCommandResult {
+    if (this.engineState.version !== 8) return { ok: false, code: 'INVALID_COMMAND' };
+    if (this.storageReadOnly || this.overlayPaused || this.emergencyReview || this.invariantStopped || this.world.clock.pauseReasons.includes('error')) {
+      return { ok: false, code: 'CORE_PAUSED_ERROR' };
+    }
+    if (!this.isCampaignProposalCurrent(proposal)) return { ok: false, code: 'PREVIEW_STALE' };
+    const result = this.submit((commandId, sequence, issuedTick) => ({ commandId, sequence, issuedTick,
+      kind: 'campaign.command', payload: { command: { ...cloneJson(proposal.request), commandId,
+        expectedBasisStamp: proposal.preview.basisStamp } as PlayerCampaignCommand } }));
+    return result.status === 'accepted' ? { ok: true, result }
+      : { ok: false, code: result.rejection?.campaignCode ?? result.rejection?.code ?? 'INVALID_COMMAND', result };
+  }
+
+  readonly getEmergencyRetreatReview = (): DeepReadonly<EmergencyRetreatReview> | null => this.emergencyReview;
+
+  /** The review owns only an ephemeral hold, never App's overlay or persisted clock pauses. */
+  prepareEmergencyRetreat(): DeepReadonly<EmergencyRetreatReview> | null {
+    if (this.emergencyReview) return this.emergencyReview;
+    const preview = engineEmergencyRetreatPreview(this.engineState);
+    if (!preview) return null;
+    if (this.reviewSequence >= Number.MAX_SAFE_INTEGER) throw new RangeError('Emergency review sequence exhausted');
+    this.emergencyReview = deepFreeze(cloneJson({ reviewId: `emergency-review.${this.reviewSequence++}`,
+      sessionEpoch: this.sessionEpoch, preview }));
+    this.resetFrameBaseline(); this.publish(false);
+    return this.emergencyReview;
+  }
+
+  cancelEmergencyRetreat(reviewId: string): boolean {
+    if (!this.emergencyReview || this.emergencyReview.reviewId !== reviewId) return false;
+    this.emergencyReview = null;
+    this.resetFrameBaseline(); this.publish(false);
+    return true;
+  }
+
+  isEmergencyRetreatReviewCurrent(review: DeepReadonly<EmergencyRetreatReview>): boolean {
+    try {
+      return this.engineState.version === 8 && this.emergencyReview !== null && review.sessionEpoch === this.sessionEpoch
+        && review.reviewId === this.emergencyReview.reviewId
+        && canonicalStringify(review.preview) === canonicalStringify(this.emergencyReview.preview)
+        && canonicalStringify(review.preview) === canonicalStringify(engineEmergencyRetreatPreview(this.engineState));
+    } catch { return false; }
+  }
+
+  confirmEmergencyRetreat(review: DeepReadonly<EmergencyRetreatReview>, acknowledgeLoss: boolean): EmergencyRetreatCommandResult {
+    if (this.engineState.version !== 8) return { ok: false, code: 'INVALID_COMMAND' };
+    if (this.storageReadOnly || this.overlayPaused || this.invariantStopped || this.world.clock.pauseReasons.includes('error')) {
+      return { ok: false, code: 'CORE_PAUSED_ERROR' };
+    }
+    if (acknowledgeLoss !== true) return { ok: false, code: 'LOSS_ACKNOWLEDGEMENT_REQUIRED' };
+    if (!this.isEmergencyRetreatReviewCurrent(review)) return { ok: false, code: 'PREVIEW_STALE' };
+    const result = this.submit((commandId, sequence, issuedTick) => ({ commandId, sequence, issuedTick,
+      kind: 'expedition.command', payload: { command: { commandId, kind: 'expedition.emergency-retreat',
+        expectedBasisStamp: review.preview.basisStamp, acknowledgeLoss: true } } }), review.reviewId);
+    if (result.status === 'accepted') {
+      this.cancelEmergencyRetreat(review.reviewId);
+      return { ok: true, result };
+    }
+    return { ok: false, code: result.rejection?.expeditionCode ?? result.rejection?.code ?? 'INVALID_COMMAND', result };
+  }
+
   select(selection: Selection): void {
     if (selection && !(selection.kind === 'disciple' ? this.world.disciples : this.world.buildings).some((entity) => entity.id === selection.id)) return;
     if (selection?.kind === this.selection?.kind && selection?.id === this.selection?.id) return;
@@ -295,11 +410,12 @@ export class ApplicationSession {
     this.publish(false);
   }
 
-  private submit(create: (commandId: string, sequence: number, issuedTick: number) => SessionEngineCommand): DeepReadonly<CommandResult> {
+  private submit(create: (commandId: string, sequence: number, issuedTick: number) => SessionEngineCommand, permittedReviewId?: string): DeepReadonly<CommandResult> {
     const sequence = this.nextSequence(this.sequence);
     this.sequence = sequence + 1;
     const commandId = `app-command.${sequence}`;
-    if (this.storageReadOnly || this.overlayPaused || this.invariantStopped) {
+    if (this.storageReadOnly || this.overlayPaused || this.invariantStopped
+      || (this.emergencyReview !== null && permittedReviewId !== this.emergencyReview.reviewId)) {
       this.lastCommand = { commandId, status: 'rejected', transactionId: null, eventIds: [], rejection: { code: 'CORE_PAUSED_ERROR' } };
       this.publish(false);
       return deepFreeze(cloneJson(this.lastCommand));
@@ -402,7 +518,7 @@ export class ApplicationSession {
   }
 
   setSpeed(speed: SimulationSpeed): void {
-    if (this.storageReadOnly || this.overlayPaused || this.invariantStopped) return;
+    if (this.storageReadOnly || this.overlayPaused || this.emergencyReview || this.invariantStopped) return;
     if (this.world.clock.speed === speed) return;
     this.engineState = withSessionClock(this.engineState, setClockSpeed(this.world.clock, speed));
     this.resetFrameBaseline();
@@ -419,7 +535,7 @@ export class ApplicationSession {
   }
 
   setPaused(reason: PauseReason, paused: boolean): void {
-    if (reason === 'player' && (this.storageReadOnly || this.overlayPaused || this.invariantStopped)) return;
+    if (reason === 'player' && (this.storageReadOnly || this.overlayPaused || this.emergencyReview || this.invariantStopped)) return;
     if ((this.world.clock.pauseReasons.includes(reason) || this.ephemeralPauses.has(reason)) === paused) return;
     this.engineState = this.withSafePause(this.engineState, reason, paused);
     this.resetFrameBaseline();
@@ -455,7 +571,7 @@ export class ApplicationSession {
   /** Timestamp comes only from the platform adapter, never from Phaser or the core. */
   frame(timestamp: number): void {
     if (!Number.isFinite(timestamp)) return;
-    if (isPaused(this.world.clock) || this.storageReadOnly || this.overlayPaused || this.capacityStop || this.ephemeralPauses.size > 0 || this.invariantStopped) { this.baseline = null; return; }
+    if (isPaused(this.world.clock) || this.storageReadOnly || this.overlayPaused || this.emergencyReview || this.capacityStop || this.ephemeralPauses.size > 0 || this.invariantStopped) { this.baseline = null; return; }
     if (this.baseline === null || timestamp < this.baseline) { this.baseline = timestamp; return; }
     const elapsed = timestamp - this.baseline;
     this.baseline = timestamp;
@@ -477,6 +593,7 @@ export class ApplicationSession {
     owned = this.withSafePause(owned, 'hidden', !this.foreground.visible || !this.foreground.focused);
     owned = this.withSafePause(owned, 'player', true);
     this.engineState = owned;
+    this.emergencyReview = null;
     this.sessionEpoch += 1;
     this.capacityStop = null;
     this.invariantStopped = false;

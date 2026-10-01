@@ -4,7 +4,7 @@ import { afterWorldExpeditionTickV8, beforeWorldExpeditionTickV8, reconcileWorld
 import { advanceWorldCultivationV8, withCultivationPauseV8 } from '../world/cultivation-bridge-v8';
 import { tickWorldAutomaticWorkV8 } from '../world/automatic-work-bridge-v8';
 import { prepareWorldEstateSettlement } from '../world/legacy-bridge';
-import { verifyCandidateBoundaryV8 } from '../world/runtime-capacity-v8';
+import { assessCoveredBoundaryCapacityV8, verifyCandidateBoundaryV8 } from '../world/runtime-capacity-v8';
 import { worldSaveByteDelta } from '../world/save-byte-delta';
 import type { WorldStateV8 } from '../world/v8-types';
 import { canonicalUtf8ByteLength, measureWorldSaveBytes, SAVE_FILE_LIMIT_BYTES } from '../save-budget';
@@ -29,12 +29,15 @@ function obligationsChanged(before: WorldStateV8, after: WorldStateV8): boolean 
     || before.automaticProduction.journal !== after.automaticProduction.journal || before.automaticProduction.pins !== after.automaticProduction.pins
     || before.expedition.run !== after.expedition.run || before.legacy !== after.legacy || before.campaign !== after.campaign;
 }
-function check(before: WorldStateV8, after: WorldStateV8, bytes: number): number {
+function check(before: WorldStateV8, after: WorldStateV8, bytes: number, wireCeiling: number): { bytes: number; wireCeiling: number } {
   const nextBytes = bytes + worldSaveByteDelta(before, after, { saveVersion: 8 });
   if (nextBytes > SAVE_FILE_LIMIT_BYTES) throw new CapacityStop('SAVE_CAPACITY_EXCEEDED');
   if (after.expedition.battle && canonicalUtf8ByteLength(after.expedition.battle) > 262_144) throw new CapacityStop('SAVE_OBLIGATION_UNBOUNDED');
-  if (obligationsChanged(before, after)) { const proof = verifyCandidateBoundaryV8(before, after); if (!proof.ok) throw new CapacityStop(proof.code); }
-  return nextBytes;
+  if (obligationsChanged(before, after)) {
+    const proof = verifyCandidateBoundaryV8(before, after); if (!proof.ok) throw new CapacityStop(proof.code);
+    wireCeiling = assessCoveredBoundaryCapacityV8(after).wireCeiling;
+  } else if (nextBytes > wireCeiling) throw new CapacityStop('SAVE_CAPACITY_EXCEEDED');
+  return { bytes: nextBytes, wireCeiling };
 }
 /** Candidate v8 engine. No legacy alias or imported source is silently upgraded. */
 export function advanceTicksWithStatusV8(world: WorldStateV8, steps: number, commands: readonly CommandV8[] = []): AdvanceTicksResultV8 {
@@ -44,11 +47,12 @@ export function advanceTicksWithStatusV8(world: WorldStateV8, steps: number, com
   try { next = withCultivationPauseV8(commands.length ? enqueueCommandsV8(world, commands) : world); }
   catch (error) { if (error instanceof SaveCapacityAdmissionError) return stopped(world, error.code); throw error; }
   let bytes = measureWorldSaveBytes(next, { saveVersion: 8 });
+  let wireCeiling = assessCoveredBoundaryCapacityV8(next).wireCeiling;
   for (let index = 0; index < steps; index += 1) {
     const boundary = next;
     try {
       next = withCultivationPauseV8(beforeWorldExpeditionTickV8(next));
-      if (isPaused(next.clock)) { bytes = check(boundary, next, bytes); break; }
+      if (isPaused(next.clock)) { ({ bytes, wireCeiling } = check(boundary, next, bytes, wireCeiling)); break; }
       const due = next.pendingCommands.filter(command => command.issuedTick <= next.clock.simulationTick).sort(compareCommandsV8);
       for (const command of due) {
         const applied = dispatchCommandV8(next, command, { existingQueuedCommand: true });
@@ -70,7 +74,7 @@ export function advanceTicksWithStatusV8(world: WorldStateV8, steps: number, com
         const estates = prepareWorldEstateSettlement(next);
         if (!estates.ok) throw new Error(`Estate settlement failed: ${estates.details.join('; ')}`); next = estates.candidate;
       }
-      bytes = check(boundary, next, bytes);
+      ({ bytes, wireCeiling } = check(boundary, next, bytes, wireCeiling));
     } catch (error) {
       if (error instanceof CapacityStop || isSaveCapacityError(error)) return stopped(boundary, error instanceof CapacityStop ? error.code : 'SAVE_CAPACITY_EXCEEDED');
       const diagnostic: CoreDiagnostic = { code: 'INVARIANT_FAILURE', tick: boundary.clock.simulationTick, message: error instanceof Error ? error.message : 'Unknown v8 invariant' };

@@ -2,6 +2,26 @@ import type { TextKey } from '../../../i18n/messages.ts';
 import type { MessageTemplate } from '../../../i18n/types.ts';
 
 export const zhCN = {
+  "expedition.ui.emergencyReviewHint": "审阅期间战斗已暂停。请核对当前真实陨落、道伤和未结算战利品损失；撤退后仍须完成返程。",
+  "expedition.ui.emergencyAcknowledge": "我已了解列出的永久陨落、道伤与战利品损失。",
+  "expedition.ui.addedInjury": "{name}：新增道伤 {amount}",
+  "expedition.ui.emergencyReviewBlocked": "当前状态已改变或无法撤退。请取消本次审阅，再核对最新状态。",
+
+  "campaign.view.equipmentDescription": "宗门保管的装备，交付后可前往配装查看具体加成。",
+  "campaign.view.invitationReward": "一次招募邀请",
+  "campaign.view.retainedProgress": "保留已完成的 {count} 条路线首通。",
+  "campaign.view.retainedBuilding": "保留建筑：{name}",
+  "campaign.view.retainedResource": "保留库存：{name} × {quantity}",
+  "campaign.view.retainedManual": "保留宗门典籍：{name}",
+  "campaign.view.retainedEquipment": "保留原有装备：{name}",
+  "campaign.view.reliefConditions": "标准模式仅余 {count} 名在世弟子且已无可用邀请时，可申请补员；两次补员间隔至少 {months} 个月。",
+  "campaign.view.reliefMonth": "下一次补员最早为宗门历第 {month} 个月，仍须满足其他条件。",
+  "campaign.view.finalizedDeath": "{name} 已确认陨落，仍保持死亡，其个人成长不会还原到新徒。",
+  "campaign.view.noFinalizedDeaths": "当前没有可用于复兴的已确认终局损失。",
+  "campaign.view.grantedResource": "新增物资：{name} × {quantity}",
+  "campaign.view.estateOrigin": "来自已陨落的 {name}；交付原装备实例，不复制。",
+  "campaign.view.unknownDisciple": "姓名记录暂不可用",
+
   "event.campaign.committed": "战役安排已完成结算。",
 
   "campaign.error.INVALID_STATE": "宗门状态未通过校验，本次安排未执行。",

@@ -3,6 +3,26 @@ import type { MessageTemplate } from '../../../i18n/types.ts';
 
 /** English may be incomplete; missing or whitespace-only entries fall back per key. */
 export const en = {
+  "expedition.ui.emergencyReviewHint": "Combat is paused during this review. Check the actual deaths, injuries and unsecured loot losses shown; retreat still requires the return journey.",
+  "expedition.ui.emergencyAcknowledge": "I acknowledge the permanent deaths, injuries and loot losses shown.",
+  "expedition.ui.addedInjury": "{name}: {amount} additional injury",
+  "expedition.ui.emergencyReviewBlocked": "The state has changed or retreat is unavailable. Cancel this review, then check the current state.",
+
+  "campaign.view.equipmentDescription": "Equipment held by the sect. After assignment, inspect its bonuses in the build panel.",
+  "campaign.view.invitationReward": "One recruitment invitation",
+  "campaign.view.retainedProgress": "Retain {count} first-cleared routes.",
+  "campaign.view.retainedBuilding": "Retain building: {name}",
+  "campaign.view.retainedResource": "Retain stock: {name} × {quantity}",
+  "campaign.view.retainedManual": "Retain sect manual: {name}",
+  "campaign.view.retainedEquipment": "Retain existing equipment: {name}",
+  "campaign.view.reliefConditions": "Relief requires standard mode, exactly {count} living disciple and no unused unlocked invitation; requests must be at least {months} months apart.",
+  "campaign.view.reliefMonth": "Next relief is no earlier than sect calendar month {month}; other conditions still apply.",
+  "campaign.view.finalizedDeath": "{name} has died and remains dead. Their personal progression is not restored to a recruit.",
+  "campaign.view.noFinalizedDeaths": "There is no finalized terminal loss eligible for recovery.",
+  "campaign.view.grantedResource": "Receive resources: {name} × {quantity}",
+  "campaign.view.estateOrigin": "From the deceased {name}; assignment transfers the original item without copying it.",
+  "campaign.view.unknownDisciple": "Name record unavailable",
+
   "event.campaign.committed": "The campaign arrangement has been settled.",
 
   "campaign.error.INVALID_STATE": "The sect state could not be validated. Nothing was changed.",

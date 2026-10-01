@@ -1,10 +1,11 @@
 import { disciplePresentation } from '../application/character-presentation';
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { CombatControllerState } from '../core/combat/ai';
 import { canonicalStringify } from '../core/kernel/serialization';
 import type { ResourceLine } from '../core/economy/types';
 import { STARTER_ROUTE_ID } from '../core/expeditions/encounter-catalog';
-import type { ExpeditionDepartureRequest } from '../core/expeditions/world-types';
+import type { ExpeditionDepartureRequestV8 as ExpeditionDepartureRequest } from '../core/expeditions/v8-world-types';
+import { CAMPAIGN_ROUTE_IDS, type CampaignRouteId } from '../core/campaign/types';
 import { combatContentTranslator } from '../application/combat-content-text';
 import { ApplicationSession, type DeepReadonly, type DepartureProposal, type OfferProjection, type SessionProjection } from '../application/session';
 import { commandFeedbackKey, expeditionMessages } from '../application/status-messages';
@@ -15,18 +16,18 @@ import './expedition.css';
 
 type Projection = DeepReadonly<SessionProjection>;
 type Translator = (key: TextKey, parameters?: TranslationParams) => string;
-export interface ExpeditionPanelProps { session: ApplicationSession; world: Projection; controller: CombatControllerState | null; locale: Locale; readOnly: boolean; onReturnSect: () => void }
+export interface ExpeditionPanelProps { session: ApplicationSession; world: Projection; controller: CombatControllerState | null; locale: Locale; readOnly: boolean; selectedRouteId?: CampaignRouteId; preparationRequest?: number; onReturnSect: () => void }
 const resources = (lines: readonly ResourceLine[], t: Translator) => lines.length ? lines.map((line) => t('production.line', { amount: line.quantity, name: t(`resource.${line.resourceId}`) })).join(' · ') : t('expedition.ui.none');
 const discipleName = (world: Projection, id: string, t: Translator) => { const nameKey = world.disciples.find((disciple) => disciple.id === id)?.nameKey; return nameKey ? t(nameKey as TextKey) : t('expedition.ui.none'); };
 
 /** The live form and the confirmation guard share one canonical request builder. */
-export function expeditionDepartureRequest(squadIds: readonly string[], mealInput: string): ExpeditionDepartureRequest | null {
+export function expeditionDepartureRequest(squadIds: readonly string[], mealInput: string, routeId: CampaignRouteId = STARTER_ROUTE_ID): ExpeditionDepartureRequest | null {
   const mealCount = mealInput.trim() === '' ? null : Number(mealInput);
-  if (squadIds.length < 1 || squadIds.length > 6 || new Set(squadIds).size !== squadIds.length || (mealCount !== null && (!Number.isSafeInteger(mealCount) || mealCount < 0))) return null;
-  return { squadIds: [...squadIds], routeId: STARTER_ROUTE_ID, ...(mealCount === null ? {} : { supplies: mealCount === 0 ? [] : [{ resourceId: 'meal' as const, quantity: mealCount }] }) };
+  if (!CAMPAIGN_ROUTE_IDS.includes(routeId) || squadIds.length < 1 || squadIds.length > 6 || new Set(squadIds).size !== squadIds.length || (mealCount !== null && (!Number.isSafeInteger(mealCount) || mealCount < 0))) return null;
+  return { squadIds: [...squadIds], routeId, ...(mealCount === null ? {} : { supplies: mealCount === 0 ? [] : [{ resourceId: 'meal' as const, quantity: mealCount }] }) };
 }
-export function departureFormMatches(proposal: DeepReadonly<DepartureProposal>, squadIds: readonly string[], mealInput: string): boolean {
-  const request = expeditionDepartureRequest(squadIds, mealInput);
+export function departureFormMatches(proposal: DeepReadonly<DepartureProposal>, squadIds: readonly string[], mealInput: string, routeId: CampaignRouteId = STARTER_ROUTE_ID): boolean {
+  const request = expeditionDepartureRequest(squadIds, mealInput, routeId);
   return request !== null && canonicalStringify(request) === canonicalStringify(proposal.request);
 }
 
@@ -81,7 +82,7 @@ function OfferChoice({ session, offer, world, locale, locked }: { session: Appli
   </section>;
 }
 
-export function ExpeditionPanel({ session, world, controller, locale, readOnly, onReturnSect }: ExpeditionPanelProps) {
+export function ExpeditionPanel({ session, world, controller, locale, readOnly, selectedRouteId = STARTER_ROUTE_ID, preparationRequest, onReturnSect }: ExpeditionPanelProps) {
   const content = session.getRunContent();
   const catalog = content.combat;
   const contentText = combatContentTranslator(catalog);
@@ -95,18 +96,22 @@ export function ExpeditionPanel({ session, world, controller, locale, readOnly, 
   const [previewError, setPreviewError] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [retreatConfirmation, setRetreatConfirmation] = useState(false);
-  const [newPreparation, setNewPreparation] = useState(false);
+  const [newPreparation, setNewPreparation] = useState(preparationRequest !== undefined && (expedition.phase === 'none' || expedition.phase === 'Ended'));
   const preparation = expedition.phase === 'none' || (expedition.phase === 'Ended' && newPreparation);
-  const fresh = !!proposal && session.isDepartureProposalCurrent(proposal) && departureFormMatches(proposal, squadIds, mealInput);
+  const fresh = !!proposal && session.isDepartureProposalCurrent(proposal) && departureFormMatches(proposal, squadIds, mealInput, selectedRouteId);
+  // Route changes invalidate the displayed consent even if the old request is still valid.
+  useEffect(() => { setProposal(null); setAcknowledged(false); setPreviewError(false); if (preparationRequest !== undefined && (expedition.phase === 'none' || expedition.phase === 'Ended')) setNewPreparation(true); }, [selectedRouteId, preparationRequest]);
+  const routeContent = preparation ? session.getWorldContent() : content;
+  const route = routeContent.campaign?.routes.find(entry => entry.id === (preparation ? selectedRouteId : expedition.routeId));
   const mealCount = mealInput.trim() === '' ? null : Number(mealInput);
   const validMealCount = mealCount === null || (Number.isSafeInteger(mealCount) && mealCount >= 0);
   const presentations = useMemo(() => expeditionBattlePresentations(world, locale), [world, locale]);
   const encounter = encounters.find((entry) => entry.id === expedition.nextEncounterDefinitionId);
-  const nameOf = (id: string) => discipleName(world, id, t);
+  const nameOf = (id: string) => { const key = session.getDiscipleNameKey(id); return key ? t(key as TextKey) : t('expedition.ui.none'); };
   function invalidate() { setProposal(null); setAcknowledged(false); setPreviewError(false); }
   function prepare() {
     if (!validMealCount || squadIds.length < 1 || squadIds.length > 6) return;
-    const request = expeditionDepartureRequest(squadIds, mealInput);
+    const request = expeditionDepartureRequest(squadIds, mealInput, selectedRouteId);
     if (!request) return;
     try { setProposal(session.prepareExpedition(request)); setAcknowledged(false); setPreviewError(false); }
     catch { setPreviewError(true); setProposal(null); }
@@ -116,7 +121,7 @@ export function ExpeditionPanel({ session, world, controller, locale, readOnly, 
   const settlement = expedition.settlement;
   const history = expedition.phase === 'Ended' && expedition.latestHistory?.runId === expedition.runId ? expedition.latestHistory : null;
   return <section className="expedition-panel" aria-labelledby={`${prefix}-title`}>
-    <header className="expedition-header"><div><p className="section-eyebrow">{t('expedition.ui.title')}</p><h2 id={`${prefix}-title`}>{t('expedition.ui.routeName')}</h2><p>{t('expedition.ui.routeDescription')}</p></div><span className="expedition-phase">{t(`expedition.phase.${expedition.phase}`)}</span></header>
+    <header className="expedition-header"><div><p className="section-eyebrow">{t('expedition.ui.title')}</p><h2 id={`${prefix}-title`}>{route ? t(route.nameKey as TextKey) : t('expedition.ui.routeName')}</h2><p>{route ? t(route.descriptionKey as TextKey) : t('expedition.ui.routeDescription')}</p></div><span className="expedition-phase">{t(`expedition.phase.${expedition.phase}`)}</span></header>
     {preparation ? <div className="expedition-preparation">
       <section className="expedition-squad-picker"><h3>{t('expedition.ui.chooseSquad')}</h3><p className="footnote">{t('expedition.ui.squadCount', { count: squadIds.length })}</p><div className="expedition-squad-options">{expedition.preparationCandidates.map((candidate) => {
         const checked = squadIds.includes(candidate.discipleId);
@@ -131,7 +136,7 @@ export function ExpeditionPanel({ session, world, controller, locale, readOnly, 
     </div> : <>
       <section className="expedition-route" aria-label={t('expedition.ui.route')}><p>{t('expedition.ui.nodeProgress', { current: Math.min(expedition.nodeIndex + 1, expedition.nodeCount), total: expedition.nodeCount })}</p><ol>{expedition.route.map((node, index) => { const definition = encounters.find((entry) => entry.id === node.encounterDefinitionId); return <li key={node.nodeId} data-current={index === expedition.nodeIndex} data-visited={index < expedition.nodeIndex}><span>{index + 1}</span><strong>{definition ? t(definition.nameKey as TextKey) : t('expedition.phase.AtNode')}</strong><small>{t('expedition.ui.nodeTravel', { months: node.travelMonths })}</small></li>; })}</ol></section>
       <section className="expedition-current"><h3>{t('expedition.ui.squad')}</h3><p>{expedition.members.map((member) => nameOf(member.discipleId)).join(' · ')}</p><p>{t('expedition.ui.availableSupplies', { supplies: resources(expedition.availableSupplies, t) })}</p>{expedition.blockedReason && <p className="notice" role="status">{t(expeditionMessages[expedition.blockedReason])}</p>}{expedition.forcedWithdrawal && <p className="notice">{t('expedition.ui.forcedWithdrawal')}</p>}{expedition.lastEncounterOutcome && <p className="expedition-outcome">{t('expedition.ui.lastEncounter', { outcome: t(`expedition.ui.${expedition.lastEncounterOutcome}`) })}</p>}</section>
-      {controller && expedition.phase === 'InEncounter' ? <><p className="footnote">{t('expedition.ui.battleActive')}</p><BattlePanel controller={controller} catalog={catalog} locale={locale} entityPresentation={presentations} paused={world.paused} speed={world.clock.speed} readOnly={locked} onPausedChange={(paused) => session.setPaused('player', paused)} onSpeedChange={(speed) => session.setSpeed(speed)} onTacticalOrder={(order) => { session.dispatchExpedition({ kind: 'expedition.tactic', order }); }} retreatStatus="unavailable" /><p className="footnote">{t('expedition.ui.emergencyUnavailable')}</p></> : <>
+      {controller && expedition.phase === 'InEncounter' ? <><p className="footnote">{t('expedition.ui.battleActive')}</p><BattlePanel controller={controller} catalog={catalog} locale={locale} entityPresentation={presentations} paused={world.paused} speed={world.clock.speed} readOnly={locked} onPausedChange={(paused) => session.setPaused('player', paused)} onSpeedChange={(speed) => session.setSpeed(speed)} onTacticalOrder={(order) => { session.dispatchExpedition({ kind: 'expedition.tactic', order }); }} retreatStatus={session.getEngineVersion() === 8 ? 'available' : 'unavailable'} onRetreat={() => { session.prepareEmergencyRetreat(); }} />{session.getEngineVersion() === 7 && <p className="footnote">{t('expedition.ui.emergencyUnavailable')}</p>}</> : <>
         {(expedition.phase === 'Travelling' || expedition.phase === 'Ending') && <section className="expedition-checkpoint"><h3>{t(`expedition.phase.${expedition.phase}`)}</h3>{expedition.travelTotalTicks > 0 ? <><p>{t('expedition.ui.travelProgress', { progress: expedition.travelProgressTicks / expedition.travelTotalTicks })}</p><progress max={expedition.travelTotalTicks} value={expedition.travelProgressTicks} aria-label={t('expedition.ui.travelProgress', { progress: expedition.travelProgressTicks / expedition.travelTotalTicks })} /></> : <p>{t('expedition.ui.awaitTravel')}</p>}<p className="footnote">{t('expedition.ui.checkpointHint')}</p></section>}
         {expedition.phase === 'AtNode' && encounter && <section className="expedition-node"><h3>{t(encounter.nameKey as TextKey)}</h3><p>{t(encounter.descriptionKey as TextKey)}</p></section>}
         {continueAllowed && <button disabled={locked || world.cultivation.decisions.length > 0} onClick={() => session.dispatchExpedition({ kind: 'expedition.continue' })}>{t(expedition.phase === 'AtNode' ? 'expedition.ui.enterEncounter' : expedition.phase === 'Ending' ? 'expedition.ui.continueReturn' : 'expedition.ui.continueTravel')}</button>}

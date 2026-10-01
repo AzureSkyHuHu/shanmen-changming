@@ -1,3 +1,5 @@
+import { validateWorldStateV8 } from '../../src/core/kernel/validation';
+import { appendWorldEvents } from '../../src/core/world/history-access';
 import { describe, expect, it } from 'vitest';
 import { createWorldV8 } from '../../src/core/world/create-world-v8';
 import { validateWorldLifecycleSources } from '../../src/core/world/lifecycle-source-proof';
@@ -19,6 +21,10 @@ describe('new lifecycle cause authority', () => {
     expect(death.ok).toBe(true); if (!death.ok) throw new Error(death.code);
     const candidate: WorldStateV8 = { ...world, ...death.frame };
     expect(validateWorldLifecycleSources(candidate)).toEqual(['Combat death has no mapped registered encounter']);
+    const mirrored = appendWorldEvents({ ...candidate, disciples: candidate.disciples.map(actor => actor.id === discipleId ? { ...actor, lifeState: 'dead' as const, canWork: false } : actor) },
+      candidate.cultivation.events.map(event => ({ eventId: event.eventId, kind: event.kind, tick: 0, rootActionId: event.rootActionId, parentEventId: null,
+        payload: { discipleId: event.discipleId, relatedId: event.relatedId, month: event.month } })));
+    expect(validateWorldStateV8(mirrored)).toContain('Combat death has no mapped registered encounter');
   });
   it('accepts actual expiry and permanent death, then rejects relabeling it as breakthrough', () => {
     let world = createWorldV8('actual-life-proof'); const profile = world.cultivation.disciples[0]!; const actor = world.disciples[0]!;

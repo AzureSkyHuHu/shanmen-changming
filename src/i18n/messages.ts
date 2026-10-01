@@ -4,6 +4,26 @@ const noParameters = { parameters: {} } as const;
 
 /** Registry of stable UI/content keys. Add a Chinese entry whenever adding a key. */
 export const messageSpecifications = {
+  "expedition.ui.emergencyReviewHint": {"parameters": {}},
+  "expedition.ui.emergencyAcknowledge": {"parameters": {}},
+  "expedition.ui.addedInjury": {"parameters": {"name": {"type": "string", "format": "text"}, "amount": {"type": "number", "format": "integer"}}},
+  "expedition.ui.emergencyReviewBlocked": {"parameters": {}},
+
+  "campaign.view.equipmentDescription": {"parameters": {}},
+  "campaign.view.invitationReward": {"parameters": {}},
+  "campaign.view.retainedProgress": {"parameters": {"count": {"type": "number", "format": "integer"}}},
+  "campaign.view.retainedBuilding": {"parameters": {"name": {"type": "string", "format": "text"}}},
+  "campaign.view.retainedResource": {"parameters": {"name": {"type": "string", "format": "text"}, "quantity": {"type": "number", "format": "integer"}}},
+  "campaign.view.retainedManual": {"parameters": {"name": {"type": "string", "format": "text"}}},
+  "campaign.view.retainedEquipment": {"parameters": {"name": {"type": "string", "format": "text"}}},
+  "campaign.view.reliefConditions": {"parameters": {"count": {"type": "number", "format": "integer"}, "months": {"type": "number", "format": "integer"}}},
+  "campaign.view.reliefMonth": {"parameters": {"month": {"type": "number", "format": "integer"}}},
+  "campaign.view.finalizedDeath": {"parameters": {"name": {"type": "string", "format": "text"}}},
+  "campaign.view.noFinalizedDeaths": {"parameters": {}},
+  "campaign.view.grantedResource": {"parameters": {"name": {"type": "string", "format": "text"}, "quantity": {"type": "number", "format": "integer"}}},
+  "campaign.view.estateOrigin": {"parameters": {"name": {"type": "string", "format": "text"}}},
+  "campaign.view.unknownDisciple": {"parameters": {}},
+
   "event.campaign.committed": { parameters: {} },
 
   "campaign.error.INVALID_STATE": { parameters: {} },

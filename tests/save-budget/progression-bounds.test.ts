@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { createWorld } from '../../src/core/world/create-world';
 import { migrateWorldV7ToV8 } from '../../src/core/kernel/migrate-v7';
 import { canonicalStringify, cloneJson } from '../../src/core/kernel/serialization';
-import { allocateId } from '../../src/core/kernel/ids';
+import { CALENDAR_TICKS_PER_MONTH } from '../../src/core/kernel/clock';
+import { advanceTicksWithStatusV8 } from '../../src/core/kernel/simulation-v8';
 import { drawInteger } from '../../src/core/kernel/random';
 import { createBuildFrameV2, applyBuildAuthorityCommandV2 } from '../../src/core/builds/v2';
 import type { BuildAuthorityCommandV2 } from '../../src/core/builds/v2-types';
@@ -13,6 +14,7 @@ import type { WorldStateV8 } from '../../src/core/world/v8-types';
 import { getWorldBuildContentContext } from '../../src/core/world/content-access';
 import { worldBuildHistoryObligationFacts } from '../../src/core/world/progression-obligations';
 import { prepareWorldEstateSettlement } from '../../src/core/world/legacy-bridge';
+import { dispatchWorldCultivationV8 } from '../../src/core/world/cultivation-bridge-v8';
 import { validateWorldStateV8 } from '../../src/core/kernel/validation';
 import { appendHistoryBatch, createHistoryArchive, getHistoryArchiveUsage } from '../../src/core/history/archive';
 import { canonicalUtf8ByteLength } from '../../src/core/save-budget/canonical-bytes';
@@ -56,15 +58,41 @@ function build(world: WorldStateV8, body: Body<BuildAuthorityCommandV2>, command
   expect(result.ok, JSON.stringify(result)).toBe(true); if (!result.ok) throw new Error(result.code);
   return { ...world, builds: cloneJson(result.frame.builds), sequences: cloneJson(result.frame.sequences) } as WorldStateV8;
 }
-function die(world: WorldStateV8, discipleId: string): WorldStateV8 {
-  const death = allocateId(world.sequences, 'instance');
-  let next = cultivate({ ...world, sequences: death.sequences }, { kind: 'death.finalize', discipleId, deathId: death.id, cause: 'combat', acknowledgeDeath: true });
-  const record = next.cultivation.deaths.at(-1)!;
-  next = { ...next, legacy: { ...next.legacy, estates: [...next.legacy.estates, { estateId: `estate/${record.deathId}`, deathId: record.deathId,
-    discipleId, beneficiaryId: record.beneficiaryId,
-    itemInstanceIds: next.builds.equipment.filter(item => item.owner.kind === 'disciple' && item.owner.discipleId === discipleId).map(item => item.instanceId),
-    pendingRunId: null, transferCommandIds: [], recordedMonth: record.month, settledMonth: null, settledOwner: null }] } };
+/** Legal boundary-pressure setup, not a claim that the test played a full natural
+ * lifetime. Only the initial birth/age projection changes. No death/event/estate
+ * evidence is fabricated; the real v8 tick and lifespan reducers create it. */
+function nearLifespanEnd(world: WorldStateV8, discipleId: string): WorldStateV8 {
+  const next = cloneJson(world);
+  const profile = next.cultivation.disciples.find(profile => profile.discipleId === discipleId)!;
+  const actor = next.disciples.find(actor => actor.id === discipleId)!;
+  actor.birthCalendarTick = next.clock.calendarTick + 1 - profile.lifespanMonths * CALENDAR_TICKS_PER_MONTH;
+  actor.ageMonths = Math.floor((next.clock.calendarTick - actor.birthCalendarTick) / CALENDAR_TICKS_PER_MONTH);
+  profile.ageMonths = actor.ageMonths; actor.canWork = true;
+  expect(validateWorldStateV8(next)).toEqual([]);
   return next;
+}
+/** Return the real finalized lifespan stage before atomic estate settlement.
+ * prepareWorldEstateSettlement owns deriving estate rows from this death fact. */
+function die(world: WorldStateV8, discipleId: string): WorldStateV8 {
+  const profile = world.cultivation.disciples.find(profile => profile.discipleId === discipleId)!;
+  expect(profile.ageMonths + 1).toBe(profile.lifespanMonths);
+  const advanced = advanceTicksWithStatusV8(world, 1);
+  expect(advanced.capacityStop).toBeNull(); expect(advanced.invariantStop).toBeNull();
+  const pending = advanced.world.cultivation.pendingDeaths.find(death => death.discipleId === discipleId)!;
+  expect(pending).toMatchObject({ discipleId, cause: 'lifespan' });
+  expect(advanced.world.cultivation.events.some(event => event.kind === 'cultivation.expiryPending'
+    && event.discipleId === discipleId && event.relatedId === pending.deathId)).toBe(true);
+  expect(validateWorldStateV8(advanced.world)).toEqual([]);
+  const finalized = dispatchWorldCultivationV8(advanced.world, { kind: 'death.finalize', commandId: `proof:lifespan:${advanced.world.cultivation.revision}`,
+    expectedRevision: advanced.world.cultivation.revision, discipleId, deathId: pending.deathId, cause: 'lifespan', acknowledgeDeath: true });
+  expect(finalized.ok, JSON.stringify(finalized)).toBe(true); if (!finalized.ok) throw new Error(finalized.code);
+  expect(finalized.world.cultivation.deaths.find(death => death.deathId === pending.deathId)).toMatchObject({ discipleId, cause: 'lifespan' });
+  // This is the World cultivation adapter, not dispatchCommandV8: retirement
+  // must still be owed so the following settlement assertions exercise new work.
+  expect(finalized.world.builds.retiredDisciples).toEqual(world.builds.retiredDisciples);
+  expect(finalized.world.cultivation.archivedDisciples).toEqual(world.cultivation.archivedDisciples);
+  expect(finalized.world.legacy.estates.some(estate => estate.deathId === pending.deathId)).toBe(false);
+  return finalized.world;
 }
 function settle(world: WorldStateV8): WorldStateV8 {
   const result = prepareWorldEstateSettlement(world);
@@ -116,9 +144,14 @@ describe('bounded progression terminal records', () => {
   });
 
   test('actual reducer retirement, source removals, transfers and both archives fit their typed records', () => {
-    const world = fresh(); const before = budget(world); const source = cloneJson(world);
+    const world = nearLifespanEnd(fresh(), 'entity:1'); const before = budget(world); const source = cloneJson(world);
     const dead = die(world, 'entity:1'); const after = settle(dead); const owner = life(before, 'entity:1');
     expect(validateWorldStateV8(after)).toEqual([]);
+    expect(after.builds.history.length - dead.builds.history.length).toBe(4);
+    expect(after.builds.retiredDisciples.length - dead.builds.retiredDisciples.length).toBe(1);
+    expect(after.cultivation.archivedDisciples.length - dead.cultivation.archivedDisciples.length).toBe(1);
+    expect(after.legacy.archivedIdentities.length - dead.legacy.archivedIdentities.length).toBe(1);
+    expect(after.legacy.estates.length - dead.legacy.estates.length).toBe(1);
     const receipt = after.builds.receipts.find(receipt => receipt.commandId.endsWith('/retire'))!;
     checkRecord(owner, 'retirement:build.receipt+escaped-fingerprint+source-operations', receipt);
     expect(receipt.operations).toHaveLength(world.builds.disciples[0]!.sources.length);
@@ -143,7 +176,7 @@ describe('bounded progression terminal records', () => {
   test('item and relic reservations follow the future heir, survive the first death, and are not charged twice', () => {
     const source = createWorld('progression-inheritance');
     source.cultivation.disciples[0]!.relicIds = ['relic:first', 'r'.repeat(128)];
-    let world = migrateWorldV7ToV8(source);
+    let world = nearLifespanEnd(migrateWorldV7ToV8(source), 'entity:1');
     world = cultivate(world, { kind: 'legacy.setHeir', discipleId: 'entity:1', heirId: 'entity:2' });
     world = cultivate(world, { kind: 'legacy.setHeir', discipleId: 'entity:2', heirId: 'entity:3' });
     const before = budget(world);
@@ -156,6 +189,9 @@ describe('bounded progression terminal records', () => {
     const dead = die(world, 'entity:1'); const pending = budget(dead);
     expect(life(pending, 'entity:1').buildRows).toBe(4);
     const settled = settle(dead); const after = budget(settled);
+    expect(settled.builds.history.length - dead.builds.history.length).toBe(4);
+    expect(settled.builds.retiredDisciples.length - dead.builds.retiredDisciples.length).toBe(1);
+    expect(settled.cultivation.archivedDisciples.length - dead.cultivation.archivedDisciples.length).toBe(1);
     expect(after.totals.buildRows).toBe(21);
     expect(life(after, 'entity:2').buildRows).toBe(7);
     expect(life(after, 'entity:3').buildRows).toBe(10);
@@ -240,14 +276,14 @@ describe('bounded progression terminal records', () => {
     const granted = grantTeaching(intermediate, teaching.id);
     expect(verifyProgressionReservationDischarges({ world, assessment: before }, { world: granted, assessment: budget(granted) }))
       .toMatchObject({ supported: true, discharged: [`teaching:${teaching.id}`] });
-    const dead = die(fresh(), 'entity:1'); const deathId = dead.cultivation.deaths.at(-1)!.deathId;
+    const dead = die(nearLifespanEnd(fresh(), 'entity:1'), 'entity:1'); const deathId = dead.cultivation.deaths.at(-1)!.deathId;
     const partial = build(dead, { kind: 'disciple.retire', discipleId: 'entity:1', deathId }, `death/${deathId}/retire`);
     const partialFacts = worldBuildHistoryObligationFacts(dead);
     expect(deriveProgressionReservations({ world: partial, buildFacts: partialFacts })).toMatchObject({ supported: false, owners: [] });
   });
 
   test('exact World archive decoded charges agree with codec accounting, including its 32-node per-row charge', () => {
-    const world = fresh(); const next = die(world, 'entity:1'); const event = next.events.at(-1)!;
+    const world = nearLifespanEnd(fresh(), 'entity:1'); const next = die(world, 'entity:1'); const event = next.events.at(-1)!;
     const usage = getHistoryArchiveUsage(appendHistoryBatch(createHistoryArchive(), { events: [event] }));
     const record = measureProgressionRecord(event);
     expect(usage.expandedCharacters).toBe(record.decodedCharacters);
