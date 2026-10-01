@@ -1,13 +1,21 @@
 # 开发状态
 
-## 当前概览（2026-10-01 19:22 UTC）
+## 当前概览（2026-10-01 19:55 UTC）
 
-- 最近已确认远端基线：[9bf30ff](https://github.com/AzureSkyHuHu/shanmen-changming/commit/9bf30ff684f231e1693cb9b77e61e98e78f842a1)，[GitHub Actions 36911823751](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36911823751) 已成功。后续提交看各自 Actions；GitHub源码推送不会自动更新预览
-- 本轮独立源码快照 `05506613c631b388ae32625b2094ccc7b5676db2` 完整通过：106文件 / 1421项测试、1026中文键、边界、内容、双严格类型检查及生产构建；单测试进程367.40秒
+- 最近已确认远端基线：[f1ef9a5](https://github.com/AzureSkyHuHu/shanmen-changming/commit/f1ef9a555e17507e8d1f924bf5cd5ffb265a1f76)，[GitHub Actions 36914289694](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36914289694) 已成功。后续提交看各自 Actions；GitHub源码推送不会自动更新预览
+- 本轮独立源码快照 `70cb0b1f463ea54777ff7dad401f25b069af3e9a` 完整通过：107文件 / 1444项测试、1026中文键、边界、内容、双严格类型检查及生产构建；单测试进程428.68秒
 - 已修复“战胜后最后生还者在返程寿尽”导致候选v8必要结算被首通资格检查拒绝的边界。战斗胜利事实不改写、封存物资与损失照常结算；无人归来则不授战役通关和个人首胜，解锁/遗产仍一次完成，界面有双语说明
 - 默认新游戏仍v7。v8战役/成长/选定路线/受控紧急撤退已接线并通过工程测试，完整退出预算的新独立证明模块尚未接运行时；原生对话框与完整Canvas交互尚未浏览器验收
 - 五路线15场真实战斗及跨路存读档是G1核心证据，不等于完整1.0。其余可玩阶段见[完整验收路线图](full-game-acceptance-roadmap.md)，下一扩建首片见[v9候选方案](sect-expansion-first-slice.md)，后者只是设计，不是新功能已实现
 - 大素材保留dot、不入Git；96×96运行人物保留。私有预览仍11:33 UTC版本 `98e7026`，未部署本轮代码、访问范围不变；云端浏览器登录授权仍待完成
+
+## 2026-10-01 19:55 UTC 独立注册远征退出预算
+
+- 新增只读 `assessRegisteredExpeditionExitBudget`：保守计两份序列化run、完整WorldEncounter配额、真实生产/成长/清仓义务和最大收尾增量。192/256KiB明确是待统一强制的产品配额，不冒充自然战斗峰值；原有通用余量未被无证明扣除
+- 同时检查wire、run/World/build/cultivation/archive行、reader字符/节点、全局ID/修订/月刻等维度。新准入目标是一直保有真实撤回、返程、保存的路径，不是无限历史或必定胜利
+- 静态审阅与反例封闭了导入记录预占必需commandId/transferId/milestoneId/resultId、无cursor月份错位、完整campaign reader外壳，以及不真实可撤的controller来源；不删除/重命名旧记录，不放宽旧解析器
+- 23专项覆盖真实安全撤退与机缘放弃、紧急撤退、家中突破未抽样取消、六资源完整清仓/取消生产、生命周期确认及中断保存；合法压力导入与自然游戏过程明确区分，行数构造优化保留完整最终replay与原超时
+- 上述冻结树全量1444项通过，之后类型和生产构建成功。本模块在此检查点仍独立、没有接到运行时准入或tick，不能据此宣称产品已具有全流程容量保证；下一片才接实际强制边界和可恢复停止
 
 ## 2026-10-01 19:22 UTC 返程全员寿尽结算修复
 
