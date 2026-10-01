@@ -4,6 +4,7 @@ import { validateCampaignStateV2 } from '../campaign/v2';
 import { restoreRegisteredExpedition } from '../expeditions/versioned';
 import { canonicalStringify, stableHash } from '../kernel/serialization';
 import { REALMS } from '../cultivation/types';
+import { collectWorldCampaignProofFacts, validateWorldCampaignProofs } from './campaign-proof';
 import type { WorldStateV8 } from './v8-types';
 
 const same = (left: unknown, right: unknown) => canonicalStringify(left) === canonicalStringify(right);
@@ -11,17 +12,16 @@ const exact = (value: unknown, keys: readonly string[]): boolean => value !== nu
   && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 /** Authoritative cross-domain links. A syntactically valid standalone grant is never enough. */
-export function validateWorldCampaign(world: WorldStateV8): string[] {
+export interface WorldCampaignInspection { errors: string[]; paymentInstanceIds: string[]; actionRootIds: string[] }
+export function validateWorldCampaign(world: WorldStateV8): string[] { return inspectWorldCampaign(world).errors; }
+export function inspectWorldCampaign(world: WorldStateV8): WorldCampaignInspection {
   try {
     if (!exact(world.campaign, ['schemaVersion', 'progress', 'clearEvidence']) || world.campaign.schemaVersion !== 1
       || !Array.isArray(world.campaign.clearEvidence) || world.campaign.clearEvidence.length > 5
       || validateCampaignStateV2(world.campaign.progress).length) throw new Error('Invalid campaign authority');
     const progress = world.campaign.progress; const proofs = world.campaign.clearEvidence;
-    // This additive migration checkpoint has no committing World transaction/cost
-    // fact schema yet. A standalone domain acknowledgement cannot certify payment
-    // or applied grants. The committing bridge must replace this fail-closed gate
-    // with bidirectional World receipt/event/domain-effect verification.
-    if (progress.claims.length > 0) throw new Error('Campaign claim lacks a defined World transaction proof');
+    const transactions = validateWorldCampaignProofs(world, collectWorldCampaignProofFacts(world));
+    if (!transactions.ok) throw new Error(transactions.errors[0]);
     if (proofs.length !== progress.clears.length || new Set(proofs.map(proof => proof.routeId)).size !== proofs.length) throw new Error('Campaign clear proof count differs');
     for (const proof of proofs) {
       if (!exact(proof, ['routeId', 'expedition'])) throw new Error('Invalid campaign proof shape');
@@ -87,7 +87,7 @@ export function validateWorldCampaign(world: WorldStateV8): string[] {
           && estate.itemInstanceIds.includes(command.itemInstanceId) && command.fromOwner.kind === 'disciple'
           && command.fromOwner.discipleId === estate.discipleId && same(command.toOwner, estate.settledOwner))) throw new Error('Equipment transfer lacks estate ownership proof');
       } else if (command.kind === 'equipment.transfer') {
-        throw new Error('Estate assignment lacks a defined World transaction proof');
+        if (!transactions.buildCommandIds.includes(command.commandId)) throw new Error('Estate assignment lacks a defined World transaction proof');
       } else if (command.kind === 'milestone.award') {
         if (command.ruleId === 'expedition.first-victory') {
           // Route-first-clear proof cannot justify a recruit's first victory on
@@ -160,6 +160,6 @@ export function validateWorldCampaign(world: WorldStateV8): string[] {
     }
     if (world.cultivation.deaths.some(death => !estateDeaths.has(death.deathId))) throw new Error('Finalized death lacks estate responsibility');
     if (!resolveContentIdentity(world.contentIdentity, { allowCandidate: true }) || same(world.contentIdentity, contentIdentity(LEGACY_V7_CONTENT))) throw new Error('World has no current growth content');
-    return [];
-  } catch (error) { return [error instanceof Error ? error.message : 'Invalid campaign provenance']; }
+    return { errors: [], paymentInstanceIds: transactions.paymentInstanceIds, actionRootIds: transactions.actionRootIds };
+  } catch (error) { return { errors: [error instanceof Error ? error.message : 'Invalid campaign provenance'], paymentInstanceIds: [], actionRootIds: [] }; }
 }

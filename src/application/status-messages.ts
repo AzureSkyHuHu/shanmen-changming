@@ -1,3 +1,4 @@
+import { campaignMessageKey } from './campaign-messages';
 import type { CommandResult, RejectionCode } from '../core/kernel';
 import type { TextKey } from '../i18n';
 import type { BuildError } from '../core/builds';
@@ -12,6 +13,7 @@ export const commandMessages: Record<RejectionCode, TextKey> = {
   INSUFFICIENT_INVENTORY: 'command.error.inventory', UNKNOWN_TRANSACTION: 'command.error.transaction', TRANSACTION_FINISHED: 'command.error.finished',
   INVALID_RESERVATION: 'command.error.reservation', CAPACITY_EXCEEDED: 'command.error.capacity', CORE_PAUSED_ERROR: 'command.error.paused',
   CULTIVATION_REJECTED: 'cultivation.error.INVALID_STATE',
+  CAMPAIGN_REJECTED: 'campaign.growth.rejected',
   BUILD_REJECTED: 'buildView.rejected', EXPEDITION_REJECTED: 'expedition.error.INVALID_STATE',
   SECT_ECONOMY_REJECTED: 'economy.error.invalid',
   AUTO_JOB_RETIRED: 'command.error.autoRetired', SAVE_CAPACITY_EXCEEDED: 'command.error.saveCapacity',
@@ -88,6 +90,7 @@ const economyMessages: Record<SectEconomyError, TextKey> = {
 
 export function commandFeedbackKey(result: Pick<CommandResult, 'rejection'>): TextKey {
   if (!result.rejection) return 'command.accepted';
+  if (result.rejection.code === 'CAMPAIGN_REJECTED' && result.rejection.campaignCode) return campaignMessageKey(result.rejection.campaignCode);
   if (result.rejection.code === 'CULTIVATION_REJECTED' && result.rejection.cultivationCode) return cultivationMessages[result.rejection.cultivationCode];
   if (result.rejection.code === 'EXPEDITION_REJECTED' && result.rejection.expeditionCode) return expeditionMessages[result.rejection.expeditionCode];
   if (result.rejection.code === 'BUILD_REJECTED' && result.rejection.buildCode) return buildMessages[result.rejection.buildCode] ?? 'buildView.rejected';

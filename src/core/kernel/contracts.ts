@@ -1,3 +1,4 @@
+import type { WorldCampaignError, WorldCampaignResult } from '../world/campaign-types';
 import type { SectEconomyCommand, SectEconomyError } from '../sect-economy/types';
 import type { WorldSectEconomyResult } from '../world/sect-economy-bridge';
 import type { ResourceId } from '../economy/types';
@@ -20,8 +21,8 @@ export type Command = CommandBase & (
   | { kind: 'expedition.command'; payload: { command: PlayerExpeditionCommand } }
   | { kind: 'sect-economy.command'; payload: { command: SectEconomyCommand } }
 );
-export type RejectionCode = 'INVALID_COMMAND' | 'COMMAND_CONFLICT' | 'COMMAND_NOT_DUE' | 'UNKNOWN_RECIPE' | 'UNKNOWN_WORKER' | 'WORKER_UNAVAILABLE' | 'INSUFFICIENT_INVENTORY' | 'UNKNOWN_TRANSACTION' | 'TRANSACTION_FINISHED' | 'INVALID_RESERVATION' | 'CAPACITY_EXCEEDED' | 'CORE_PAUSED_ERROR' | 'CULTIVATION_REJECTED' | 'BUILD_REJECTED' | 'EXPEDITION_REJECTED' | 'SECT_ECONOMY_REJECTED' | 'AUTO_JOB_RETIRED' | 'SAVE_CAPACITY_EXCEEDED' | 'SAVE_OBLIGATION_UNBOUNDED' | 'UNKNOWN_RESOURCE' | 'INVALID_QUANTITY' | 'INSUFFICIENT_AVAILABLE';
-export interface CommandRejection { code: RejectionCode; resourceId?: ResourceId; cultivationCode?: CultivationError; buildCode?: BuildError; expeditionCode?: WorldExpeditionError; economyCode?: SectEconomyError }
+export type RejectionCode = 'INVALID_COMMAND' | 'COMMAND_CONFLICT' | 'COMMAND_NOT_DUE' | 'UNKNOWN_RECIPE' | 'UNKNOWN_WORKER' | 'WORKER_UNAVAILABLE' | 'INSUFFICIENT_INVENTORY' | 'UNKNOWN_TRANSACTION' | 'TRANSACTION_FINISHED' | 'INVALID_RESERVATION' | 'CAPACITY_EXCEEDED' | 'CORE_PAUSED_ERROR' | 'CULTIVATION_REJECTED' | 'CAMPAIGN_REJECTED' | 'BUILD_REJECTED' | 'EXPEDITION_REJECTED' | 'SECT_ECONOMY_REJECTED' | 'AUTO_JOB_RETIRED' | 'SAVE_CAPACITY_EXCEEDED' | 'SAVE_OBLIGATION_UNBOUNDED' | 'UNKNOWN_RESOURCE' | 'INVALID_QUANTITY' | 'INSUFFICIENT_AVAILABLE';
+export interface CommandRejection { code: RejectionCode; resourceId?: ResourceId; cultivationCode?: CultivationError; buildCode?: BuildError; expeditionCode?: WorldExpeditionError; economyCode?: SectEconomyError; campaignCode?: WorldCampaignError }
 export interface CommandResult {
   commandId: string;
   status: 'accepted' | 'rejected';
@@ -32,12 +33,13 @@ export interface CommandResult {
   buildResult?: WorldBuildResult;
   expeditionResult?: WorldExpeditionResult;
   economyResult?: WorldSectEconomyResult;
+  campaignResult?: WorldCampaignResult;
   discardResult?: { resourceId: ResourceId; quantity: number };
 }
 export interface CommandReceipt { commandId: string; fingerprint: string; result: CommandResult }
 export interface DomainEvent {
   readonly eventId: string;
-  readonly kind: 'inventory.discarded' | 'production.started' | 'production.committed' | 'production.cancelled' | 'production.blocked' | CultivationEvent['kind'];
+  readonly kind: 'campaign.committed' | 'inventory.discarded' | 'production.started' | 'production.committed' | 'production.cancelled' | 'production.blocked' | CultivationEvent['kind'];
   readonly tick: number;
   readonly rootActionId: string;
   readonly parentEventId: string | null;

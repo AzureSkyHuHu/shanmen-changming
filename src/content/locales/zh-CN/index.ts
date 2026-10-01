@@ -2,6 +2,8 @@ import type { TextKey } from '../../../i18n/messages.ts';
 import type { MessageTemplate } from '../../../i18n/types.ts';
 
 export const zhCN = {
+  "event.campaign.committed": "战役安排已完成结算。",
+
   "campaign.error.INVALID_STATE": "宗门状态未通过校验，本次安排未执行。",
   "campaign.error.INVALID_INPUT": "安排内容不完整，请重新选择。",
   "campaign.error.UNKNOWN_ROUTE": "这条路线不在当前战役中。",

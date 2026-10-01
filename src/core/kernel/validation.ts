@@ -1,7 +1,8 @@
+import { isPlayerCampaignCommand } from '../world/campaign-queries';
 import type { Command } from './contracts';
 import { LEGACY_V7_CONTENT } from '../../content/registry';
 import { getWorldContent } from '../world/content-access';
-import { validateWorldProgressionV8 } from '../world/validate-progression-v8';
+import { inspectWorldProgressionV8 } from '../world/validate-progression-v8';
 import { validateCultivationFrameV3, expandDeceasedCultivator } from '../cultivation/v3';
 import type { CultivationState as CultivationStateV3 } from '../cultivation/v3';
 import type { WorldStateV8 } from '../world/v8-types';
@@ -135,11 +136,19 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     const needsDecision = cultivation.pendingDeaths.length > 0 || cultivation.attempts.some((a) => a.phase === 'DecisionReady');
     if (clock.pauseReasons.includes('cultivation') !== needsDecision) return fail('Cultivation decision pause ownership mismatch');
   } else if (Object.hasOwn(value, 'cultivation')) return fail('Legacy world contains an unexpected cultivation schema');
+  let campaignPaymentIds: string[] = [];
+  let campaignActionRootIds: string[] = [];
+  let archive: HistoryArchive | null = null;
+  if (hasCampaign) { try { archive = restoreHistoryArchive(value.history); } catch { return fail('Invalid history archive'); } }
   if (hasProgression) {
     if (!object(value.builds) || !object(value.expedition)) return fail('Missing build/expedition authority');
     let progressionErrors: string[];
-    try { progressionErrors = hasCampaign ? validateWorldProgressionV8(value as unknown as WorldStateV8)
-      : validateWorldProgression(version === 4 ? projectLegacyWorldV4Controller(value) : value as unknown as WorldState); }
+    try {
+      if (hasCampaign) {
+        const inspection = inspectWorldProgressionV8({ ...value, history: archive } as unknown as WorldStateV8);
+        progressionErrors = inspection.errors; campaignPaymentIds = inspection.paymentInstanceIds; campaignActionRootIds = inspection.actionRootIds;
+      } else progressionErrors = validateWorldProgression(version === 4 ? projectLegacyWorldV4Controller(value) : value as unknown as WorldState);
+    }
     catch { return fail('Invalid legacy combat controller'); }
     if (progressionErrors.length) return fail(progressionErrors[0]!);
   } else if (Object.hasOwn(value, 'builds') || Object.hasOwn(value, 'expedition')) return fail('Legacy world contains an unsupported progression schema');
@@ -147,9 +156,8 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     const economyErrors = validateSectEconomyState(value.sectEconomy, value.disciples.map((disciple) => (disciple as ObjectValue).id as string), simulationTick);
     if (economyErrors.length) return fail(economyErrors[0]!);
   } else if (Object.hasOwn(value, 'sectEconomy')) return fail('Legacy world contains an unsupported sect economy schema');
-  let archive: HistoryArchive | null = null;
   if (hasHistory) {
-    try { archive = restoreHistoryArchive(value.history); } catch { return fail('Invalid history archive'); }
+    try { archive = archive ?? restoreHistoryArchive(value.history); } catch { return fail('Invalid history archive'); }
     if (Object.keys(value.transactions).length > MAX_DISCIPLES || Object.keys(value.commandReceipts).length > RECENT_WORLD_RECEIPTS
       || !list(value.events) || value.events.length > RECENT_WORLD_EVENTS) return fail('Unbounded live history collections');
     if (Object.values(value.transactions).some((transaction) => !object(transaction) || !['Running', 'Blocked'].includes(transaction.state as string))
@@ -194,7 +202,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     if (list(liveEvents)) yield* liveEvents;
   }
   const reservedTotals = Object.fromEntries(RESOURCE_IDS.map((id) => [id, 0])) as Record<string, number>;
-  const instanceIds: string[] = [];
+  const instanceIds: string[] = [...campaignPaymentIds];
   const originatingCommands = new Map<string, { transactionId: string; fingerprint: string }>();
   const transactionIds = new Set<string>();
   const manualRootActions = new Set<string>();
@@ -316,6 +324,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   if (!list(value.events)) return fail('Invalid events');
   const eventIds = new Set<string>();
   const parentEventIds = new Set<string>();
+  const nonCampaignRoots = new Set<string>();
   const cultivationMirrors = new Map<string, ObjectValue>();
   const automaticCancellationEvents = new Map<string, ObjectValue>();
   const automaticPinEventIds = new Map<string, string>();
@@ -323,7 +332,8 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   const discardEvents = new Map<string, ObjectValue>();
   const justifiedDiscardEvents = new Set<string>();
   for (const event of events()) {
-    if (!object(event) || idNumber(event.eventId, 'event') === null || ![...['production.started', 'production.committed', 'production.cancelled', 'production.blocked'], ...(hasAutomatic ? ['inventory.discarded'] : []), ...(hasCultivation ? CULTIVATION_EVENT_KINDS : [])].includes(event.kind as string) || !isNonNegativeInteger(event.tick) || event.tick > clock.simulationTick || idNumber(event.rootActionId, 'action') === null || !(event.parentEventId === null || text(event.parentEventId)) || !object(event.payload)) return fail('Invalid event');
+    if (!object(event) || idNumber(event.eventId, 'event') === null || ![...['production.started', 'production.committed', 'production.cancelled', 'production.blocked'], ...(hasAutomatic ? ['inventory.discarded'] : []), ...(hasCampaign ? ['campaign.committed'] : []), ...(hasCultivation ? CULTIVATION_EVENT_KINDS : [])].includes(event.kind as string) || !isNonNegativeInteger(event.tick) || event.tick > clock.simulationTick || idNumber(event.rootActionId, 'action') === null || !(event.parentEventId === null || text(event.parentEventId)) || !object(event.payload)) return fail('Invalid event');
+    if (event.kind !== 'campaign.committed') nonCampaignRoots.add(event.rootActionId as string);
     if (hasAutomatic && isAutomaticJobId(event.payload.transactionId)) {
       const jobId = event.payload.transactionId;
       if (event.kind !== 'production.cancelled' || automaticCancellationEvents.has(jobId)) return fail('Invalid durable automatic event');
@@ -341,6 +351,12 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     if (CULTIVATION_EVENT_KINDS.includes(event.kind as never)) cultivationMirrors.set(event.eventId as string, event);
     if (idNumber(event.eventId, 'event')! >= (sequences.nextEvent as number) || idNumber(event.rootActionId, 'action')! >= (sequences.nextAction as number)) return fail('Invalid event sequence continuity');
   }
+  const expeditionActionRoots = new Set(hasCampaign ? [
+    (value as unknown as WorldStateV8).expedition.run?.runId, ...(value as unknown as WorldStateV8).expedition.history.map(run => run.runId),
+    ...(value as unknown as WorldStateV8).campaign.clearEvidence.map(proof => proof.expedition.run.runId),
+  ].filter((id): id is string => typeof id === 'string' && /^run:[1-9][0-9]*$/.test(id)).map(id => id.replace('run:', 'action:')) : []);
+  if (campaignActionRootIds.some(id => expeditionActionRoots.has(id) || nonCampaignRoots.has(id) || manualRootActions.has(id)
+    || automatic && [...Object.values(automatic.live).map(pair => pair.transaction.rootActionId), ...Object.values(automatic.pins).map(pin => pin.rootActionId)].includes(id))) return fail('Campaign action collides with another authority');
   for (const id of settlementEventIds) if (!eventIds.has(id)) return fail('Missing settlement event');
   for (const id of parentEventIds) if (!eventIds.has(id)) return fail('Missing parent event');
   if (cultivation) {
@@ -369,13 +385,18 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     }
     let sourceCommand: unknown;
     try { sourceCommand = JSON.parse(receipt.fingerprint); } catch { return fail('Malformed command fingerprint'); }
+    if (!hasCampaign && object(sourceCommand) && sourceCommand.kind === 'campaign.command') return fail('Legacy receipt contains unsupported campaign content');
     const isCultivation = hasCultivation && object(sourceCommand) && sourceCommand.kind === 'cultivation.command';
     if (result.status === 'accepted') {
       if (!hasAutomatic && object(sourceCommand) && sourceCommand.kind === 'inventory.discard') return fail('Legacy accepted receipt uses unsupported content');
       if (!hasEconomy && object(sourceCommand) && (sourceCommand.kind === 'sect-economy.command'
         || (sourceCommand.kind === 'production.start' && (!object(sourceCommand.payload) || typeof sourceCommand.payload.recipeId !== 'string'
           || !LEGACY_RECIPE_IDS.has(sourceCommand.payload.recipeId))))) return fail('Legacy accepted receipt uses unsupported content');
-      if (hasAutomatic && object(sourceCommand) && sourceCommand.kind === 'inventory.discard') {
+      if (hasCampaign && object(sourceCommand) && sourceCommand.kind === 'campaign.command') {
+        if (!object(sourceCommand.payload) || Object.keys(sourceCommand.payload).length !== 1 || !isPlayerCampaignCommand(sourceCommand.payload.command)
+          || sourceCommand.payload.command.commandId !== key || result.transactionId !== null || result.rejection !== null || !object(result.campaignResult)) return fail('Invalid accepted campaign receipt');
+        // Full bidirectional payment/event/domain proof was checked in progression inspection.
+      } else if (hasAutomatic && object(sourceCommand) && sourceCommand.kind === 'inventory.discard') {
         const event = discardEvents.get(key);
         if (!isCommand({ ...sourceCommand, commandId: key, sequence: 0, issuedTick: 0 }) || !object(sourceCommand.payload)
           || result.transactionId !== null || result.rejection !== null || !object(result.discardResult)

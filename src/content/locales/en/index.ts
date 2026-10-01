@@ -3,6 +3,8 @@ import type { MessageTemplate } from '../../../i18n/types.ts';
 
 /** English may be incomplete; missing or whitespace-only entries fall back per key. */
 export const en = {
+  "event.campaign.committed": "The campaign arrangement has been settled.",
+
   "campaign.error.INVALID_STATE": "The sect state could not be validated. Nothing was changed.",
   "campaign.error.INVALID_INPUT": "The request is incomplete. Please select again.",
   "campaign.error.UNKNOWN_ROUTE": "This route is not part of the current campaign.",

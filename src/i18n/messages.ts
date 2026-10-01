@@ -4,6 +4,8 @@ const noParameters = { parameters: {} } as const;
 
 /** Registry of stable UI/content keys. Add a Chinese entry whenever adding a key. */
 export const messageSpecifications = {
+  "event.campaign.committed": { parameters: {} },
+
   "campaign.error.INVALID_STATE": { parameters: {} },
   "campaign.error.INVALID_INPUT": { parameters: {} },
   "campaign.error.UNKNOWN_ROUTE": { parameters: {} },

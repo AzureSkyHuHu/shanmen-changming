@@ -1,3 +1,4 @@
+import { commandFeedbackKey } from '../../src/application/status-messages';
 import { describe, expect, it } from 'vitest';
 import { campaignMessages, campaignMessageKey } from '../../src/application/campaign-messages';
 import { WORLD_CAMPAIGN_ERROR_CODES } from '../../src/core/world/campaign-queries';
@@ -10,6 +11,12 @@ describe('campaign rejection text', () => {
       const key = campaignMessageKey(code); const text = translate(locale, key);
       expect(text).not.toBe(SAFE_TRANSLATION_MESSAGE); expect(text).not.toBe(key); expect(text).not.toBe(code);
     }
+  });
+  it('routes authoritative campaign rejections and uses a parameter-free settled event', () => {
+    expect(commandFeedbackKey({ rejection: { code: 'CAMPAIGN_REJECTED', campaignCode: 'INVENTORY_FULL' } })).toBe('campaign.error.INVENTORY_FULL');
+    expect(commandFeedbackKey({ rejection: { code: 'CAMPAIGN_REJECTED' } })).toBe('campaign.growth.rejected');
+    expect(translate('zh-CN', 'event.campaign.committed')).toBe('战役安排已完成结算。');
+    expect(translate('en', 'event.campaign.committed')).not.toBe(SAFE_TRANSLATION_MESSAGE);
   });
   it('distinguishes physical inventory, save capacity and unproven future settlement', () => {
     expect(new Set(['INVENTORY_FULL', 'SAVE_CAPACITY_EXCEEDED', 'SAVE_OBLIGATION_UNBOUNDED'].map(campaignMessageKey)).size).toBe(3);

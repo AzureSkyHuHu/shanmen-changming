@@ -218,6 +218,7 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
     <div className="lower-details"><details><summary>{t('live.buildings')}</summary><div className="building-list">{world.buildings.map((building) => <button className="secondary" key={building.id} aria-pressed={world.selection?.kind === 'building' && world.selection.id === building.id} onClick={() => session.select({ kind: 'building', id: building.id })}>{t(building.nameKey as TextKey)}</button>)}</div></details><details><summary>{t('live.events')}</summary>{world.recentEvents.length ? <ol className="event-list">{world.recentEvents.map((event) => {
       const eventTransaction = world.transactions.find((entry) => entry.transactionId === event.transactionId);
       const name = world.disciples.find((entry) => entry.id === (event.discipleId ?? event.workerId ?? eventTransaction?.workerId))?.nameKey;
+      if (event.kind === 'campaign.committed') return <li key={event.eventId}>{t('event.campaign.committed')}</li>;
       if (event.kind === 'inventory.discarded') return <li key={event.eventId}>{t('event.inventory.discarded', { resource: event.resourceId ? t(`resource.${event.resourceId}`) : '', quantity: event.quantity ?? 0 })}</li>;
       if (event.kind.startsWith('cultivation.')) return <li key={event.eventId}>{t(`event.${event.kind}` as TextKey, { name: name ? t(name as TextKey) : '' })}</li>;
       const recipeId = typeof event.recipeId === 'string' ? event.recipeId : '';
