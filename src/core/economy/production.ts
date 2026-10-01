@@ -1,3 +1,7 @@
+import { acknowledgeAutomaticCancellation, classifyAutomaticHandle, isAutomaticJobId, isAutomaticTransaction, liveProductionAt,
+  recordAutomaticNotice, retireAutomaticProduction } from './automatic-production';
+import type { ProductionReceiptContext, ProductionWork } from './automatic-types';
+import { archiveTerminalProduction, lookupProduction } from '../world/history-access';
 import { BLOCKED_PATH_RETRY_TICKS, cardinalDistance, emptyNavigation, findCardinalPath, isWalkable, MAX_PATH_REQUESTS_PER_TICK, MOVEMENT_TICKS_PER_CELL, sameCell } from '../agents/navigation';
 import type { CommandRejection, DomainEvent } from '../kernel/contracts';
 import { isPaused } from '../kernel/clock';
@@ -5,7 +9,7 @@ import { appendEvent } from '../kernel/events';
 import { allocateId } from '../kernel/ids';
 import { checkedAdd } from '../kernel/numeric';
 import { compareStable } from '../kernel/serialization';
-import type { GridPosition, WorldBuilding, WorldState } from '../world/types';
+import { MAX_DISCIPLES, type GridPosition, type WorldBuilding, type WorldState } from '../world/types';
 import { commitReservation, releaseReservation, reserveResources } from './inventory';
 import { getRecipe } from './recipes';
 import type { ProductionBlockedReason, ProductionTransaction } from './types';
@@ -17,7 +21,7 @@ export function startProduction(world: WorldState, commandId: string, recipeId: 
   if (!recipe) return { ok: false, rejection: { code: 'UNKNOWN_RECIPE' } };
   const worker = world.disciples.find((disciple) => disciple.id === workerId);
   if (!worker) return { ok: false, rejection: { code: 'UNKNOWN_WORKER' } };
-  if (world.clock.mode !== 'management' || !worker.canWork || worker.lifeState !== 'alive' || worker.traveling || worker.assignmentTransactionId !== null || !world.buildings.some((building) => building.blueprintId === recipe.workstation && building.operational)) {
+  if (world.activeProductionTransactionIds.length >= MAX_DISCIPLES || world.clock.mode !== 'management' || !worker.canWork || worker.lifeState !== 'alive' || worker.traveling || worker.assignmentTransactionId !== null || !world.buildings.some((building) => building.blueprintId === recipe.workstation && building.operational)) {
     return { ok: false, rejection: { code: 'WORKER_UNAVAILABLE' } };
   }
   const action = allocateId(world.sequences, 'action');
@@ -42,66 +46,96 @@ export function startProduction(world: WorldState, commandId: string, recipeId: 
   return { ok: true, world: emitted.world, transactionId: transaction.id, eventIds: [emitted.event.eventId] };
 }
 
-function updateOrder(world: WorldState, transaction: ProductionTransaction, traveling = false, position?: GridPosition): WorldState {
-  return { ...world, transactions: { ...world.transactions, [transaction.transactionId]: transaction }, disciples: world.disciples.map((disciple) => disciple.id === transaction.workerId ? { ...disciple, traveling, ...(position ? { position: { ...position } } : {}) } : disciple) };
+function updateOrder(world: WorldState, transaction: ProductionWork, traveling = false, position?: GridPosition): WorldState {
+  const next = isAutomaticTransaction(transaction)
+    ? { ...world, automaticProduction: { ...world.automaticProduction, live: { ...world.automaticProduction.live,
+      [transaction.transactionId]: { transaction, reservation: world.automaticProduction.live[transaction.transactionId]!.reservation } } } }
+    : { ...world, transactions: { ...world.transactions, [transaction.transactionId]: transaction } };
+  return { ...next, disciples: world.disciples.map((disciple) => disciple.id === transaction.workerId ? { ...disciple, traveling, ...(position ? { position: { ...position } } : {}) } : disciple) };
 }
 function releaseStation(world: WorldState, id: string): WorldState {
   return { ...world, buildings: world.buildings.map((building) => building.stationTransactionId === id ? { ...building, stationTransactionId: null } : building) };
 }
-function block(world: WorldState, transaction: ProductionTransaction, reason: ProductionBlockedReason): WorldState {
+function block(world: WorldState, transaction: ProductionWork, reason: ProductionBlockedReason): WorldState {
   const next = transaction.blockedReason !== reason
-    ? appendEvent(world, { kind: 'production.blocked', rootActionId: transaction.rootActionId, parentEventId: null, payload: { transactionId: transaction.transactionId, reason } }).world
+    ? isAutomaticTransaction(transaction)
+      ? recordAutomaticNotice(world, { cycle: transaction.origin.cycle, workerId: transaction.workerId, recipeId: transaction.recipeId, kind: 'blocked', reason })
+      : appendEvent(world, { kind: 'production.blocked', rootActionId: transaction.rootActionId, parentEventId: null, payload: { transactionId: transaction.transactionId, reason } }).world
     : world;
   return updateOrder(next, { ...transaction, state: 'Blocked', blockedReason: reason });
 }
-function running(transaction: ProductionTransaction): ProductionTransaction { return { ...transaction, state: 'Running', blockedReason: null }; }
+function running(transaction: ProductionWork): ProductionWork { return { ...transaction, state: 'Running', blockedReason: null }; }
 
-function endProduction(world: WorldState, transaction: ProductionTransaction, state: 'Committed' | 'Cancelled', kind: DomainEvent['kind']): ProductionResult {
+function endProduction(world: WorldState, transaction: ProductionWork, state: 'Committed' | 'Cancelled', kind: DomainEvent['kind'], receiptContext?: ProductionReceiptContext): ProductionResult {
+  if (isAutomaticTransaction(transaction)) {
+    const released = { ...releaseStation(world, transaction.transactionId),
+      activeProductionTransactionIds: world.activeProductionTransactionIds.filter((id) => id !== transaction.transactionId),
+      disciples: world.disciples.map((disciple) => disciple.assignmentTransactionId === transaction.transactionId ? { ...disciple, assignmentTransactionId: null, traveling: false } : disciple) };
+    const retired = retireAutomaticProduction(released, transaction, state, receiptContext);
+    return { ok: true, transactionId: transaction.transactionId, ...retired };
+  }
   const emitted = appendEvent(world, { kind, rootActionId: transaction.rootActionId, parentEventId: null, payload: { transactionId: transaction.transactionId, recipeId: transaction.recipeId, workerId: transaction.workerId } });
   return {
     ok: true, transactionId: transaction.transactionId, eventIds: [emitted.event.eventId],
-    world: {
+    world: archiveTerminalProduction({
       ...releaseStation(emitted.world, transaction.transactionId),
       activeProductionTransactionIds: world.activeProductionTransactionIds.filter((id) => id !== transaction.transactionId),
       transactions: { ...emitted.world.transactions, [transaction.transactionId]: { ...transaction, state, phase: state === 'Committed' ? 'Done' : 'Cancelled', navigation: emptyNavigation(), completedTick: world.clock.simulationTick, resultEventId: emitted.event.eventId, blockedReason: null } },
       // Cancellation stops in the last real cell; it never warps the worker home.
       disciples: world.disciples.map((disciple) => disciple.assignmentTransactionId === transaction.transactionId ? { ...disciple, assignmentTransactionId: null, traveling: false } : disciple),
-    },
+    }, transaction.transactionId),
   };
 }
 
-export function cancelProduction(world: WorldState, transactionId: string): ProductionResult {
-  const transaction = Object.hasOwn(world.transactions, transactionId) ? world.transactions[transactionId] : undefined;
+export function cancelProduction(world: WorldState, transactionId: string, receiptContext?: ProductionReceiptContext): ProductionResult {
+  if (isAutomaticJobId(transactionId)) {
+    const handle = classifyAutomaticHandle(world, transactionId);
+    if (handle.kind === 'retired') return { ok: false, rejection: { code: 'AUTO_JOB_RETIRED' } };
+    if (handle.kind === 'pinned') {
+      if (handle.pin.state === 'Committed') return { ok: false, rejection: { code: 'TRANSACTION_FINISHED' } };
+      const acknowledged = receiptContext ? acknowledgeAutomaticCancellation(world, transactionId)! : { world, eventIds: handle.pin.resultEventId ? [handle.pin.resultEventId] : [] };
+      return { ok: true, transactionId, ...acknowledged };
+    }
+  }
+  const transaction = liveProductionAt(world, transactionId)?.transaction ?? lookupProduction(world, transactionId);
   if (!transaction) return { ok: false, rejection: { code: 'UNKNOWN_TRANSACTION' } };
   if (transaction.state === 'Cancelled') return { ok: true, world, transactionId, eventIds: transaction.resultEventId ? [transaction.resultEventId] : [] };
   if (transaction.state === 'Committed') return { ok: false, rejection: { code: 'TRANSACTION_FINISHED' } };
-  const reservation = world.reservations[transaction.reservationId];
+  const reservation = isAutomaticTransaction(transaction) ? world.automaticProduction.live[transaction.transactionId]?.reservation : world.reservations[transaction.reservationId];
   if (!reservation || reservation.ownerTransactionId !== transactionId) return { ok: false, rejection: { code: 'INVALID_RESERVATION' } };
   const released = releaseReservation(world.inventory, reservation);
   if (!released.ok) return { ok: false, rejection: { code: 'INVALID_RESERVATION' } };
-  return endProduction({ ...world, inventory: released.inventory, reservations: { ...world.reservations, [reservation.reservationId]: released.reservation } }, transaction, 'Cancelled', 'production.cancelled');
+  const settled = isAutomaticTransaction(transaction)
+    ? { ...world, inventory: released.inventory, automaticProduction: { ...world.automaticProduction, live: { ...world.automaticProduction.live,
+      [transaction.transactionId]: { transaction, reservation: released.reservation } } } }
+    : { ...world, inventory: released.inventory, reservations: { ...world.reservations, [reservation.reservationId]: released.reservation } };
+  return endProduction(settled, transaction, 'Cancelled', 'production.cancelled', receiptContext);
 }
 
 /** Only storage arrival may commit. Calling this function cannot skip work or travel. */
 export function completeProduction(world: WorldState, transactionId: string): ProductionResult {
-  const transaction = Object.hasOwn(world.transactions, transactionId) ? world.transactions[transactionId] : undefined;
+  const transaction = liveProductionAt(world, transactionId)?.transaction ?? lookupProduction(world, transactionId);
   if (!transaction) return { ok: false, rejection: { code: 'UNKNOWN_TRANSACTION' } };
   if (transaction.state === 'Committed') return { ok: true, world, transactionId, eventIds: transaction.resultEventId ? [transaction.resultEventId] : [] };
   if (transaction.state === 'Cancelled') return { ok: false, rejection: { code: 'TRANSACTION_FINISHED' } };
   const worker = world.disciples.find((disciple) => disciple.id === transaction.workerId);
   const storage = world.buildings.find((building) => building.id === transaction.storageId && building.blueprintId === 'storage' && building.operational);
   if (isPaused(world.clock) || world.clock.mode !== 'management' || transaction.activeTicks !== transaction.requiredTicks || transaction.phase !== 'AwaitingDelivery' || !worker || worker.assignmentTransactionId !== transactionId || worker.lifeState !== 'alive' || !worker.canWork || worker.traveling || !storage || !sameCell(worker.position, storage) || !isWalkable(world.map, worker.position)) return { ok: false, rejection: { code: 'WORKER_UNAVAILABLE' } };
-  const reservation = world.reservations[transaction.reservationId];
+  const reservation = isAutomaticTransaction(transaction) ? world.automaticProduction.live[transaction.transactionId]?.reservation : world.reservations[transaction.reservationId];
   const recipe = getRecipe(transaction.recipeId);
   if (!reservation || reservation.ownerTransactionId !== transactionId || !recipe) return { ok: false, rejection: { code: 'INVALID_RESERVATION' } };
   const committed = commitReservation(world.inventory, reservation, recipe.outputs);
   if (!committed.ok) return { ok: false, rejection: { code: committed.rejection.code === 'INVALID_RESOURCE_LINE' ? 'INVALID_COMMAND' : committed.rejection.code, ...(committed.rejection.resourceId ? { resourceId: committed.rejection.resourceId } : {}) } };
-  return endProduction({ ...world, inventory: committed.inventory, reservations: { ...world.reservations, [reservation.reservationId]: committed.reservation } }, transaction, 'Committed', 'production.committed');
+  const settled = isAutomaticTransaction(transaction)
+    ? { ...world, inventory: committed.inventory, automaticProduction: { ...world.automaticProduction, live: { ...world.automaticProduction.live,
+      [transaction.transactionId]: { transaction, reservation: committed.reservation } } } }
+    : { ...world, inventory: committed.inventory, reservations: { ...world.reservations, [reservation.reservationId]: committed.reservation } };
+  return endProduction(settled, transaction, 'Committed', 'production.committed');
 }
 
 interface PathBudget { remaining: number }
 /** Returns at a full movement boundary; arrival never awards work in the same tick. */
-function travel(world: WorldState, transaction: ProductionTransaction, target: GridPosition, budget: PathBudget): WorldState {
+function travel(world: WorldState, transaction: ProductionWork, target: GridPosition, budget: PathBudget): WorldState {
   const worker = world.disciples.find((disciple) => disciple.id === transaction.workerId)!;
   let navigation = transaction.navigation;
   const targetChanged = navigation.target === null || !sameCell(navigation.target, target);
@@ -139,9 +173,9 @@ export function tickProduction(world: WorldState): WorldState {
   if (world.clock.mode !== 'management' || isPaused(world.clock)) return world;
   let next = world;
   const budget = { remaining: MAX_PATH_REQUESTS_PER_TICK };
-  const ids = [...world.activeProductionTransactionIds].sort((left, right) => world.transactions[left]!.startedTick - world.transactions[right]!.startedTick || compareStable(left, right));
+  const ids = [...world.activeProductionTransactionIds].sort((left, right) => liveProductionAt(world, left)!.transaction.startedTick - liveProductionAt(world, right)!.transaction.startedTick || compareStable(left, right));
   for (const id of ids) {
-    let transaction = next.transactions[id]!;
+    let transaction = liveProductionAt(next, id)!.transaction;
     if (transaction.state !== 'Running' && transaction.state !== 'Blocked') continue;
     const worker = next.disciples.find((disciple) => disciple.id === transaction.workerId);
     const recipe = getRecipe(transaction.recipeId);

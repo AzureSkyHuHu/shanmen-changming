@@ -1,0 +1,683 @@
+{
+  "zhCN": {
+    "buildView.title": "经脉与配装",
+    "buildView.subtitle": "道法长存，行前定装",
+    "buildView.selectDisciple": "请选择一位弟子查看经脉与配装。",
+    "buildView.disciple": "{name}的修行谱",
+    "buildView.fallbackDisciple": "当前弟子",
+    "buildView.schools": "四门修行",
+    "buildView.school.sword": "剑修",
+    "buildView.school.body": "体修",
+    "buildView.school.alchemy": "丹修",
+    "buildView.school.talisman": "符修",
+    "buildView.nativeSchool": "本修门类",
+    "buildView.browseOnly": "此弟子修习{school}；当前门类仅供查阅。",
+    "buildView.tree": "永久经脉",
+    "buildView.treeHelp": "每节点消耗一点，最多配置五点；先修前阶，再入终阶。调整仅为草案，确认后才生效。",
+    "buildView.points": "已获 {earned} 点 · 已用 {allocated} 点 · 可用 {remaining} 点",
+    "buildView.milestoneHelp": "经脉点与研习额度由境界突破、首次历练胜利等里程碑发放。",
+    "buildView.branch.a": "第一脉",
+    "buildView.branch.b": "第二脉",
+    "buildView.branch.c": "第三脉",
+    "buildView.tier": "第 {tier} 阶 · {cost} 点",
+    "buildView.requires": "前置：{names}",
+    "buildView.noPrerequisite": "起始节点，无前置",
+    "buildView.allocated": "已配置",
+    "buildView.draftSelected": "拟配置",
+    "buildView.available": "可配置",
+    "buildView.notSelected": "未配置",
+    "buildView.toggleNode": "调整{name}的草案选择",
+    "buildView.removeDependents": "取消前阶时，同一支脉后续节点也会从草案移除。",
+    "buildView.insufficientPoints": "可用经脉点不足",
+    "buildView.pointLimit": "最多配置五个节点",
+    "buildView.missingPrerequisite": "请先完成前置修习",
+    "buildView.draftTree": "经脉草案：{count} / {maximum} 点",
+    "buildView.draftChanges": "新增 {added} 项 · 移除 {removed} 项",
+    "buildView.applyTree": "确认重配经脉",
+    "buildView.applyLoadout": "确认更换配装",
+    "buildView.discardDraft": "放弃草案",
+    "buildView.draftStale": "修行状态已变化。此草案已失效，请重新读取后调整。",
+    "buildView.reloadDraft": "重新读取，放弃旧草案",
+    "buildView.finishDraft": "请先确认或放弃当前草案，再调整其他内容。",
+    "buildView.readOnly": "当前为只读模式，无法更改修行或配装。",
+    "buildView.locked": "出征配装已锁定，返宗后方可调整。",
+    "buildView.pending": "正在等待修行记录更新…",
+    "buildView.submitted": "指令已确认，正在读取最新状态。",
+    "buildView.rejected": "本次调整未生效，请检查条件后重试。",
+    "buildView.loadout": "行前配装",
+    "buildView.loadoutHelp": "普攻固定；选择两个主动与一个被动，终极技占用主动位。习得不等于装备。",
+    "buildView.basic": "普通攻击",
+    "buildView.basicSchool": "{school}普攻",
+    "buildView.activeOne": "主动一",
+    "buildView.activeTwo": "主动二",
+    "buildView.passive": "被动",
+    "buildView.equipped": "已装备",
+    "buildView.draftEquipped": "拟装备",
+    "buildView.ultimate": "终极 · 主动位",
+    "buildView.active": "主动",
+    "buildView.skills": "藏经研习",
+    "buildView.skillsHelp": "永久习得的技艺在重配后保留；研习消耗额度，不会自动替换出征技能。",
+    "buildView.credits": "研习额度 {remaining} / 已获 {earned}",
+    "buildView.learnedCount": "已习得 {count} 项技艺",
+    "buildView.learned": "已习得",
+    "buildView.notLearned": "尚未习得",
+    "buildView.learn": "研习 · 消耗 {cost} 额度",
+    "buildView.learningCost": "研习消耗 {cost} 额度",
+    "buildView.insufficientCredits": "研习额度不足",
+    "buildView.skillsUnavailable": "尚无可选技艺",
+    "buildView.skillTiming": "灵力 {cost} · 冷却 {cooldown} 秒 · 前摇 {cast} 秒",
+    "buildView.equipment": "随身器物",
+    "buildView.weapon": "武器",
+    "buildView.robe": "法衣",
+    "buildView.artifact": "法器",
+    "buildView.item.training-sword": "练功木剑",
+    "buildView.item.training-body": "练功护腕",
+    "buildView.item.training-alchemy": "练功药杖",
+    "buildView.item.training-talisman": "练功符笔",
+    "buildView.item.training-robe": "素纹法衣",
+    "buildView.item.training-artifact": "聚气佩",
+    "buildView.itemCopy": "{name} · 第 {number} 件",
+    "buildView.itemUnknown": "未识别的器物",
+    "buildView.ownedGear": "只可选择此弟子持有、与栏位及门类相符的器物。",
+    "buildView.itemBonus": "{stat} +{amount}",
+    "buildView.stat.attack": "攻击",
+    "buildView.stat.maxHealth": "气血上限",
+    "buildView.stat.armor": "护甲",
+    "buildView.stat.maximumSpirit": "灵力上限",
+    "buildView.unavailable": "当前不可用",
+    "buildView.support.move": "位移效果尚未开放，暂不能习得或装备。",
+    "buildView.support.zone": "持续区域效果尚未开放，暂不能习得或装备。",
+    "buildView.support.summon": "召唤效果尚未开放，暂不能习得或装备。",
+    "buildView.support.stagger": "额外连锁目标的失衡效果尚未开放。",
+    "buildView.support.duration": "按秘境节点计时的此类效果尚未开放。",
+    "buildView.support.unverified": "此内容尚未通过正式验证。",
+    "buildView.support.generic": "此效果目前无法完整执行，暂不可选。",
+    "buildView.foreignSkill": "可永久研习；当前门类不能装备。",
+    "buildView.draftLoadout": "配装草案尚未生效",
+    "buildView.unknownDefinition": "内容已变化，请重新读取。",
+    "buildView.skillSummary.liuhen-jian": "斩击并施加剑痕。",
+    "buildView.skillSummary.guifeng": "消耗至多三层剑痕，按实际消耗层数追加剑伤。",
+    "buildView.skillSummary.guanri-jianjue": "穿透斩击并打断目标。",
+    "buildView.skillSummary.wanjian-chaozong": "展开剑阵，周期伤害区域内敌人。",
+    "buildView.skillSummary.baoyue": "按自身最大气血生成护盾。",
+    "buildView.skillSummary.zhenbu": "伤害附近敌人，并施加失衡。",
+    "buildView.skillSummary.yuanhu": "移向同伴并给予护盾。",
+    "buildView.skillSummary.budong-shan": "为附近同伴施加护盾与守护。",
+    "buildView.skillSummary.qingwu": "对目标区域的敌人施毒。",
+    "buildView.skillSummary.huichun": "治疗指定同伴。",
+    "buildView.skillSummary.qingxin": "驱散减益并赋予短时控制抗性。",
+    "buildView.skillSummary.yaowang-ding": "展开疗愈区域，周期治疗同伴。",
+    "buildView.skillSummary.yinlei": "造成雷伤并施加感电。",
+    "buildView.skillSummary.fenzhang": "消耗至多三层毒，转化为火伤。",
+    "buildView.skillSummary.zhikui": "召唤一个限时诱敌纸傀。",
+    "buildView.skillSummary.zhenyue-fu": "对目标区域造成伤害与失衡。"
+  },
+  "en": {
+    "buildView.title": "Paths & loadout",
+    "buildView.subtitle": "Lasting practice, a prepared journey",
+    "buildView.selectDisciple": "Select a disciple to inspect their paths and loadout.",
+    "buildView.disciple": "{name}’s practice ledger",
+    "buildView.fallbackDisciple": "Selected disciple",
+    "buildView.schools": "Four schools",
+    "buildView.school.sword": "Sword",
+    "buildView.school.body": "Body",
+    "buildView.school.alchemy": "Alchemy",
+    "buildView.school.talisman": "Talisman",
+    "buildView.nativeSchool": "Native school",
+    "buildView.browseOnly": "This disciple follows {school}; this school is for reference.",
+    "buildView.tree": "Permanent paths",
+    "buildView.treeHelp": "Each node costs one point, with at most five allocated. Learn earlier tiers before the final tier. Draft changes take effect only after confirmation.",
+    "buildView.points": "Earned {earned} · Allocated {allocated} · Available {remaining}",
+    "buildView.milestoneHelp": "Path points and study credits come from realm breakthroughs and the first expedition victory.",
+    "buildView.branch.a": "Path I",
+    "buildView.branch.b": "Path II",
+    "buildView.branch.c": "Path III",
+    "buildView.tier": "Tier {tier} · {cost} point",
+    "buildView.requires": "Requires: {names}",
+    "buildView.noPrerequisite": "Starting node; no prerequisite",
+    "buildView.allocated": "Allocated",
+    "buildView.draftSelected": "Selected in draft",
+    "buildView.available": "Available",
+    "buildView.notSelected": "Unallocated",
+    "buildView.toggleNode": "Toggle {name} in the draft",
+    "buildView.removeDependents": "Removing an earlier tier also removes its dependent nodes from the draft.",
+    "buildView.insufficientPoints": "Not enough path points",
+    "buildView.pointLimit": "At most five nodes may be allocated",
+    "buildView.missingPrerequisite": "Complete the prerequisites first",
+    "buildView.draftTree": "Path draft: {count} / {maximum} points",
+    "buildView.draftChanges": "Add {added} · Remove {removed}",
+    "buildView.applyTree": "Apply path allocation",
+    "buildView.applyLoadout": "Apply loadout",
+    "buildView.discardDraft": "Discard draft",
+    "buildView.draftStale": "The disciple’s state changed. This draft is stale; reload it before editing.",
+    "buildView.reloadDraft": "Reload and discard old draft",
+    "buildView.finishDraft": "Apply or discard the current draft before making other changes.",
+    "buildView.readOnly": "This view is read-only. Practice and loadout cannot be changed.",
+    "buildView.locked": "The expedition loadout is locked until the disciple returns.",
+    "buildView.pending": "Waiting for the authoritative practice record…",
+    "buildView.submitted": "Command accepted; awaiting the updated state.",
+    "buildView.rejected": "The change was not applied. Check its requirements and try again.",
+    "buildView.loadout": "Expedition loadout",
+    "buildView.loadoutHelp": "Basic attack is fixed. Equip two actives and one passive; an ultimate uses an active slot. Learning does not equip a skill.",
+    "buildView.basic": "Basic attack",
+    "buildView.basicSchool": "{school} basic attack",
+    "buildView.activeOne": "Active I",
+    "buildView.activeTwo": "Active II",
+    "buildView.passive": "Passive",
+    "buildView.equipped": "Equipped",
+    "buildView.draftEquipped": "Draft choice",
+    "buildView.ultimate": "Ultimate · active slot",
+    "buildView.active": "Active",
+    "buildView.skills": "Skill library",
+    "buildView.skillsHelp": "Learned skills survive respecs. Study spends credits and does not automatically replace expedition skills.",
+    "buildView.credits": "Study credits {remaining} / {earned} earned",
+    "buildView.learnedCount": "{count} skills permanently learned",
+    "buildView.learned": "Learned",
+    "buildView.notLearned": "Not learned",
+    "buildView.learn": "Study · {cost} credits",
+    "buildView.learningCost": "Study cost: {cost} credits",
+    "buildView.insufficientCredits": "Not enough study credits",
+    "buildView.skillsUnavailable": "No eligible skills",
+    "buildView.skillTiming": "Spirit {cost} · Cooldown {cooldown}s · Wind-up {cast}s",
+    "buildView.equipment": "Equipment",
+    "buildView.weapon": "Weapon",
+    "buildView.robe": "Robe",
+    "buildView.artifact": "Artifact",
+    "buildView.item.training-sword": "Practice wooden sword",
+    "buildView.item.training-body": "Practice bracers",
+    "buildView.item.training-alchemy": "Practice medicine staff",
+    "buildView.item.training-talisman": "Practice talisman brush",
+    "buildView.item.training-robe": "Plain practice robe",
+    "buildView.item.training-artifact": "Spirit-gathering charm",
+    "buildView.itemCopy": "{name} · copy {number}",
+    "buildView.itemUnknown": "Unrecognized equipment",
+    "buildView.ownedGear": "Only compatible equipment owned by this disciple can be equipped.",
+    "buildView.itemBonus": "{stat} +{amount}",
+    "buildView.stat.attack": "Attack",
+    "buildView.stat.maxHealth": "Maximum health",
+    "buildView.stat.armor": "Armor",
+    "buildView.stat.maximumSpirit": "Maximum spirit",
+    "buildView.unavailable": "Currently unavailable",
+    "buildView.support.move": "Movement effects are not available yet; this skill cannot be learned or equipped.",
+    "buildView.support.zone": "Persistent-area effects are not available yet; this skill cannot be learned or equipped.",
+    "buildView.support.summon": "Summoning is not available yet; this skill cannot be learned or equipped.",
+    "buildView.support.stagger": "Stagger on extra chain targets is not available yet.",
+    "buildView.support.duration": "This type of node-duration effect is not available yet.",
+    "buildView.support.unverified": "This content is not yet certified for verified play.",
+    "buildView.support.generic": "This effect cannot yet be executed in full and is unavailable.",
+    "buildView.foreignSkill": "May be studied permanently; cannot be equipped by this school.",
+    "buildView.draftLoadout": "Loadout draft has not been applied",
+    "buildView.unknownDefinition": "Content has changed. Please reload.",
+    "buildView.skillSummary.liuhen-jian": "Strike and apply Sword Mark.",
+    "buildView.skillSummary.guifeng": "Consume up to three Sword Marks and add damage for the stacks actually consumed.",
+    "buildView.skillSummary.guanri-jianjue": "Deliver a piercing strike and interrupt the target.",
+    "buildView.skillSummary.wanjian-chaozong": "Create a sword formation that periodically damages enemies within it.",
+    "buildView.skillSummary.baoyue": "Create a shield based on the caster’s maximum health.",
+    "buildView.skillSummary.zhenbu": "Damage nearby enemies and apply Stagger.",
+    "buildView.skillSummary.yuanhu": "Move to an ally and grant a shield.",
+    "buildView.skillSummary.budong-shan": "Grant nearby allies shields and Guarded.",
+    "buildView.skillSummary.qingwu": "Apply Poison to enemies in the target area.",
+    "buildView.skillSummary.huichun": "Heal a chosen ally.",
+    "buildView.skillSummary.qingxin": "Dispel a debuff and grant brief control resistance.",
+    "buildView.skillSummary.yaowang-ding": "Create a healing area that periodically restores allies.",
+    "buildView.skillSummary.yinlei": "Deal lightning damage and apply Shock.",
+    "buildView.skillSummary.fenzhang": "Consume up to three Poison stacks and turn them into fire damage.",
+    "buildView.skillSummary.zhikui": "Summon a temporary paper decoy.",
+    "buildView.skillSummary.zhenyue-fu": "Damage and Stagger enemies in the target area."
+  },
+  "specifications": {
+    "buildView.title": {
+      "parameters": {}
+    },
+    "buildView.subtitle": {
+      "parameters": {}
+    },
+    "buildView.selectDisciple": {
+      "parameters": {}
+    },
+    "buildView.disciple": {
+      "parameters": {
+        "name": {
+          "type": "string",
+          "format": "text"
+        }
+      }
+    },
+    "buildView.fallbackDisciple": {
+      "parameters": {}
+    },
+    "buildView.schools": {
+      "parameters": {}
+    },
+    "buildView.school.sword": {
+      "parameters": {}
+    },
+    "buildView.school.body": {
+      "parameters": {}
+    },
+    "buildView.school.alchemy": {
+      "parameters": {}
+    },
+    "buildView.school.talisman": {
+      "parameters": {}
+    },
+    "buildView.nativeSchool": {
+      "parameters": {}
+    },
+    "buildView.browseOnly": {
+      "parameters": {
+        "school": {
+          "type": "string",
+          "format": "text"
+        }
+      }
+    },
+    "buildView.tree": {
+      "parameters": {}
+    },
+    "buildView.treeHelp": {
+      "parameters": {}
+    },
+    "buildView.points": {
+      "parameters": {
+        "earned": {
+          "type": "number",
+          "format": "integer"
+        },
+        "allocated": {
+          "type": "number",
+          "format": "integer"
+        },
+        "remaining": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.milestoneHelp": {
+      "parameters": {}
+    },
+    "buildView.branch.a": {
+      "parameters": {}
+    },
+    "buildView.branch.b": {
+      "parameters": {}
+    },
+    "buildView.branch.c": {
+      "parameters": {}
+    },
+    "buildView.tier": {
+      "parameters": {
+        "tier": {
+          "type": "number",
+          "format": "integer"
+        },
+        "cost": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.requires": {
+      "parameters": {
+        "names": {
+          "type": "string",
+          "format": "text"
+        }
+      }
+    },
+    "buildView.noPrerequisite": {
+      "parameters": {}
+    },
+    "buildView.allocated": {
+      "parameters": {}
+    },
+    "buildView.draftSelected": {
+      "parameters": {}
+    },
+    "buildView.available": {
+      "parameters": {}
+    },
+    "buildView.notSelected": {
+      "parameters": {}
+    },
+    "buildView.toggleNode": {
+      "parameters": {
+        "name": {
+          "type": "string",
+          "format": "text"
+        }
+      }
+    },
+    "buildView.removeDependents": {
+      "parameters": {}
+    },
+    "buildView.insufficientPoints": {
+      "parameters": {}
+    },
+    "buildView.pointLimit": {
+      "parameters": {}
+    },
+    "buildView.missingPrerequisite": {
+      "parameters": {}
+    },
+    "buildView.draftTree": {
+      "parameters": {
+        "count": {
+          "type": "number",
+          "format": "integer"
+        },
+        "maximum": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.draftChanges": {
+      "parameters": {
+        "added": {
+          "type": "number",
+          "format": "integer"
+        },
+        "removed": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.applyTree": {
+      "parameters": {}
+    },
+    "buildView.applyLoadout": {
+      "parameters": {}
+    },
+    "buildView.discardDraft": {
+      "parameters": {}
+    },
+    "buildView.draftStale": {
+      "parameters": {}
+    },
+    "buildView.reloadDraft": {
+      "parameters": {}
+    },
+    "buildView.finishDraft": {
+      "parameters": {}
+    },
+    "buildView.readOnly": {
+      "parameters": {}
+    },
+    "buildView.locked": {
+      "parameters": {}
+    },
+    "buildView.pending": {
+      "parameters": {}
+    },
+    "buildView.submitted": {
+      "parameters": {}
+    },
+    "buildView.rejected": {
+      "parameters": {}
+    },
+    "buildView.loadout": {
+      "parameters": {}
+    },
+    "buildView.loadoutHelp": {
+      "parameters": {}
+    },
+    "buildView.basic": {
+      "parameters": {}
+    },
+    "buildView.basicSchool": {
+      "parameters": {
+        "school": {
+          "type": "string",
+          "format": "text"
+        }
+      }
+    },
+    "buildView.activeOne": {
+      "parameters": {}
+    },
+    "buildView.activeTwo": {
+      "parameters": {}
+    },
+    "buildView.passive": {
+      "parameters": {}
+    },
+    "buildView.equipped": {
+      "parameters": {}
+    },
+    "buildView.draftEquipped": {
+      "parameters": {}
+    },
+    "buildView.ultimate": {
+      "parameters": {}
+    },
+    "buildView.active": {
+      "parameters": {}
+    },
+    "buildView.skills": {
+      "parameters": {}
+    },
+    "buildView.skillsHelp": {
+      "parameters": {}
+    },
+    "buildView.credits": {
+      "parameters": {
+        "remaining": {
+          "type": "number",
+          "format": "integer"
+        },
+        "earned": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.learnedCount": {
+      "parameters": {
+        "count": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.learned": {
+      "parameters": {}
+    },
+    "buildView.notLearned": {
+      "parameters": {}
+    },
+    "buildView.learn": {
+      "parameters": {
+        "cost": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.learningCost": {
+      "parameters": {
+        "cost": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.insufficientCredits": {
+      "parameters": {}
+    },
+    "buildView.skillsUnavailable": {
+      "parameters": {}
+    },
+    "buildView.skillTiming": {
+      "parameters": {
+        "cost": {
+          "type": "number",
+          "format": "integer"
+        },
+        "cooldown": {
+          "type": "number",
+          "format": "seconds"
+        },
+        "cast": {
+          "type": "number",
+          "format": "seconds"
+        }
+      }
+    },
+    "buildView.equipment": {
+      "parameters": {}
+    },
+    "buildView.weapon": {
+      "parameters": {}
+    },
+    "buildView.robe": {
+      "parameters": {}
+    },
+    "buildView.artifact": {
+      "parameters": {}
+    },
+    "buildView.item.training-sword": {
+      "parameters": {}
+    },
+    "buildView.item.training-body": {
+      "parameters": {}
+    },
+    "buildView.item.training-alchemy": {
+      "parameters": {}
+    },
+    "buildView.item.training-talisman": {
+      "parameters": {}
+    },
+    "buildView.item.training-robe": {
+      "parameters": {}
+    },
+    "buildView.item.training-artifact": {
+      "parameters": {}
+    },
+    "buildView.itemCopy": {
+      "parameters": {
+        "name": {
+          "type": "string",
+          "format": "text"
+        },
+        "number": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.itemUnknown": {
+      "parameters": {}
+    },
+    "buildView.ownedGear": {
+      "parameters": {}
+    },
+    "buildView.itemBonus": {
+      "parameters": {
+        "stat": {
+          "type": "string",
+          "format": "text"
+        },
+        "amount": {
+          "type": "number",
+          "format": "integer"
+        }
+      }
+    },
+    "buildView.stat.attack": {
+      "parameters": {}
+    },
+    "buildView.stat.maxHealth": {
+      "parameters": {}
+    },
+    "buildView.stat.armor": {
+      "parameters": {}
+    },
+    "buildView.stat.maximumSpirit": {
+      "parameters": {}
+    },
+    "buildView.unavailable": {
+      "parameters": {}
+    },
+    "buildView.support.move": {
+      "parameters": {}
+    },
+    "buildView.support.zone": {
+      "parameters": {}
+    },
+    "buildView.support.summon": {
+      "parameters": {}
+    },
+    "buildView.support.stagger": {
+      "parameters": {}
+    },
+    "buildView.support.duration": {
+      "parameters": {}
+    },
+    "buildView.support.unverified": {
+      "parameters": {}
+    },
+    "buildView.support.generic": {
+      "parameters": {}
+    },
+    "buildView.foreignSkill": {
+      "parameters": {}
+    },
+    "buildView.draftLoadout": {
+      "parameters": {}
+    },
+    "buildView.unknownDefinition": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.liuhen-jian": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.guifeng": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.guanri-jianjue": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.wanjian-chaozong": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.baoyue": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.zhenbu": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.yuanhu": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.budong-shan": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.qingwu": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.huichun": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.qingxin": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.yaowang-ding": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.yinlei": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.fenzhang": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.zhikui": {
+      "parameters": {}
+    },
+    "buildView.skillSummary.zhenyue-fu": {
+      "parameters": {}
+    }
+  }
+}

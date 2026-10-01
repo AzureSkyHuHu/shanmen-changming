@@ -1,193 +1,240 @@
+import { disciplePresentation } from '../application/character-presentation';
 import Phaser from 'phaser';
 import type { ApplicationSession, DeepReadonly, SessionProjection } from '../application/session';
 import { translate, type Locale, type TextKey } from '../i18n';
+import { BUILDING_ART, CHARACTER_ART, CHARACTER_FRAME, SCENERY_ART } from './art-manifest';
 
-const TILE = 48;
-const ORIGIN = { x: 88, y: 92 };
-const SIZE = { width: 848, height: 640 };
-const terrainColors = { grass: 0x456248, path: 0x9b9970, forest: 0x3d5942, stone: 0x526758, water: 0x4f8891 };
-const robes = [0xb99964, 0x709d9e, 0xbd7960, 0x9b95b5];
-interface EntityView { container: Phaser.GameObjects.Container; art: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text; signature: string; hovered: boolean }
+const TILE = 64;
+const ORIGIN = { x: 128, y: 68 };
+const SIZE = { width: 1152, height: 768 };
+const DEFAULT_ZOOM = 1.1;
+interface EntityView {
+  container: Phaser.GameObjects.Container;
+  art: Phaser.GameObjects.Graphics;
+  sprite: Phaser.GameObjects.Sprite;
+  label: Phaser.GameObjects.Text;
+  signature: string;
+  hovered: boolean;
+  lastX: number;
+  lastY: number;
+  direction: number;
+}
+/** Cosmetic coordinate hash. Never reads or advances the simulation's random streams. */
+const grain = (x: number, y: number, salt = 0) => ((Math.imul(x + 89, 374761393) ^ Math.imul(y + salt + 17, 668265263)) >>> 0) % 997;
 
-/** Disposable view only. Positions, assignments and progress always come from the session. */
+/** Thin disposable view: simulation positions and phases are the only movement authority. */
 class SectScene extends Phaser.Scene {
   private stop: (() => void) | null = null;
   private terrain: Phaser.GameObjects.Graphics | null = null;
+  private decorations: Phaser.GameObjects.Container | null = null;
   private mapSignature = '';
   private entityViews = new Map<string, EntityView>();
   private ready = false;
+  private zoom = DEFAULT_ZOOM;
+  private cameraTarget = { x: SIZE.width / 2, y: SIZE.height / 2 };
+  private previousSelection = '';
 
-  constructor(private readonly session: ApplicationSession, private locale: Locale) { super('sect-world'); }
+  constructor(private readonly session: ApplicationSession, private locale: Locale, private readonly initialZoom = DEFAULT_ZOOM) { super('sect-world'); this.zoom = initialZoom; }
+
+  preload(): void {
+    for (const asset of CHARACTER_ART) this.load.spritesheet(asset.key, asset.sheet, { frameWidth: CHARACTER_FRAME.width, frameHeight: CHARACTER_FRAME.height });
+    for (const asset of [...BUILDING_ART, ...SCENERY_ART]) this.load.image(asset.key, asset.url);
+  }
 
   create(): void {
     this.ready = true;
-    this.cameras.main.setRoundPixels(true);
-    this.terrain = this.add.graphics();
+    this.cameras.main.setBounds(0, 0, SIZE.width, SIZE.height).setRoundPixels(true).setZoom(this.zoom).centerOn(this.cameraTarget.x, this.cameraTarget.y);
+    this.terrain = this.add.graphics().setDepth(-1000);
+    this.decorations = this.add.container(0, 0).setDepth(-500);
     this.stop = this.session.subscribe(() => this.sync());
-    const dispose = () => {
-      this.stop?.(); this.stop = null; this.ready = false; this.entityViews.clear();
-    };
+    const dispose = () => { this.stop?.(); this.stop = null; this.ready = false; this.entityViews.clear(); };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, dispose);
     this.events.once(Phaser.Scenes.Events.DESTROY, dispose);
     this.sync();
   }
-
   setLocale(locale: Locale): void { this.locale = locale; if (this.ready) this.sync(); }
+  setZoom(zoom: number): void {
+    this.zoom = Math.max(0.85, Math.min(2.2, zoom));
+    if (this.ready) this.cameras.main.setZoom(this.zoom).centerOn(this.cameraTarget.x, this.cameraTarget.y);
+  }
+  resetView(): void {
+    this.cameraTarget = { x: SIZE.width / 2, y: SIZE.height / 2 };
+    this.setZoom(this.initialZoom);
+  }
 
   private drawMap(projection: DeepReadonly<SessionProjection>): void {
-    const graphics = this.terrain!;
-    graphics.clear();
-    graphics.fillStyle(0x193837).fillRect(0, 0, SIZE.width, SIZE.height);
-    // Original geometric foothills, outside the authoritative tile map.
-    graphics.fillStyle(0x284942).fillTriangle(0, 90, 165, 5, 340, 90).fillTriangle(402, 90, 608, 9, 848, 90);
-    graphics.fillStyle(0x355448).fillTriangle(80, 92, 256, 43, 447, 92).fillTriangle(555, 92, 761, 33, 848, 92);
-    graphics.fillStyle(0x233e33).fillRect(ORIGIN.x - 12, ORIGIN.y - 8, projection.map.width * TILE + 24, projection.map.height * TILE + 24);
-    graphics.fillStyle(0x253c2f).fillRect(ORIGIN.x - 5, ORIGIN.y + projection.map.height * TILE, projection.map.width * TILE + 10, 14);
+    const g = this.terrain!;
+    g.clear();
+    this.decorations!.removeAll(true);
+    const rect = (color: number, x: number, y: number, w: number, h: number, alpha = 1) => g.fillStyle(color, alpha).fillRect(x, y, w, h);
+    // Desaturated layered peaks frame a bright, quiet courtyard rather than a boxed grid.
+    rect(0x99b4ab, 0, 0, SIZE.width, SIZE.height);
+    g.fillStyle(0x6f9996).fillPoints([{ x: 0, y: 180 }, { x: 115, y: 39 }, { x: 218, y: 89 }, { x: 341, y: 5 }, { x: 445, y: 126 }, { x: 557, y: 42 }, { x: 716, y: 111 }, { x: 887, y: 11 }, { x: 1034, y: 115 }, { x: 1152, y: 51 }, { x: 1152, y: 285 }, { x: 0, y: 285 }].map((point) => new Phaser.Math.Vector2(point.x, point.y)), true);
+    g.fillStyle(0x517e79).fillPoints([{ x: 0, y: 255 }, { x: 88, y: 124 }, { x: 151, y: 147 }, { x: 218, y: 72 }, { x: 339, y: 221 }, { x: 454, y: 138 }, { x: 575, y: 202 }, { x: 686, y: 82 }, { x: 810, y: 216 }, { x: 925, y: 112 }, { x: 1054, y: 153 }, { x: 1152, y: 92 }, { x: 1152, y: 400 }, { x: 0, y: 400 }].map((point) => new Phaser.Math.Vector2(point.x, point.y)), true);
+    rect(0xd7ddc0, 0, 91, SIZE.width, 11, 0.25); rect(0xc4d5bf, 0, 128, SIZE.width, 17, 0.2);
+    // Stone terrace retaining walls, moss, creek and an unambiguous map edge.
+    rect(0x3f635c, ORIGIN.x - 24, ORIGIN.y + 20, projection.map.width * TILE + 48, projection.map.height * TILE + 12);
+    rect(0x567564, ORIGIN.x - 18, ORIGIN.y - 4, projection.map.width * TILE + 36, projection.map.height * TILE + 20);
+    for (let x = ORIGIN.x - 24; x < ORIGIN.x + projection.map.width * TILE + 24; x += 24) {
+      rect(0x82947b, x, ORIGIN.y + projection.map.height * TILE + 13, 21, 8);
+      rect(0x596e5e, x + 4, ORIGIN.y + projection.map.height * TILE + 22, 18, 7);
+    }
     for (const tile of projection.map.tiles) {
-      const x = ORIGIN.x + tile.x * TILE;
-      const y = ORIGIN.y + tile.y * TILE;
-      graphics.fillStyle(terrainColors[tile.terrain]).fillRect(x, y, TILE, TILE);
-      if (tile.terrain === 'path') {
-        graphics.fillStyle(0xb4b08a, 0.5).fillRect(x + 4, y + 10, 22, 3).fillRect(x + 27, y + 33, 14, 3);
-        graphics.fillStyle(0x838867, 0.6).fillRect(x + 17, y + 23, 13, 2);
-      } else {
-        const shade = (tile.x + tile.y) % 2 ? 0x6c8050 : 0x769260;
-        graphics.fillStyle(shade, 0.45).fillRect(x + 6, y + 28, 4, 8).fillRect(x + 9, y + 25, 3, 7).fillRect(x + 34, y + 13, 3, 5);
-        if (tile.terrain === 'forest') {
-          graphics.fillStyle(0x304630).fillRect(x + 22, y + 17, 16, 8);
-          graphics.fillStyle(0x745d43).fillRect(x + 28, y + 8, 4, 12);
-          graphics.fillStyle(0x294d3b).fillRect(x + 18, y + 2, 23, 12);
-          graphics.fillStyle(0x3b694b).fillRect(x + 23, y - 3, 14, 12);
-          graphics.fillStyle(0x6b8652).fillRect(x + 25, y - 3, 8, 3);
-        }
-        if (tile.terrain === 'stone') {
-          graphics.fillStyle(0x809082).fillRect(x + 24, y + 24, 14, 9).fillRect(x + 28, y + 20, 9, 5);
-          graphics.fillStyle(0xb1b69a).fillRect(x + 28, y + 20, 8, 3);
-        }
+      const x = ORIGIN.x + tile.x * TILE, y = ORIGIN.y + tile.y * TILE;
+      const sample = grain(tile.x, tile.y);
+      const green = [0x7d9970, 0x829d73, 0x819b70, 0x7b966c][sample % 4]!;
+      rect(tile.terrain === 'water' ? 0x6baba4 : tile.walkable ? green : 0x536f5f, x, y, TILE, TILE);
+      // Small, grouped clusters instead of one repeated checkerboard glyph.
+      for (let detail = 0; detail < 12; detail += 1) {
+        const n = grain(tile.x * 13 + detail, tile.y, detail);
+        const dx = 3 + n % 57, dy = 3 + Math.floor(n / 17) % 56;
+        rect(detail % 3 ? 0xa6b783 : 0x567b58, x + dx, y + dy, 2 + n % 4, 2, 0.6);
+        if (detail % 4 === 0) rect(0x557b51, x + dx + 2, y + dy - 3, 2, 4, 0.55);
       }
+      if (tile.terrain === 'path') {
+        rect(0x9b9c79, x, y, TILE, TILE);
+        rect(0xb7b693, x + 2, y + 1, TILE - 4, TILE - 2);
+        for (let row = 0; row < 4; row += 1) for (let col = 0; col < 3; col += 1) {
+          const dx = (col * 23 + (row % 2) * 10) % 61;
+          rect((row + col + sample) % 3 ? 0xc6c6a4 : 0xadaf91, x + dx + 1, y + row * 16 + 2, Math.min(20, 63 - dx), 13);
+          rect(0xd7d5b4, x + dx + 2, y + row * 16 + 2, Math.min(15, 61 - dx), 1);
+        }
+        rect(0x698659, x + sample % 45, y + 60, 8, 3);
+      } else if (tile.terrain === 'forest') {
+        // Groundcover is traversable; these low shrubs never pretend to be collision trees.
+        const dx = x + 15 + sample % 22, dy = y + 24 + sample % 16;
+        rect(0x527853, dx - 7, dy, 22, 8); rect(0x638e5e, dx - 9, dy - 4, 17, 7); rect(0x92ad72, dx - 5, dy - 6, 11, 4); rect(0xb0bf81, dx - 3, dy - 7, 4, 2);
+        if (sample % 3 === 0) { rect(0xdac5ae, dx + 7, dy - 2, 3, 3); rect(0xc59da2, dx + 10, dy + 2, 3, 3); }
+      } else if (tile.terrain === 'stone') {
+        const dx = x + 15 + sample % 18, dy = y + 26;
+        rect(0x607c6a, dx - 2, dy + 10, 26, 6); rect(0x94a58e, dx, dy, 23, 12); rect(0xc1c4a5, dx + 3, dy - 3, 16, 6); rect(0x7f9580, dx + 16, dy + 3, 7, 9); rect(0xd2cfac, dx + 4, dy - 3, 10, 2);
+      }
+      if (!tile.walkable) { rect(0x37584f, x + 5, y + 8, 54, 46, 0.25); }
+    }
+    // Borders are scenery only and do not alter any authoritative tile or passability.
+    const addTree = (x: number, y: number, blossom: boolean, scale = 1.6) => {
+      const image = this.add.image(x, y, blossom ? 'scenery-blossom' : 'scenery-pine').setOrigin(0.5, 0.85).setScale(scale);
+      this.decorations!.add(image);
+    };
+    for (let i = 0; i < 7; i += 1) { addTree(63 + (i % 2) * 19, 165 + i * 88, i === 2 || i === 6); addTree(1082 - (i % 2) * 17, 152 + i * 90, i === 1 || i === 5); }
+    for (const building of projection.buildings) {
+      const x = ORIGIN.x + building.x * TILE + TILE / 2, y = ORIGIN.y + building.y * TILE + TILE / 2;
+      // Worn soil around each real worksite helps explain the scene's spatial rhythm.
+      g.fillStyle(0xafa681, 0.75).fillEllipse(x, y + 3, building.blueprintId === 'herb-garden' ? 108 : 94, 43);
+      for (let i = 0; i < 4; i += 1) rect(0xd0c4a0, x - 31 + i * 18, y + 8 + (i % 2) * 3, 13, 3);
+    }
+    // Fence follows only the outer terrace, with an opening on the real central path.
+    const bottom = ORIGIN.y + projection.map.height * TILE + 4;
+    for (let x = ORIGIN.x + 6; x < ORIGIN.x + projection.map.width * TILE; x += 28) {
+      if (Math.abs(x - (ORIGIN.x + 7.5 * TILE)) < 45) continue;
+      rect(0x6b6450, x, bottom - 16, 4, 23); rect(0xb7a279, x, bottom - 18, 4, 3); rect(0xa18f6b, x, bottom - 11, 26, 3); rect(0x7b7358, x, bottom - 4, 26, 3);
     }
   }
 
-  private createView(id: string, kind: 'disciple' | 'building'): EntityView {
+  private createView(id: string, kind: 'disciple' | 'building', texture: string): EntityView {
     const art = this.add.graphics();
-    const label = this.add.text(0, kind === 'disciple' ? 26 : -48, '', { fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif', fontSize: '12px', color: '#f1e8cb', backgroundColor: '#203b32', padding: { x: 4, y: 3 } }).setOrigin(0.5, 0.5);
-    const hit = this.add.rectangle(0, -8, kind === 'disciple' ? 32 : 44, 48, 0xffffff, 0).setInteractive({ useHandCursor: true });
+    const sprite = this.add.sprite(0, kind === 'disciple' ? 3 : 9, texture, 0).setOrigin(0.5, kind === 'disciple' ? CHARACTER_FRAME.originY : 0.83).setScale(kind === 'disciple' ? CHARACTER_FRAME.worldScale : 0.86);
+    const label = this.add.text(0, kind === 'disciple' ? 20 : 30, '', { fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif', fontSize: '13px', color: '#f4edce', backgroundColor: '#304d46e8', padding: { x: 7, y: 4 } }).setOrigin(0.5, 0.5);
+    const hit = this.add.rectangle(0, kind === 'disciple' ? -34 : -43, kind === 'disciple' ? 51 : 106, kind === 'disciple' ? 79 : 111, 0xffffff, 0).setInteractive({ useHandCursor: true });
     hit.on('pointerdown', () => this.session.select({ kind, id }));
-    const container = this.add.container(0, 0, [art, label, hit]);
-    const view = { container, art, label, signature: '', hovered: false };
-    if (kind === 'disciple') {
-      hit.on('pointerover', () => { view.hovered = true; label.setVisible(true); });
-      hit.on('pointerout', () => { view.hovered = false; const selected = this.session.getSnapshot().selection; label.setVisible(selected?.kind === 'disciple' && selected.id === id); });
-    }
+    const container = this.add.container(0, 0, [art, sprite, label, hit]);
+    const view: EntityView = { container, art, sprite, label, signature: '', hovered: false, lastX: -1, lastY: -1, direction: 0 };
+    hit.on('pointerover', () => { view.hovered = true; label.setVisible(true); });
+    hit.on('pointerout', () => { view.hovered = false; this.sync(); });
     this.entityViews.set(id, view);
     return view;
   }
 
-  private drawDisciple(view: EntityView, index: number, selected: boolean, progress: number | null, blocked: boolean): void {
+  private drawMarker(view: EntityView, selected: boolean, progress: number | null, blocked: boolean, building: boolean): void {
     const art = view.art;
     art.clear();
-    if (selected) art.lineStyle(2, 0xf1d692).strokeRect(-18, -29, 36, 48);
-    art.fillStyle(0x1e332c, 0.55).fillRect(-11, 12, 23, 5);
-    art.fillStyle(0x233334).fillRect(-7, 10, 5, 6).fillRect(3, 10, 5, 6);
-    art.fillStyle(robes[index % robes.length]!).fillRect(-10, -9, 20, 21).fillRect(-13, -5, 5, 12).fillRect(9, -5, 5, 12);
-    art.fillStyle(0xede0b8).fillRect(-2, -8, 4, 19).fillRect(-10, 4, 20, 3);
-    art.fillStyle(0xd8b08a).fillRect(-7, -22, 15, 14);
-    art.fillStyle(index === 3 ? 0xc9c9b2 : 0x293a36).fillRect(-8, -26, 17, 7).fillRect(-9, -20, 4, 10).fillRect(6, -20, 4, 10).fillRect(-3, -31, 7, 6);
-    art.fillStyle(0x26352c).fillRect(-4, -16, 2, 2).fillRect(4, -16, 2, 2);
-    if (progress !== null) {
-      art.fillStyle(0x17322d).fillRect(-16, 18, 32, 4);
-      art.fillStyle(blocked ? 0xddab66 : 0xe5dba2).fillRect(-16, 18, Math.max(1, Math.round(progress * 32)), 4);
+    art.fillStyle(0x2c4c43, 0.24).fillEllipse(1, 4, building ? 88 : 34, building ? 25 : 10);
+    if (selected) {
+      art.lineStyle(2, 0xf5dfa3, 0.9).strokeEllipse(0, 4, building ? 106 : 47, building ? 36 : 17);
+      art.fillStyle(0xf5dfa3).fillTriangle(-4, building ? -117 : -83, 4, building ? -117 : -83, 0, building ? -111 : -77);
     }
-  }
-
-  private drawBuilding(view: EntityView, blueprint: string, selected: boolean): void {
-    const art = view.art;
-    art.clear();
-    if (selected) art.lineStyle(2, 0xf1d692).strokeRect(-25, -37, 50, 59);
-    art.fillStyle(0x233d32, 0.75).fillRect(-22, 14, 48, 8);
-    if (blueprint === 'forest') {
-      art.fillStyle(0x735c3c).fillRect(-10, -19, 8, 34).fillRect(7, -6, 6, 22);
-      art.fillStyle(0x284f38).fillRect(-24, -30, 35, 22).fillRect(0, -18, 25, 17);
-      art.fillStyle(0x72915a).fillRect(-18, -33, 24, 7).fillRect(4, -22, 18, 7);
-      art.fillStyle(0xab8757).fillRect(-20, 8, 11, 8).fillRect(-22, 4, 15, 5);
-    } else if (blueprint === 'herb-garden') {
-      art.fillStyle(0x8c7750).fillRect(-22, -8, 45, 27);
-      art.fillStyle(0x48573a).fillRect(-19, -6, 39, 7).fillRect(-19, 4, 39, 7).fillRect(-19, 14, 39, 3);
-      for (let x = -16; x < 19; x += 10) {
-        art.fillStyle(0xa6b571).fillRect(x, -13, 4, 10).fillRect(x, 0, 4, 9);
-        art.fillStyle(0xd3b49d).fillRect(x - 1, -14, 6, 3);
-      }
-    } else if (blueprint === 'storage') {
-      art.fillStyle(0xb19a67).fillRect(-23, -12, 46, 30);
-      art.fillStyle(0x756947).fillRect(-26, -20, 52, 10).fillRect(-18, -26, 36, 7);
-      art.fillStyle(0x6c5941).fillRect(-16, -3, 13, 20).fillRect(2, -3, 16, 20);
-      art.fillStyle(0xc2a46b).fillRect(-18, 3, 17, 3).fillRect(0, 3, 20, 3).fillRect(-12, -3, 3, 20).fillRect(8, -3, 3, 20);
-    } else if (blueprint === 'mine') {
-      art.fillStyle(0x84907c).fillRect(-23, -12, 47, 31).fillRect(-16, -23, 30, 17);
-      art.fillStyle(0xb4b99a).fillRect(-14, -23, 22, 6);
-      art.fillStyle(0x294139).fillRect(-9, -4, 20, 23);
-      art.fillStyle(0x806c4d).fillRect(-11, -7, 24, 4).fillRect(-11, -3, 4, 22).fillRect(9, -3, 4, 22);
-    } else if (blueprint === 'spirit-vein') {
-      art.fillStyle(0x879b88).fillRect(-23, 7, 46, 9).fillRect(-16, 0, 32, 7);
-      art.fillStyle(0x9dc9bb).fillRect(-7, -27, 14, 26).fillRect(-11, -17, 22, 13);
-      art.fillStyle(0xd7e0bb).fillRect(-4, -23, 5, 20);
-    } else {
-      art.fillStyle(0xbca77c).fillRect(-20, -17, 40, 34);
-      art.fillStyle(0x6f765a).fillRect(-25, -24, 50, 9).fillRect(-20, -30, 40, 7).fillRect(-11, -35, 23, 6);
-      art.fillStyle(0xc3b987).fillRect(-20, -28, 40, 3);
-      art.fillStyle(0x3e5044).fillRect(-7, -5, 14, 23).fillRect(-17, -8, 7, 8).fillRect(11, -8, 7, 8);
-      art.fillStyle(0xe7c780).fillRect(12, -7, 5, 5);
-      art.fillStyle(0x806846).fillRect(-21, -16, 4, 35).fillRect(17, -16, 4, 35);
-      if (blueprint === 'kitchen') art.fillStyle(0x80765e).fillRect(12, -38, 7, 12);
-      if (blueprint === 'workshop') art.fillStyle(0x796247).fillRect(-17, 12, 14, 8).fillRect(-20, 7, 20, 5);
+    if (progress !== null) {
+      art.fillStyle(0x29483e, 0.9).fillRect(-21, 12, 42, 5);
+      if (progress > 0) art.fillStyle(blocked ? 0xdca87c : 0xe5d79d).fillRect(-20, 13, Math.round(progress * 40), 3);
     }
   }
 
   private sync(): void {
     const projection = this.session.getSnapshot();
-    const signature = JSON.stringify(projection.map);
+    const signature = `${projection.map.seed}:${projection.map.navVersion}:${projection.map.width}:${projection.map.height}`;
     if (this.mapSignature !== signature) { this.drawMap(projection); this.mapSignature = signature; }
     const present = new Set<string>();
     for (const building of projection.buildings) {
       present.add(building.id);
-      const view = this.entityViews.get(building.id) ?? this.createView(building.id, 'building');
+      const view = this.entityViews.get(building.id) ?? this.createView(building.id, 'building', `building-${building.blueprintId}`);
       const selected = projection.selection?.kind === 'building' && projection.selection.id === building.id;
-      const next = `${building.blueprintId}:${selected}:${this.locale}`;
+      const next = `${selected}:${building.operational}:${this.locale}`;
       if (view.signature !== next) {
-        this.drawBuilding(view, building.blueprintId, selected);
+        this.drawMarker(view, selected, null, false, true);
         view.label.setText(translate(this.locale, building.nameKey as TextKey));
+        view.sprite.setAlpha(building.operational ? 1 : 0.55);
         view.signature = next;
       }
+      view.label.setVisible(true);
       view.container.setPosition(ORIGIN.x + building.x * TILE + TILE / 2, ORIGIN.y + building.y * TILE + TILE / 2).setDepth(building.y * TILE);
     }
     projection.disciples.forEach((disciple, index) => {
       present.add(disciple.id);
-      const view = this.entityViews.get(disciple.id) ?? this.createView(disciple.id, 'disciple');
+      const presentation = disciplePresentation(disciple, index);
+      const view = this.entityViews.get(disciple.id) ?? this.createView(disciple.id, 'disciple', presentation.id);
+      if (view.sprite.texture.key !== presentation.id) view.sprite.setTexture(presentation.id);
       const transaction = projection.transactions.find((entry) => entry.transactionId === disciple.assignmentTransactionId);
       const selected = projection.selection?.kind === 'disciple' && projection.selection.id === disciple.id;
       const progress = transaction ? transaction.activeTicks / transaction.requiredTicks : null;
-      const next = `${selected}:${progress}:${transaction?.phase}:${transaction?.state}:${this.locale}`;
+      const next = `${selected}:${progress}:${transaction?.state}:${disciple.lifeState}:${this.locale}`;
       if (view.signature !== next) {
-        this.drawDisciple(view, index, selected, progress, transaction?.state === 'Blocked');
-        view.label.setText(translate(this.locale, disciple.nameKey as TextKey));
+        this.drawMarker(view, selected, progress, transaction?.state === 'Blocked', false);
+        const name = translate(this.locale, disciple.nameKey as TextKey);
+        const lifecycleLabel = disciple.lifeState === 'dead' ? translate(this.locale, 'disciple.dead')
+          : disciple.lifeState === 'pendingDeath' ? translate(this.locale, 'cultivation.ui.pendingDeath') : null;
+        view.label.setText(lifecycleLabel ? `${name} · ${lifecycleLabel}` : name);
+        view.sprite.setAlpha(disciple.lifeState === 'dead' ? 0.4 : disciple.lifeState === 'pendingDeath' ? 0.7 : 1);
+        if (disciple.lifeState === 'alive') view.sprite.clearTint();
+        else view.sprite.setTint(disciple.lifeState === 'dead' ? 0x70877f : 0xd2b88b).setFrame(0).setFlipX(false);
         view.signature = next;
       }
-      view.label.setVisible(selected || view.hovered);
-      // Deliberately no decorative walking: movement must come from simulation positions.
+      if (view.lastX >= 0 && (view.lastX !== disciple.position.x || view.lastY !== disciple.position.y)) {
+        const dx = disciple.position.x - view.lastX, dy = disciple.position.y - view.lastY;
+        view.direction = dx !== 0 ? 1 : dy < 0 ? 2 : 0;
+        view.sprite.setFlipX(dx < 0);
+        if (dx === 0) view.sprite.setFlipX(false);
+      }
+      // Pose advances only with simulation ticks, never from Phaser wall-clock callbacks.
+      if (disciple.lifeState !== 'alive') {
+        view.sprite.setFrame(0).setFlipX(false);
+      } else if (!projection.paused) {
+        const walking = disciple.traveling && transaction?.state !== 'Blocked' && disciple.lifeState === 'alive';
+        const pose = walking ? Math.floor(projection.clock.simulationTick / 2) % CHARACTER_FRAME.poses : 0;
+        view.sprite.setFrame(view.direction * CHARACTER_FRAME.poses + pose);
+      }
+      view.lastX = disciple.position.x; view.lastY = disciple.position.y;
+      view.label.setVisible(selected || view.hovered || disciple.lifeState !== 'alive');
+      // No position tween, predicted path, decorative wandering or synthetic progress.
       view.container.setPosition(ORIGIN.x + disciple.position.x * TILE + TILE / 2, ORIGIN.y + disciple.position.y * TILE + TILE / 2).setDepth(disciple.position.y * TILE + 1);
     });
     for (const [id, view] of this.entityViews) if (!present.has(id)) { view.container.destroy(); this.entityViews.delete(id); }
+    const selection = projection.selection ? `${projection.selection.kind}:${projection.selection.id}` : '';
+    if (this.zoom > 1.25 && selection && selection !== this.previousSelection) {
+      const view = projection.selection ? this.entityViews.get(projection.selection.id) : undefined;
+      if (view) { this.cameraTarget = { x: view.container.x, y: view.container.y - 45 }; this.cameras.main.centerOn(this.cameraTarget.x, this.cameraTarget.y); }
+    }
+    this.previousSelection = selection;
   }
 }
 
-export interface SectRenderer { setLocale(locale: Locale): void; destroy(): void }
+export interface SectRenderer { setLocale(locale: Locale): void; setZoom(zoom: number): void; resetView(): void; destroy(): void }
 export function mountSectWorld(parent: HTMLElement, session: ApplicationSession, locale: Locale): SectRenderer {
-  const scene = new SectScene(session, locale);
+  const scene = new SectScene(session, locale, parent.clientWidth < 620 ? 1.8 : DEFAULT_ZOOM);
   const game = new Phaser.Game({
     type: Phaser.AUTO, parent, width: SIZE.width, height: SIZE.height,
-    scene: [scene], backgroundColor: '#193837', pixelArt: true, roundPixels: true,
+    scene: [scene], backgroundColor: '#91aca0', pixelArt: true, roundPixels: true,
     banner: false, autoFocus: false, audio: { noAudio: true },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   });
-  return { setLocale: (next) => scene.setLocale(next), destroy: () => game.destroy(true) };
+  return { setLocale: (next) => scene.setLocale(next), setZoom: (zoom) => scene.setZoom(zoom), resetView: () => scene.resetView(), destroy: () => game.destroy(true) };
 }

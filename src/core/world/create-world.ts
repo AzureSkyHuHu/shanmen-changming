@@ -1,11 +1,13 @@
 import { createInventory } from '../economy/inventory';
+import { attachWorldProgression } from './build-bridge';
+import { attachCultivationState } from './initialize-cultivation';
 import { CALENDAR_TICKS_PER_MONTH, createClock } from '../kernel/clock';
 import { allocateId, createSequences } from '../kernel/ids';
 import { createRandomStreams, drawInteger } from '../kernel/random';
 import type { Disciple, WorldBuilding, WorldState, WorldTile } from './types';
 
-/** 0.2.0 adds saved movement and delivery. v1/0.1.1 has an explicit migration; 0.1.0 RNG remains incompatible. */
-export const SIMULATION_VERSION = '0.2.0';
+/** 0.7.0 adds source-owned automatic work, bounded notices and explicit discard. */
+export const SIMULATION_VERSION = '0.7.0';
 export const CONTENT_VERSION = 'starter-0.1.0';
 
 /** Seeded starter fixture. The central road and all four resource stations are guaranteed reachable. */
@@ -42,11 +44,11 @@ export function createWorld(seed: string | number = 'shanmen-001'): WorldState {
     const allocated = allocateId(sequences, 'entity'); sequences = allocated.sequences;
     return { ...building, id: allocated.id, operational: true, stationTransactionId: null };
   });
-  return {
+  return attachWorldProgression(attachCultivationState({
     seed: normalizedSeed, simulationVersion: SIMULATION_VERSION, contentVersion: CONTENT_VERSION,
     clock: createClock(), randomStreams, sequences,
     map: { width: 14, height: 10, seed: normalizedSeed, generationVersion: 1, navVersion: 0, tiles },
     disciples, buildings, inventory: createInventory(), reservations: {}, transactions: {}, activeProductionTransactionIds: [], commandReceipts: {}, pendingCommands: [], events: [],
     unlocks: ['recipe.gather', 'recipe.cooking', 'recipe.planks', 'route.first-breakthrough'], diagnostics: [],
-  };
+  }));
 }

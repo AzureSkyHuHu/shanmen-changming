@@ -1,0 +1,157 @@
+/**
+ * ONE-TIME FIXTURE GENERATOR. Parent alone executes, verifies the output, then removes
+ * this file from the normal suite. All engine imports deliberately use the frozen
+ * v7 export, never the working tree that will become v8.
+ */
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
+import { expect, it } from 'vitest';
+import {
+  advanceTicksWithStatus, createSaveEnvelope, createWorld, dispatchCommand, parseSave,
+  serializeSave, validateWorldState, SAVE_VERSION, SIMULATION_VERSION, CONTENT_VERSION,
+  WORLD_AUTO_START_ALLOWANCE, type AutomaticJobId, type Command, type WorldState,
+} from '../../../validation-automatic-v7/src/core/kernel';
+import type { PlayerExpeditionCommand } from '../../../validation-automatic-v7/src/core/expeditions/world-types';
+
+const directory = fileURLToPath(new URL('./fixtures/', import.meta.url));
+const sourceDirectory = fileURLToPath(new URL('../../../validation-automatic-v7/src/', import.meta.url));
+const filenames = ['save-v7-active-automatic.json', 'save-v7-active-battle.json',
+  'save-v7-awaiting-choice.json', 'save-v7-ended-clear.json'] as const;
+const provenanceFilename = 'save-v7-campaign-provenance.json';
+const savedAt = '2026-10-01T11:36:00.000Z';
+type ExpeditionInput = PlayerExpeditionCommand extends infer C ? C extends PlayerExpeditionCommand ? Omit<C, 'commandId'> : never : never;
+
+function submit(world: WorldState, command: Command): WorldState {
+  const result = dispatchCommand(world, command);
+  expect(result.result.status, JSON.stringify(result.result)).toBe('accepted');
+  return result.world;
+}
+function expedition(world: WorldState, commandId: string, input: ExpeditionInput): WorldState {
+  return submit(world, { commandId, sequence: world.sequences.nextAction, issuedTick: world.clock.simulationTick,
+    kind: 'expedition.command', payload: { command: { ...input, commandId } as PlayerExpeditionCommand } });
+}
+function step(world: WorldState, count: number): WorldState {
+  const result = advanceTicksWithStatus(world, count);
+  expect(result.capacityStop).toBeNull(); expect(result.invariantStop).toBeNull();
+  expect(result.world.clock.pauseReasons).not.toContain('cultivation');
+  return result.world;
+}
+function sha256(text: string | Uint8Array): string { return createHash('sha256').update(text).digest('hex'); }
+function sourceFiles(directoryPath: string): string[] {
+  return readdirSync(directoryPath, { withFileTypes: true }).flatMap(entry => {
+    const path = join(directoryPath, entry.name);
+    return entry.isDirectory() ? sourceFiles(path) : entry.isFile() ? [path] : [];
+  }).sort();
+}
+function snapshot(world: WorldState, filename: typeof filenames[number]) {
+  expect(validateWorldState(world)).toEqual([]);
+  const envelope = createSaveEnvelope(world, { buildId: `frozen-98e7026-${filename.slice(0, -5)}`, savedAt });
+  expect(envelope.saveVersion).toBe(7); expect(envelope.simulationVersion).toBe('0.7.0');
+  const text = `${serializeSave(envelope)}\n`;
+  const parsed = parseSave(text);
+  expect(parsed.ok, parsed.ok ? '' : JSON.stringify(parsed.error)).toBe(true);
+  if (!parsed.ok) throw new Error('Frozen v7 failed to read its own fixture');
+  expect(parsed.migration).toBeNull(); expect(parsed.world).toEqual(world);
+  return { filename, text, provenance: {
+    filename, bytes: Buffer.byteLength(text, 'utf8'), sha256: sha256(text), checksum: envelope.checksum,
+    seed: world.seed, simulationTick: world.clock.simulationTick, calendarTick: world.clock.calendarTick,
+    automaticNextCycle: world.automaticProduction.nextCycle,
+    automaticLiveIds: Object.keys(world.automaticProduction.live), automaticPins: world.automaticProduction.pins,
+    runId: world.expedition.run?.runId ?? null, runPhase: world.expedition.run?.phase ?? null,
+    currentOfferId: world.expedition.run?.currentOfferId ?? null,
+    settlement: world.expedition.run?.settlement ?? null,
+    battleElapsedTicks: world.expedition.battle?.controller.elapsedTicks ?? null,
+    battleConfigHash: world.expedition.battle?.configHash ?? null,
+    battleActionCount: world.expedition.battle ? Object.keys(world.expedition.battle.controller.battle.actions).length : null,
+    battleStatusCount: world.expedition.battle?.controller.battle.statuses.length ?? null,
+    battleRandomStreams: world.expedition.battle?.controller.battle.random ?? null,
+  } };
+}
+
+it('captures authentic v7 automatic, encounter, pending-offer and fully settled clear source bytes', () => {
+  expect(SAVE_VERSION).toBe(7); expect(SIMULATION_VERSION).toBe('0.7.0');
+  expect(CONTENT_VERSION).toBe('starter-0.1.0'); expect(WORLD_AUTO_START_ALLOWANCE).toBe(2);
+  for (const filename of [...filenames, provenanceFilename]) {
+    expect(existsSync(join(directory, filename)), `Refusing to overwrite immutable fixture ${filename}`).toBe(false);
+  }
+
+  // Genuine scheduler admission and one publicly acknowledged cancellation. No
+  // direct internal start function, state mutation, boosted resource or fake ID.
+  let automatic = createWorld('campaign-v7-automatic');
+  for (const [index, plan] of [
+    { workerId: 'entity:2', enabled: true, priorities: [{ recipeId: 'farm.grain', targetStock: 24 }] },
+    { workerId: 'entity:3', enabled: true, priorities: [{ recipeId: 'cook.meal', targetStock: 18 }] },
+  ].entries()) {
+    automatic = submit(automatic, { commandId: `v7.fixture.plan.${index}`, sequence: automatic.sequences.nextAction,
+      issuedTick: automatic.clock.simulationTick, kind: 'sect-economy.command', payload: { command: { kind: 'plan.set', plan } } });
+  }
+  automatic = submit(automatic, { commandId: 'v7.fixture.enabled', sequence: automatic.sequences.nextAction,
+    issuedTick: automatic.clock.simulationTick, kind: 'sect-economy.command', payload: { command: { kind: 'enabled.set', enabled: true } } });
+  automatic = step(automatic, 1);
+  expect(Object.keys(automatic.automaticProduction.live)).toHaveLength(2);
+  const cancelledId = (Object.keys(automatic.automaticProduction.live) as AutomaticJobId[])[0]!;
+  automatic = submit(automatic, { commandId: 'v7.fixture.public-cancel', sequence: automatic.sequences.nextAction,
+    issuedTick: automatic.clock.simulationTick, kind: 'production.cancel', payload: { transactionId: cancelledId } });
+  automatic = step(automatic, 37);
+  expect(Object.keys(automatic.automaticProduction.live).length).toBeGreaterThan(0);
+  expect(automatic.automaticProduction.pins[cancelledId]?.retention).toBe('exact-receipt');
+  expect(automatic.transactions).toEqual({}); expect(automatic.reservations).toEqual({});
+  const snapshots = [snapshot(automatic, filenames[0])];
+
+  // The seed and default first-two-member squad are the already validated ordinary
+  // full-trial scenario. Battle output, offers and victory are produced by v7.
+  let world = createWorld('full-trial');
+  world = expedition(world, 'v7.fixture.depart', { kind: 'expedition.depart',
+    request: { routeId: 'route.qingfeng-trial', squadIds: world.disciples.slice(0, 2).map(member => member.id) } });
+  world = step(world, 1200); expect(world.expedition.run?.phase).toBe('AtNode');
+  world = expedition(world, 'v7.fixture.encounter', { kind: 'expedition.continue' });
+  world = step(world, 20);
+  expect(world.expedition.run?.phase).toBe('InEncounter');
+  expect(Object.keys(world.expedition.battle!.controller.battle.actions).length).toBeGreaterThan(0);
+  expect(world.expedition.battle!.controller.battle.statuses.length + world.expedition.battle!.controller.battle.shields.length).toBeGreaterThan(0);
+  expect(Object.values(world.expedition.battle!.controller.battle.random).some(stream => stream.draws > 0)).toBe(true);
+  snapshots.push(snapshot(world, filenames[1]));
+
+  for (let i = 0; i < 70 && world.expedition.run?.phase === 'InEncounter'; i++) world = step(world, 60);
+  expect(world.expedition.run?.phase).toBe('RewardPending');
+  const pending = world.expedition.run!.offers.find(offer => offer.offerId === world.expedition.run!.currentOfferId)!;
+  expect(pending.resolution).toBe('pending'); expect(pending.candidateDefinitionIds.length).toBeGreaterThan(0);
+  expect(pending.rngAfter.draws).toBeGreaterThan(pending.rngBefore.draws);
+  snapshots.push(snapshot(world, filenames[2]));
+
+  for (let phase = 0; phase < 60 && world.expedition.run?.phase !== 'Ended'; phase++) {
+    const run = world.expedition.run!;
+    if (run.phase === 'RewardPending') {
+      const offer = run.offers.find(entry => entry.offerId === run.currentOfferId)!;
+      world = expedition(world, `v7.fixture.supplies.${phase}`, { kind: 'expedition.supplies', offerId: offer.offerId, offerRevision: offer.revision });
+    } else if (run.phase === 'InEncounter') {
+      for (let i = 0; i < 70 && world.expedition.run?.phase === 'InEncounter'; i++) world = step(world, 60);
+      expect(world.expedition.run?.phase).not.toBe('InEncounter');
+    } else if (world.expedition.travel) world = step(world, 1200);
+    else world = expedition(world, `v7.fixture.continue.${phase}`, { kind: 'expedition.continue' });
+  }
+  expect(world.expedition.run?.phase).toBe('Ended');
+  expect(world.expedition.run?.settlement).toMatchObject({ reason: 'victory', committed: true });
+  expect(world.expedition.run?.encounterResults).toHaveLength(3); expect(world.expedition.run?.offers).toHaveLength(2);
+  expect(world.clock.calendarTick).toBe(4800);
+  expect(world.expedition.effectReceipts.filter(receipt => receipt.kind === 'runSettled')).toHaveLength(1);
+  expect(world.builds.disciples.every(disciple => disciple.lock === null)).toBe(true);
+  expect(world.cultivation.disciples.every(disciple => disciple.activityOwner === null)).toBe(true);
+  snapshots.push(snapshot(world, filenames[3]));
+
+  // No historical fixture is touched, and no output is written until every genuine
+  // gameplay state and frozen parser has passed the assertions above.
+  const sources = sourceFiles(sourceDirectory).map(path => ({ path: relative(sourceDirectory, path), sha256: sha256(readFileSync(path)) }));
+  const provenance = {
+    sourceCommit: '98e7026c9dfef68754a3ad9369d70aa3c2475195',
+    sourceCommitTree: '78f1a3577497c090eaaa3cea769f635d3c8475f3',
+    verifiedExportTree: '25070d9154cdde94503fd248b47baa51ec7958bd',
+    sourceExport: 'validation-automatic-v7/src', saveVersion: SAVE_VERSION, simulationVersion: SIMULATION_VERSION,
+    contentVersion: CONTENT_VERSION, savedAt, sourceFileManifestSha256: sha256(JSON.stringify(sources)),
+    fixtures: snapshots.map(entry => entry.provenance), sourceFiles: sources,
+  };
+  for (const entry of snapshots) writeFileSync(join(directory, entry.filename), entry.text, { flag: 'wx' });
+  writeFileSync(join(directory, provenanceFilename), `${JSON.stringify(provenance, null, 2)}\n`, { flag: 'wx' });
+}, 120_000);

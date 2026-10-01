@@ -4,11 +4,11 @@ export const TICKS_PER_SECOND = 20;
 export const TICK_MILLISECONDS = 50;
 /** Prototype calendar pacing: 60 real seconds at 1x is one month. */
 export const CALENDAR_TICKS_PER_MONTH = 1200;
-export const SYSTEM_ORDER = ['commands', 'expiry', 'economy', 'calendar', 'events', 'snapshot'] as const;
-export const SYSTEM_ORDER_VERSION = 1;
+export const SYSTEM_ORDER = ['expeditionBoundary', 'commands', 'clock', 'expiry', 'cultivation', 'automaticAdmission', 'economy', 'expedition', 'events', 'snapshot'] as const;
+export const SYSTEM_ORDER_VERSION = 4;
 export type SimulationMode = 'management' | 'combat';
 export type SimulationSpeed = 1 | 3;
-export const PAUSE_REASONS = ['player', 'choice', 'danger', 'hidden', 'error'] as const;
+export const PAUSE_REASONS = ['player', 'choice', 'danger', 'hidden', 'error', 'cultivation', 'expedition', 'save-capacity'] as const;
 export type PauseReason = typeof PAUSE_REASONS[number];
 export interface WorldClock {
   simulationTick: number;

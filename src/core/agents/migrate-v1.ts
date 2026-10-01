@@ -1,13 +1,12 @@
 import { allocateId } from '../kernel/ids';
 import { cloneJson } from '../kernel/serialization';
-import { SIMULATION_VERSION } from '../world/create-world';
 import type { WorldState } from '../world/types';
 import { cardinalDistance, emptyNavigation } from './navigation';
 
 /** Input MUST pass validateLegacyWorldStateV1 first. No resource/RNG/event changes. */
 export function migrateWorldV1ToV2(value: unknown): WorldState {
   const world = cloneJson(value) as WorldState;
-  world.simulationVersion = SIMULATION_VERSION;
+  world.simulationVersion = '0.2.0';
   world.map.navVersion = 0;
   world.buildings = world.buildings.map((building) => ({ ...building, stationTransactionId: null }));
   const center = { x: Math.floor(world.map.width / 2), y: Math.floor(world.map.height / 2) };

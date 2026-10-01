@@ -9,6 +9,46 @@ function setup() { const session = new ApplicationSession(); const controller = 
 afterEach(() => { for (const controller of controllers.splice(0)) controller.stop(); vi.unstubAllGlobals(); });
 
 describe('manual save application coordination', () => {
+  it.each(['memory', 'browser'] as const)('starts a detached seeded campaign without overwriting an existing %s slot', async mode => {
+    vi.stubGlobal('indexedDB', mode === 'browser' ? new IDBFactory() : undefined);
+    const { session, controller } = setup();
+    expect(await controller.beginNewCampaign('not-open')).toBe(false);
+    await controller.start(); await controller.save('campaign-1');
+    const oldSeed = session.getSnapshot().seed;
+    const originalSlot = controller.getSnapshot().slots[0]!.slot;
+    expect(await controller.beginNewCampaign(' ')).toBe(false);
+    expect(controller.getSnapshot().boundSlot).toBe('campaign-1');
+    expect(await controller.beginNewCampaign('x'.repeat(257))).toBe(false);
+    expect(session.getSnapshot().seed).toBe(oldSeed);
+    expect(await controller.beginNewCampaign('  fresh-sect-96  ')).toBe(true);
+    expect(session.getSnapshot().seed).toBe('fresh-sect-96');
+    expect(session.getSnapshot().clock.pauseReasons).toContain('player');
+    expect(controller.getSnapshot().boundSlot).toBeNull();
+    expect(controller.getSnapshot().lastSavedAt).toBeNull();
+    expect(controller.getSnapshot().slots[0]!.slot).toEqual(originalSlot);
+    expect(controller.canSave('campaign-1')).toBe(false);
+    await controller.load('campaign-1');
+    expect(session.getSnapshot().seed).toBe(oldSeed);
+  });
+  it.each(['memory', 'browser'] as const)('preserves an earlier %s save when new UTF-8 bytes exceed the file limit', async mode => {
+    vi.stubGlobal('indexedDB', mode === 'browser' ? new IDBFactory() : undefined);
+    const { session, controller } = setup();
+    await controller.start();
+    await controller.save('campaign-1');
+    const original = controller.getSnapshot().slots[0]!.slot!;
+    const world = session.exportWorld();
+    // Valid extension data remains below the UTF-16 character cap but exceeds UTF-8 bytes.
+    const oversized = Object.assign(world, { extension: '山'.repeat(1_400_000) });
+    const spy = vi.spyOn(session, 'exportWorld').mockReturnValue(oversized);
+    await controller.save('campaign-1');
+    spy.mockRestore();
+    expect(controller.getSnapshot().notice).toBe('save.error.tooLarge');
+    expect(controller.getSnapshot().busy).toBe(false);
+    expect(controller.getSnapshot().slots[0]!.slot).toEqual(original);
+    await controller.load('campaign-1');
+    expect(controller.getSnapshot().notice).toBe('save.loadedPaused');
+    expect('extension' in session.exportWorld()).toBe(false);
+  }, 30_000);
   it('labels an unavailable-storage fallback as memory-only and still offers a valid export', async () => {
     vi.stubGlobal('indexedDB', undefined);
     const { session, controller } = setup();

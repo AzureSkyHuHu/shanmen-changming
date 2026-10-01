@@ -1,8 +1,14 @@
+import type { AutomaticProductionState } from '../economy/automatic-types';
+import type { HistoryArchive } from '../history/types';
 import type { InventoryLedger, ProductionTransaction, Reservation } from '../economy/types';
 import type { Command, CommandReceipt, CoreDiagnostic, DomainEvent } from '../kernel/contracts';
 import type { WorldClock } from '../kernel/clock';
 import type { RandomStreams } from '../kernel/random';
 import type { SequenceState } from '../kernel/ids';
+import type { BuildData } from '../builds/types';
+import type { WorldExpeditionState } from '../expeditions/world-types';
+import type { CultivationState } from '../cultivation/types';
+import type { SectEconomyState } from '../sect-economy/types';
 
 export const MAX_DISCIPLES = 36;
 export interface GridPosition { x: number; y: number }
@@ -14,7 +20,7 @@ export interface Disciple {
   ageMonths: number;
   birthCalendarTick: number;
   position: GridPosition;
-  lifeState: 'alive' | 'dead';
+  lifeState: 'alive' | 'pendingDeath' | 'dead';
   canWork: boolean;
   traveling: boolean;
   assignmentTransactionId: string | null;
@@ -31,6 +37,12 @@ export interface WorldState {
   map: WorldMap;
   disciples: Disciple[];
   buildings: WorldBuilding[];
+  cultivation: CultivationState;
+  builds: BuildData;
+  expedition: WorldExpeditionState;
+  sectEconomy: SectEconomyState;
+  history: HistoryArchive;
+  automaticProduction: AutomaticProductionState;
   inventory: InventoryLedger;
   reservations: Record<string, Reservation>;
   transactions: Record<string, ProductionTransaction>;
@@ -42,3 +54,6 @@ export interface WorldState {
   unlocks: string[];
   diagnostics: CoreDiagnostic[];
 }
+
+/** Internal bootstrap/migration boundary before permanent builds and expedition state are attached. */
+export type CultivationWorld = Omit<WorldState, 'builds' | 'expedition' | 'sectEconomy' | 'history' | 'automaticProduction'>;

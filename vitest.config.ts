@@ -6,6 +6,8 @@ export default defineConfig({
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     clearMocks: true,
     restoreMocks: true,
+    // Bound test-process pressure; simulation integration tests retain their real assertions/timeouts.
+    maxWorkers: 2,
     sequence: { concurrent: false },
   },
 });

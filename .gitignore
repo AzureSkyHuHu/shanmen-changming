@@ -13,3 +13,14 @@ tmp/
 
 
 .sites-runtime/
+
+# Large original art stays in the dot workspace by user request (2026-10-01).
+/public/assets/portraits/disciples-atlas-v1.png
+/public/assets/campaign/jade-mountain-route-v1.png
+/assets-source/characters/contact-sheet-96-v2.svg
+
+# Artwork sources and visual proof exports stay local; small runtime textures remain versioned.
+/assets-source/**/*.svg
+/assets-source/**/*.png
+/docs/visual-proofs/*.svg
+/docs/visual-proofs/*.png

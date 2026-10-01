@@ -1,0 +1,48 @@
+/* Contextual ledger surface: jade paper, brass headings, no extra overlay over the map. */
+.work-plans-panel { --work-plan-panel: #132d2780; --work-plan-note: #43392566; font-size: 12px; line-height: 1.65; min-width: 0; }
+.work-plans-panel *, .work-plans-panel *::before, .work-plans-panel *::after { min-width: 0; }
+.work-plans-header { margin: 0 0 12px; }.work-plans-header h3 { margin-top: 4px; color: var(--gold); }
+.work-plans-global { padding: 10px; border: 1px solid var(--border); background: var(--work-plan-panel); }
+.work-plans-global-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; }
+.work-plans-global-heading strong { color: var(--paper); font-weight: 500; }
+.work-plans-panel button { min-height: 36px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: 11px; }
+.work-plans-global-toggle { flex-shrink: 0; }
+.work-plans-help, .work-plans-recipe-meta { font-size: 11px; color: var(--muted); margin-top: 7px; overflow-wrap: anywhere; }
+.work-plans-status { color: var(--gold); margin-top: 8px; }
+.work-plans-notice, .work-plans-review, .work-plans-blockers { margin-top: 10px; color: var(--warning); }
+.work-plans-review, .work-plans-stale { border-left: 2px solid var(--warning); padding: 8px 10px; background: var(--work-plan-note); }
+.work-plans-stale button { margin-top: 8px; }.work-plans-blockers { padding-left: 18px; }
+.work-plans-disciple { margin: 18px 0 8px; color: var(--gold); }
+.work-plans-fields { border: 0; padding: 0; margin: 0; }
+.work-plans-check { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; }
+.work-plans-check input { width: 16px; height: 16px; margin: 3px 0 0; flex-shrink: 0; accent-color: var(--gold); }
+.work-plans-panel input, .work-plans-panel select { font: inherit; }
+.work-plans-panel input:focus-visible { outline: 2px solid #ffe3a0; outline-offset: 3px; }
+.work-plans-panel input:disabled { opacity: .6; cursor: not-allowed; }
+.work-plans-priorities { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 10px; }
+.work-plans-priority { padding: 10px; border: 1px solid var(--border); background: var(--work-plan-panel); }
+.work-plans-priority-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 10px; }
+.work-plans-priority-heading span { color: var(--muted); font-size: 10px; }
+.work-plans-priority-heading h5 { color: var(--paper); font-size: 13px; font-weight: 500; margin: 0; }
+.work-plans-recipe-flow { color: var(--paper); margin-top: 6px; font-size: 11px; }
+.work-plans-recipe-meta { margin-top: 3px; }
+.work-plans-target { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.work-plans-target span { flex: 1; }
+.work-plans-target input { width: 76px; flex: 0 0 76px; min-height: 36px; padding: 6px; border: 1px solid var(--border); border-radius: 3px; color: var(--paper); background: #17372e; font-variant-numeric: tabular-nums; }
+.work-plans-target input[aria-invalid="true"] { border-color: var(--warning); }
+.work-plans-stock { list-style: none; margin: 8px 0; padding: 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.work-plans-stock li + li { margin-top: 4px; }
+.work-plans-row-actions, .work-plans-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.work-plans-row-actions button { flex: 1; padding: 5px 6px; }
+.work-plans-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.work-plans-add label { grid-column: 1 / -1; color: var(--muted); }
+.work-plans-add select { width: 100%; font-size: 11px; }
+.work-plans-empty { padding: 14px 0 4px; color: var(--muted); }
+.work-plans-draft { margin-top: 9px; color: var(--gold); font-size: 11px; }
+.work-plans-actions { padding: 4px 0; }.work-plans-actions button { flex: 1; }
+.work-plans-rules { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 6px; color: var(--muted); font-size: 11px; }
+.work-plans-rules summary { color: var(--gold); cursor: pointer; padding: 5px 0; }
+.work-plans-rules p { margin-top: 5px; }
+.work-plans-feedback { min-height: 1.7em; color: var(--gold); margin-top: 9px; font-size: 11px; }
+@media (max-width: 760px) { .work-plans-panel button, .work-plans-panel select, .work-plans-target input { min-height: 42px; }.work-plans-stock, .work-plans-help { font-size: 11px; } }
+@media (prefers-reduced-motion: reduce) { .work-plans-panel button { transition: none; } }

@@ -70,14 +70,14 @@ function withVersions(saveVersion: number, simulationVersion = SIMULATION_VERSIO
 afterEach(() => { for (const repository of repositories.splice(0)) repository.close(); });
 
 describe('stored v1 migration and source preservation', () => {
-  it('loads genuine v1 in-progress production into v2 memory without rewriting any stored record', async () => {
+  it('loads genuine v1 in-progress production into current v4 memory without rewriting any stored record', async () => {
     const { repository, raw } = await createStorage();
     try {
       await seedLegacy(raw);
       const before = await inspect(raw);
       const loaded = await repository.loadSlot(slotId);
-      expect(SAVE_VERSION).toBe(2);
-      expect(loaded.envelope.saveVersion).toBe(2);
+      expect(SAVE_VERSION).toBe(7);
+      expect(loaded.envelope.saveVersion).toBe(7);
       expect(loaded.envelope.simulationVersion).toBe(SIMULATION_VERSION);
       expect(loaded.migration).toEqual({ sourceSaveVersion: 1, sourceSimulationVersion: '0.1.1', sourceChecksum: legacy.checksum });
       expect(loaded.envelope.checksum).not.toBe(legacy.checksum);
@@ -90,7 +90,7 @@ describe('stored v1 migration and source preservation', () => {
       expect(loaded.envelope.buildId).toBe(legacy.buildId);
       expect(loaded.world.seed).toBe(legacy.seed);
       expect(loaded.world.randomStreams).toEqual(legacy.payload.randomStreams);
-      expect(loaded.world.sequences).toEqual({ ...legacy.payload.sequences, nextEntity: legacy.payload.sequences.nextEntity + 1 });
+      expect(loaded.world.sequences).toEqual({ ...legacy.payload.sequences, nextEntity: legacy.payload.sequences.nextEntity + 1, nextInstance: legacy.payload.sequences.nextInstance + 36 });
       expect(loaded.world.inventory).toEqual(legacy.payload.inventory);
       expect(loaded.world.commandReceipts).toEqual(legacy.payload.commandReceipts);
       expect(loaded.world.transactions['instance:1']?.activeTicks).toBe(47);
@@ -104,19 +104,19 @@ describe('stored v1 migration and source preservation', () => {
     } finally { raw.close(); }
   });
 
-  it('creates a separate v2 generation only after an explicit save and retains the original source', async () => {
+  it('creates a separate v4 generation only after an explicit save and retains the original source', async () => {
     const { repository, raw } = await createStorage();
     try {
       await seedLegacy(raw);
       const loaded = await repository.loadSlot(slotId);
       const lease = await repository.acquireLease(slotId, 'upgrading-tab');
       const committed = await repository.saveWorld(slotId, loaded.world, {
-        buildId: 'v2-explicit-save', savedAt: '2026-10-01T08:00:00Z',
+        buildId: 'v4-explicit-save', savedAt: '2026-10-01T08:00:00Z',
       }, { expectedRevision: loaded.slot.revision, lease });
       expect(committed.slot.revision).toBe(8);
       expect(committed.slot.currentSnapshotId).toBe('campaign-1:8');
       expect(committed.slot.autoSnapshotIds).toEqual(['campaign-1:8', legacyId]);
-      expect(JSON.parse(committed.snapshot.text).saveVersion).toBe(2);
+      expect(JSON.parse(committed.snapshot.text).saveVersion).toBe(7);
       expect(await repository.exportRawSnapshot(slotId, legacyId)).toBe(legacyText);
       const current = await repository.loadSlot(slotId);
       expect(current.migration).toBeNull();

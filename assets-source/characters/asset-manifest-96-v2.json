@@ -1,0 +1,150 @@
+{
+  "version": "96-v2",
+  "author": "Original project-owned, direct SVG integer-grid authorship",
+  "source": "assets-source/generate-96-art.py",
+  "created": "2026-10-01",
+  "externalAssets": false,
+  "frame": {
+    "width": 96,
+    "height": 96,
+    "columns": 6,
+    "rows": 3,
+    "anchor": [
+      48,
+      91
+    ],
+    "directions": [
+      "front",
+      "right",
+      "back"
+    ]
+  },
+  "files": [
+    {
+      "path": "public/assets/characters/disciple-0-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 2975,
+      "sha256": "558ebd563abf84d724b4895105028d8d543d3d76b0889ef10fe241f16b8090e3"
+    },
+    {
+      "path": "public/assets/characters/disciple-0-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 20850,
+      "sha256": "2a13ee16488ad10110bf810bf117b89fec0d43fac5eb0648693ed1797fa070be"
+    },
+    {
+      "path": "public/assets/characters/disciple-1-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 3194,
+      "sha256": "b4965f005a64a6932c57979e09e579011f4a5550d274e830c7540fda9faeb80a"
+    },
+    {
+      "path": "public/assets/characters/disciple-1-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 22134,
+      "sha256": "a2c4b516bcbe1c2951a1b24d8123bc54cedfa6876d2ac9b094a6eabad1639e65"
+    },
+    {
+      "path": "public/assets/characters/disciple-2-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 3278,
+      "sha256": "f9724341f0f841a2325db3a8e9c77dca41144d5b45f5231a44ebacc044a8f2c8"
+    },
+    {
+      "path": "public/assets/characters/disciple-2-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 22701,
+      "sha256": "79de925a8c5540c497bf2b8ab1827808252fff37642584412c138f3c41c0e5c5"
+    },
+    {
+      "path": "public/assets/characters/disciple-3-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 3541,
+      "sha256": "4d089dbe89954019d269d0e7a12d825090b5914429d348a86eaecc7513c3fe6d"
+    },
+    {
+      "path": "public/assets/characters/disciple-3-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 22498,
+      "sha256": "90dd43e8ddabc6a9e5acf13d0b00dca67b9825bcdea572b975bb554dad432b61"
+    },
+    {
+      "path": "public/assets/enemies/ridge-raider-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 3127,
+      "sha256": "a75f2b0df4a5af406779a9c70ee299d42e388a19544072ebde038b9e5cc00c18"
+    },
+    {
+      "path": "public/assets/enemies/ridge-raider-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 21348,
+      "sha256": "bd9f758062d1f5a3b18848bb6591dea639cac69e5ba722f8c6e76a9d3704eb22"
+    },
+    {
+      "path": "public/assets/enemies/venom-adept-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 2953,
+      "sha256": "2a9bed04c8bc7d2a9ee1d505bb0c2fc1009af5b02008e2d7e397ffcb5c1e2332"
+    },
+    {
+      "path": "public/assets/enemies/venom-adept-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 19920,
+      "sha256": "b819e2379e8f814de1f80cc473a989b67615f4cfac52b08c059beef52ba04544"
+    },
+    {
+      "path": "public/assets/enemies/moss-boar-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 2482,
+      "sha256": "97f15c4bfe036d529aff76acddfeb40cd091e1cd32d1bf722bf8065ad9f6552c"
+    },
+    {
+      "path": "public/assets/enemies/moss-boar-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 13364,
+      "sha256": "20950da0503da8aa32a07b0633e4fc6c92d68c6f29fc2b9e82fdf96c47e56193"
+    },
+    {
+      "path": "public/assets/enemies/ruin-guardian-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 2697,
+      "sha256": "942185b487a7598cf043bf0ee8d543b231d3b090145c8ca607640c3f6eb1f748"
+    },
+    {
+      "path": "public/assets/enemies/ruin-guardian-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 16543,
+      "sha256": "6e1c8e79c823b62b3211fda4438a927a0dbe7e1d0f959c62a46f3dd4a19c4129"
+    },
+    {
+      "path": "public/assets/enemies/ember-wisp-96-v2.png",
+      "width": 96,
+      "height": 96,
+      "bytes": 2031,
+      "sha256": "e821bd4dfae5afd61eefc027c663ca90da1119350a5440a8595af6f3488fcc98"
+    },
+    {
+      "path": "public/assets/enemies/ember-wisp-sheet-96-v2.png",
+      "width": 576,
+      "height": 288,
+      "bytes": 14459,
+      "sha256": "499f9a3e7a591b74ee44a7dfc6b1f19f266f7649f6abfdf943202748268e6520"
+    }
+  ]
+}

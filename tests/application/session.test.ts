@@ -1,3 +1,4 @@
+import { lookupProduction } from '../../src/core/world/history-access';
 import { describe, expect, it, vi } from 'vitest';
 import { createWorld, setPauseReason } from '../../src/core/kernel';
 import { ApplicationSession } from '../../src/application/session';
@@ -58,7 +59,10 @@ describe('application session ownership and projections', () => {
       session.dispatch({ kind: 'production.cancel', payload: { transactionId: order.transactionId! } });
     }
     const projection = session.getSnapshot();
-    expect(Object.keys(session.exportWorld().transactions)).toHaveLength(13);
+    const saved = session.exportWorld();
+    expect(Object.keys(saved.transactions)).toHaveLength(1);
+    expect(saved.history.production.count).toBe(12);
+    expect(Object.keys(saved.transactions).length + saved.history.production.count).toBe(13);
     expect(projection.transactions.length).toBeLessThanOrEqual(6);
     expect(projection.transactions.some((entry) => entry.transactionId === active.transactionId)).toBe(true);
     for (const event of projection.recentEvents) expect(projection.transactions.some((entry) => entry.transactionId === event.transactionId)).toBe(true);
@@ -165,7 +169,7 @@ describe('application command port', () => {
     const cancelled = session.dispatch({ kind: 'production.cancel', payload: { transactionId: started.transactionId! } });
     expect(cancelled.status).toBe('accepted');
     expect(session.exportWorld().inventory.wood).toMatchObject({ owned: before, reserved: 0 });
-    expect(session.exportWorld().transactions[started.transactionId!]!.state).toBe('Cancelled');
+    expect(lookupProduction(session.exportWorld(), started.transactionId!)!.state).toBe('Cancelled');
     expect(session.getSnapshot().clock.simulationTick).toBe(0);
   });
 

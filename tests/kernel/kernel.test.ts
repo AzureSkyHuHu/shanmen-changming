@@ -1,8 +1,9 @@
+import { lookupArchivedProduction, type HistoryArchive } from '../../src/core/history';
 import { describe, expect, it } from 'vitest';
 import {
   advanceTicks, allocateId, accumulateFrame, availableResource, CALENDAR_TICKS_PER_MONTH,
   canonicalStringify, cancelProduction, completeProduction, createFrameAccumulator, createRandomStreams,
-  createSaveEnvelope, createSequences, createWorld, dispatchCommand, domainHash, drawInteger, enqueueCommands,
+  createSaveEnvelope, createSequences, createWorld, dispatchCommand, dispatchWorldCultivation, domainHash, drawInteger, enqueueCommands,
   mapNonZeroWordToBucket, MAX_DISCIPLES, multiplyDivideFloor, nextUint32, parseSave, RANDOM_ALGORITHM,
   RANDOM_WORD_DOMAIN_SIZE, serializeSave, SIMULATION_VERSION,
   setClockMode, setClockSpeed, setPauseReason, stableHash, STARTER_RECIPES, validateWorldState,
@@ -332,7 +333,7 @@ describe('pure save envelopes', () => {
   });
   it('explicitly rejects the prior integer-mapping simulation version without rewriting its bytes', () => {
     const current = createSaveEnvelope(createWorld('prior-rng-version'), metadata);
-    expect(SIMULATION_VERSION).toBe('0.2.0');
+    expect(SIMULATION_VERSION).toBe('0.7.0');
     expect(RANDOM_ALGORITHM).toBe('xorshift32-nonzero-v2');
     const { checksum: _checksum, ...currentBody } = current;
     const previousBody = {
@@ -366,7 +367,9 @@ describe('pure save envelopes', () => {
     const first = dispatchCommand(world, start(world, 'origin.first', 'craft.plank', 1));
     const second = dispatchCommand(first.world, start(first.world, 'origin.second', 'craft.plank', 2));
     const envelope = createSaveEnvelope(advanceTicks(second.world, 500), metadata);
-    envelope.payload.transactions[second.result.transactionId!]!.commandId = 'origin.first';
+    const records = [first.result.transactionId!, second.result.transactionId!].map((id) => lookupArchivedProduction(envelope.payload.history, id)!);
+    records[1]!.transaction.commandId = 'origin.first';
+    envelope.payload.history = { ...envelope.payload.history, production: { count: 2, pages: [records.map((record) => [1, record.transaction.transactionId, record])] } } as unknown as HistoryArchive;
     const { checksum: _checksum, ...body } = envelope;
     expect(validateWorldState(envelope.payload)).toContain('Duplicate transaction originating command ID');
     expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
@@ -406,7 +409,9 @@ describe('pure save envelopes', () => {
       terminal = cancelled.world;
     }
     const envelope = createSaveEnvelope(terminal, metadata);
-    envelope.payload.reservations[transaction.reservationId]!.state = 'reserved';
+    const record = lookupArchivedProduction(envelope.payload.history, transaction.transactionId)!;
+    record.reservation.state = 'reserved';
+    envelope.payload.history = { ...envelope.payload.history, production: { count: 1, pages: [[[1, record.transaction.transactionId, record]]] } } as unknown as HistoryArchive;
     envelope.payload.inventory.wood.reserved += 3;
     const { checksum: _checksum, ...body } = envelope;
     expect(validateWorldState(envelope.payload)).not.toEqual([]);
@@ -435,6 +440,7 @@ describe('pure save envelopes', () => {
     const disciple = initial.disciples[0]!;
     disciple.birthCalendarTick += 17;
     disciple.ageMonths -= 1;
+    initial.cultivation.disciples[0]!.ageMonths = disciple.ageMonths;
     const before = advanceTicks(roundtrip(initial), 16);
     expect(before.disciples[0]!.ageMonths).toBe(disciple.ageMonths);
     expect(validateWorldState(before)).toEqual([]);
@@ -442,20 +448,46 @@ describe('pure save envelopes', () => {
     expect(birthday.disciples[0]!.ageMonths).toBe(disciple.ageMonths + 1);
     expect(roundtrip(birthday)).toEqual(birthday);
   });
-  it.each(['alive', 'dead'] as const)('rolls back lifetime overflow for an %s disciple to a valid exportable boundary', (lifeState) => {
-    const initial = createWorld(`lifetime-overflow-${lifeState}`);
-    const disciple = initial.disciples[0]!;
-    disciple.birthCalendarTick = -Number.MAX_SAFE_INTEGER;
-    disciple.lifeState = lifeState;
-    disciple.ageMonths = lifeState === 'alive' ? Math.floor(Number.MAX_SAFE_INTEGER / CALENDAR_TICKS_PER_MONTH) : 0;
+  it('rejects an impossibly overage live projection rather than admitting a divergent lifespan authority', () => {
+    const initial = createWorld('overage-live-projection');
+    initial.disciples[0]!.birthCalendarTick = -Number.MAX_SAFE_INTEGER;
+    initial.disciples[0]!.ageMonths = Math.floor(Number.MAX_SAFE_INTEGER / CALENDAR_TICKS_PER_MONTH);
+    expect(validateWorldState(initial)).not.toEqual([]);
+    expect(() => createSaveEnvelope(initial, metadata)).toThrow();
+  });
+  it('rolls back lifetime overflow for an archived dead disciple to a valid exportable boundary', () => {
+    let initial = createWorld('lifetime-overflow-dead');
+    const death = dispatchWorldCultivation(initial, { commandId: 'system.overflow-death', expectedRevision: 0, kind: 'death.finalize',
+      discipleId: initial.disciples[0]!.id, deathId: 'death:overflow-test', cause: 'combat', acknowledgeDeath: true });
+    if (!death.ok) throw new Error(death.code);
+    initial = death.world;
+    initial.disciples[0]!.birthCalendarTick = -Number.MAX_SAFE_INTEGER;
+    initial.disciples[0]!.ageMonths = 0;
+    initial.cultivation.disciples[0]!.ageMonths = 0;
     expect(validateWorldState(initial)).toEqual([]);
-    const restored = roundtrip(initial);
-    const stopped = advanceTicks(restored, 1);
+    const stopped = advanceTicks(roundtrip(initial), 1);
     expect(stopped.clock.simulationTick).toBe(0);
     expect(stopped.clock.calendarTick).toBe(0);
     expect(stopped.clock.pauseReasons).toContain('error');
     expect(stopped.diagnostics).toEqual([{ code: 'INVARIANT_FAILURE', tick: 0, message: 'Safe integer overflow' }]);
     expect(stopped.disciples).toEqual(initial.disciples);
+    expect(stopped.inventory).toEqual(initial.inventory);
+    expect(stopped.sequences).toEqual(initial.sequences);
+    expect(stopped.randomStreams).toEqual(initial.randomStreams);
+    expect(roundtrip(stopped)).toEqual(stopped);
+  });
+  it('rolls back clock exhaustion with valid living cultivation profiles to an exportable boundary', () => {
+    const initial = createWorld('clock-overflow-living');
+    initial.clock.simulationTick = Number.MAX_SAFE_INTEGER;
+    initial.clock.calendarTick = Number.MAX_SAFE_INTEGER;
+    initial.cultivation.calendarMonth = Math.floor(initial.clock.calendarTick / CALENDAR_TICKS_PER_MONTH);
+    for (const d of initial.disciples) d.birthCalendarTick = initial.clock.calendarTick - d.ageMonths * CALENDAR_TICKS_PER_MONTH;
+    expect(validateWorldState(initial)).toEqual([]);
+    const stopped = advanceTicks(roundtrip(initial), 1);
+    expect(stopped.clock.calendarTick).toBe(Number.MAX_SAFE_INTEGER);
+    expect(stopped.clock.pauseReasons).toContain('error');
+    expect(stopped.disciples).toEqual(initial.disciples);
+    expect(stopped.cultivation).toEqual(initial.cultivation);
     expect(stopped.inventory).toEqual(initial.inventory);
     expect(stopped.sequences).toEqual(initial.sequences);
     expect(stopped.randomStreams).toEqual(initial.randomStreams);

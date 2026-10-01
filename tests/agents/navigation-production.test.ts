@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { attachWorldProgression } from '../../src/core/world/build-bridge';
+import { createCultivator } from '../../src/core/cultivation';
 import { cardinalDistance, findCardinalPath, MAX_PATH_REQUESTS_PER_TICK, MOVEMENT_TICKS_PER_CELL, setTileWalkable } from '../../src/core/agents/navigation';
-import { advanceTicks, cancelProduction, completeProduction, createSaveEnvelope, createWorld, dispatchCommand, domainHash, parseSave, serializeSave, setClockSpeed, setPauseReason, stableHash, validateWorldState, type ProductionPhase, type WorldState } from '../../src/core/kernel';
+import { advanceTicks, lookupProduction, cancelProduction, completeProduction, createSaveEnvelope, createWorld, dispatchCommand, dispatchWorldCultivation, tickProduction, domainHash, parseSave, serializeSave, setClockSpeed, setPauseReason, stableHash, validateWorldState, type ProductionPhase, type WorldState } from '../../src/core/kernel';
 import legacyFixture from './fixtures/save-v1-in-progress.json';
 
 const metadata = { buildId: 'navigation-tests', savedAt: '2026-10-01T00:00:00.000Z' };
@@ -11,7 +13,7 @@ function start(world = createWorld('navigation'), workerIndex = 1, commandId = '
 }
 function atPhase(world: WorldState, id: string, phase: ProductionPhase): WorldState {
   for (let tick = 0; tick < 2000; tick += 1) {
-    if (world.transactions[id]!.phase === phase) return world;
+    if (lookupProduction(world, id)!.phase === phase) return world;
     world = advanceTicks(world, 1);
     expect(world.clock.pauseReasons).not.toContain('error');
   }
@@ -56,9 +58,12 @@ describe('deterministic cardinal navigation', () => {
     for (let index = world.disciples.length; index < 7; index += 1) {
       const id = `entity:${world.sequences.nextEntity++}`;
       world.disciples.push({ ...template, id, position: { x: 6, y: 5 }, assignmentTransactionId: null });
+      world.cultivation.disciples.push(createCultivator(id, { ageMonths: template.ageMonths, aptitude: template.aptitude }));
     }
     const station = world.buildings.find((building) => building.blueprintId === 'workshop')!;
     for (let index = 1; index < 6; index += 1) world.buildings.push({ ...station, id: `entity:${world.sequences.nextEntity++}`, x: 11, y: index });
+    // Complete the fresh synthetic roster's permanent-build projection before any jobs start.
+    world = attachWorldProgression(world);
     const ids: string[] = [];
     for (let index = 1; index < 7; index += 1) { const result = start(world, index, `budget.${index}`); world = result.world; ids.push(result.id); }
     world = advanceTicks(world, 1);
@@ -98,7 +103,7 @@ describe('travel, work and delivery transactions', () => {
     expect(world.disciples.find((disciple) => disciple.id === workerId)!.position).toEqual({ x: 7, y: 5 });
     expect(world.inventory.plank.owned).toBe(0);
     world = advanceTicks(world, 1);
-    expect(world.transactions[started.id]!.phase).toBe('Done');
+    expect(lookupProduction(world, started.id)!.phase).toBe('Done');
     expect(world.inventory.plank.owned).toBe(2);
     expect(world.inventory.wood.owned).toBe(initial.inventory.wood.owned - 3);
     expect(world.inventory.wood.reserved).toBe(0);
@@ -148,7 +153,7 @@ describe('travel, work and delivery transactions', () => {
       expect(world.disciples[1]!.position).not.toEqual(blockedCell);
       expect(validateWorldState(world)).toEqual([]);
     }
-    expect(world.transactions[started.id]!.phase).toBe('Done');
+    expect(lookupProduction(world, started.id)!.phase).toBe('Done');
   });
   it.each(['WaitingForStation', 'TravellingToWork', 'Working', 'TravellingToStorage', 'AwaitingDelivery'] as const)('cancels safely during %s without teleporting or giving both inputs and outputs', (phase) => {
     const started = start(createWorld(`cancel-${phase}`));
@@ -158,7 +163,7 @@ describe('travel, work and delivery transactions', () => {
     const cancelled = cancelProduction(world, started.id);
     if (!cancelled.ok) throw new Error('Cancel failed');
     world = advanceTicks(reload(cancelled.world), 500);
-    expect(world.transactions[started.id]!.phase).toBe('Cancelled');
+    expect(lookupProduction(world, started.id)!.phase).toBe('Cancelled');
     expect(world.inventory.wood.owned).toBe(24);
     expect(world.inventory.wood.reserved).toBe(0);
     expect(world.inventory.plank.owned).toBe(0);
@@ -200,9 +205,20 @@ describe('travel, work and delivery transactions', () => {
   it.each(['dead', 'missing'] as const)('cancels a %s worker job and releases its materials and seat exactly once', (unavailable) => {
     const started = start(createWorld(`worker-${unavailable}`));
     let world = atPhase(started.world, started.id, 'Working');
-    world = { ...world, disciples: unavailable === 'missing' ? world.disciples.filter((_, index) => index !== 1) : world.disciples.map((disciple, index) => index === 1 ? { ...disciple, lifeState: 'dead' as const } : disciple) };
-    world = advanceTicks(world, 1);
-    expect(world.transactions[started.id]!.phase).toBe('Cancelled');
+    if (unavailable === 'dead') {
+      const death = dispatchWorldCultivation(world, { commandId: 'system.navigation-death', expectedRevision: world.cultivation.revision,
+        kind: 'death.finalize', discipleId: world.disciples[1]!.id, deathId: 'death:navigation-worker', cause: 'combat', acknowledgeDeath: true });
+      if (!death.ok) throw new Error(death.code);
+      world = advanceTicks(death.world, 1);
+    } else {
+      // The production guard still recovers a missing view entity. Restore the canonical identity
+      // before exporting: v3 must not silently delete its cultivation/life archive.
+      const originals = world.disciples;
+      world = tickProduction({ ...world, disciples: world.disciples.filter((_, index) => index !== 1) });
+      world = { ...world, disciples: originals.map((d, index) => index === 1 ? { ...d, assignmentTransactionId: null, traveling: false }
+        : world.disciples.find((current) => current.id === d.id)!) };
+    }
+    expect(lookupProduction(world, started.id)!.phase).toBe('Cancelled');
     expect(world.inventory.wood.reserved).toBe(0);
     expect(world.inventory.wood.owned).toBe(24);
     expect(reload(world)).toEqual(world);
@@ -223,7 +239,7 @@ describe('travel, work and delivery transactions', () => {
     expect(world.inventory.wood.owned).toBe(24);
     world = { ...reload(world), inventory: { ...world.inventory, plank: { ...world.inventory.plank, capacity: 999 } } };
     world = advanceTicks(world, 1);
-    expect(world.transactions[started.id]!.phase).toBe('Done');
+    expect(lookupProduction(world, started.id)!.phase).toBe('Done');
     expect(world.inventory.plank.owned).toBe(2);
   });
   it.each([1, 7, 19, 63, 181, 187, 195])('resumes a tick-%i snapshot to the same final hash at 1x and3x', (tick) => {
@@ -243,7 +259,7 @@ describe('explicit legacy movement migration', () => {
     const result = parseSave(bytes);
     if (!result.ok) throw new Error(result.error.message);
     expect(result.migration).toEqual({ sourceSaveVersion: 1, sourceSimulationVersion: '0.1.1', sourceChecksum: legacyFixture.checksum });
-    expect(result.envelope.saveVersion).toBe(2);
+    expect(result.envelope.saveVersion).toBe(7);
     expect(result.world.inventory).toEqual(legacyFixture.payload.inventory);
     expect(result.world.randomStreams).toEqual(legacyFixture.payload.randomStreams);
     expect(result.world.events).toEqual(legacyFixture.payload.events);
@@ -252,7 +268,7 @@ describe('explicit legacy movement migration', () => {
     expect(transaction.phase).toBe('WaitingForStation');
     expect(result.world.disciples[1]!.position).toEqual(legacyFixture.payload.disciples[1]!.position);
     expect(result.world.sequences.nextEntity).toBe(legacyFixture.payload.sequences.nextEntity + 1);
-    expect(result.world.sequences.nextInstance).toBe(legacyFixture.payload.sequences.nextInstance);
+    expect(result.world.sequences.nextInstance).toBe(legacyFixture.payload.sequences.nextInstance + legacyFixture.payload.disciples.length * 9);
     const afterTravel = atPhase(result.world, transaction.transactionId, 'Working');
     expect(afterTravel.transactions[transaction.transactionId]!.activeTicks).toBe(47);
     const final = atPhase(reload(afterTravel), transaction.transactionId, 'Done');

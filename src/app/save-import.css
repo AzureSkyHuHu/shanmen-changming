@@ -1,0 +1,14 @@
+.save-import-panel { border-top: 1px solid #8e96753c; margin-top: 22px; padding-top: 19px; }
+.save-import-panel h3 { font-size: 15px; font-weight: 600; }
+.save-import-file { display: grid; gap: 8px; margin: 15px 0; color: #52694b; font-size: 12px; }
+.save-import-file input { width: 100%; font: inherit; color: #52694b; }
+.save-import-file input::file-selector-button { min-height: 36px; padding: 7px 12px; margin-right: 10px; font: inherit; color: #ede7c9; border: 1px solid #45674e; border-radius: 5px; background: #496b51; cursor: pointer; }
+.save-import-file input:disabled::file-selector-button { opacity: .5; cursor: wait; }
+.save-import-file input:focus-visible { outline: 2px solid #8c9c66; outline-offset: 4px; }
+.save-import-preview { padding: 11px 13px; border-radius: 6px; background: #cbd0ad4d; color: #526548; font-size: 11px; overflow-wrap: anywhere; }
+.save-import-target { display: grid; gap: 7px; font-size: 12px; margin: 15px 0; color: #52694b; }
+.save-import-target select { color: #3e5848; background: #e6dfbf; border-color: #92997767; }
+.save-import-overwrite { padding: 12px 14px; color: #8c603e; background: #cfaf7421; border-left: 3px solid #b28e59; border-radius: 0 5px 5px 0; font-size: 12px; }
+.save-import-overwrite label { display: flex; align-items: start; gap: 9px; margin-top: 11px; line-height: 1.6; cursor: pointer; }
+.save-import-overwrite input { flex-shrink: 0; width: 17px; height: 17px; margin: 2px 0 0; accent-color: #80653f; }
+.save-import-notice { color: #7a6545; font-size: 12px; margin: 12px 0; line-height: 1.8; overflow-wrap: anywhere; }
