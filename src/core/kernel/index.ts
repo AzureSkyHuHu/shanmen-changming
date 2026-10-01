@@ -28,3 +28,7 @@ export { lookupProduction, lookupCommandReceipt, lookupEvent, recentWorldEvents,
 export { lookupLiveProduction, classifyAutomaticHandle } from '../economy/automatic-production';
 export type { AutomaticJobId, AutomaticProductionState, AutomaticProductionNotice, ProductionOrigin, ProductionWork } from '../economy/automatic-types';
 export { previewWorldAutomaticWork } from '../world/automatic-work-bridge';
+export { getWorldContent, getWorldRunContent, getWorldBuildContentContext, getWorldCombatCatalog,
+  getWorldRunCombatCatalog, getWorldRunEncounter } from '../world/content-access';
+export type { CampaignPlayerRequest, PlayerCampaignCommand, WorldCampaignProjection, WorldCampaignPreview,
+  WorldCampaignResult, WorldCampaignError } from '../world/campaign-types';

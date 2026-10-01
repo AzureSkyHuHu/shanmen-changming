@@ -54,6 +54,7 @@ export interface GameContentBundle {
 export interface GameContentIdentity {
   registryId: string; compositeFingerprint: string; combatFingerprint: string; buildRulesVersion: number;
 }
+const registeredIdentities = new WeakMap<object, Readonly<GameContentIdentity>>();
 /** Locale templates, build timestamps and capture provenance are not simulation inputs. */
 export function contentFingerprint(bundle: Immutable<GameContentBundle>): string {
   return stableHash({ worldContentVersion: bundle.worldContentVersion, combat: bundle.combat,
@@ -61,6 +62,8 @@ export function contentFingerprint(bundle: Immutable<GameContentBundle>): string
     offerRules: bundle.offerRules, campaign: bundle.campaign, protocols: bundle.protocols });
 }
 export function contentIdentity(bundle: Immutable<GameContentBundle>): Readonly<GameContentIdentity> {
+  const registered = registeredIdentities.get(bundle);
+  if (registered) return registered;
   return Object.freeze({ registryId: bundle.id, compositeFingerprint: contentFingerprint(bundle),
     combatFingerprint: catalogFingerprint(bundle.combat), buildRulesVersion: bundle.buildRules.version });
 }
@@ -97,6 +100,8 @@ export const RELEASE_V8_CANDIDATE = freeze<GameContentBundle>({
     'release-recipient-admission', 'standard-relief-world-integration', 'campaign-world-bridge'],
 });
 const bundles: readonly Immutable<GameContentBundle>[] = Object.freeze([LEGACY_V7_CONTENT, RELEASE_V8_CANDIDATE]);
+// Only internally registered, recursively frozen bundles are cached. Arbitrary caller bundles are rehashed.
+for (const bundle of bundles) registeredIdentities.set(bundle, contentIdentity(bundle));
 /** Never resolve user-supplied catalog data or silently upgrade an unknown identity. */
 export function resolveContentIdentity(input: unknown, options: { allowCandidate?: boolean } = {}): Immutable<GameContentBundle> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.getPrototypeOf(input) !== Object.prototype) return null;

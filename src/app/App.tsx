@@ -13,7 +13,6 @@ import { SaveImportPanel } from './SaveImportPanel';
 import { CampaignEntry } from './CampaignEntry';
 import { ExpeditionPanel } from './ExpeditionPanel';
 import { BuildPanel } from './BuildPanel';
-import { EXPEDITION_COMBAT_CATALOG } from '../core/expeditions/encounter-catalog';
 import { attachInput } from '../input/actions';
 import { PhaserWorld } from '../phaser/PhaserWorld';
 import type { CampaignSlotId } from '../platform/persistence';
@@ -228,7 +227,7 @@ export function App({ initialLocale, session: suppliedSession }: AppProps) {
     })}</ol> : <p className="muted small">{t('live.noEvents')}</p>}</details></div>
     </> : view === 'expedition' ? <ExpeditionPanel key={world.sessionEpoch} session={session} world={world} controller={battleController} locale={locale} readOnly={saveStatus.readOnly} onReturnSect={() => setView('sect')} /> : <section className="build-view-shell">
       <label className="build-view-selector">{t('live.disciples')}<select value={buildDiscipleId} onChange={(event) => session.select({ kind: 'disciple', id: event.target.value })}>{world.disciples.map((disciple) => <option value={disciple.id} key={disciple.id}>{t(disciple.nameKey as TextKey)}</option>)}</select></label>
-      <BuildPanel key={`${world.sessionEpoch}:${buildDiscipleId}`} frame={buildFrame} catalog={EXPEDITION_COMBAT_CATALOG} discipleId={buildDiscipleId} locale={locale} discipleName={buildDisciple ? t(buildDisciple.nameKey as TextKey) : t('expedition.ui.none')} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error') || buildDisciple?.lifeState !== 'alive' || world.clock.mode !== 'management'} locked={!!buildFrame.builds.disciples.find((entry) => entry.discipleId === buildDiscipleId)?.lock} onCommand={(request) => { const result = session.dispatchBuild(request); return result.status === 'accepted' ? { ok: true } : result.rejection?.buildCode ? { ok: false, code: result.rejection.buildCode } : { ok: false }; }} />
+      <BuildPanel key={`${world.sessionEpoch}:${buildDiscipleId}`} frame={buildFrame} catalog={session.getCombatCatalog()} context={session.getBuildContentContext()} lifeState={buildDisciple?.lifeState} discipleId={buildDiscipleId} locale={locale} discipleName={buildDisciple ? t(buildDisciple.nameKey as TextKey) : t('expedition.ui.none')} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error') || buildDisciple?.lifeState !== 'alive' || world.clock.mode !== 'management'} locked={!!buildFrame.builds.disciples.find((entry) => entry.discipleId === buildDiscipleId)?.lock} onCommand={(request) => { const result = session.dispatchBuild(request); return result.status === 'accepted' ? { ok: true } : result.rejection?.buildCode ? { ok: false, code: result.rejection.buildCode } : { ok: false }; }} />
       <button className="secondary" onClick={() => setView('sect')}>{t('expedition.ui.returnSect')}</button>
     </section>}
     <footer className="shell-footer"><p>{t('live.help')}</p><p className={saveStatus.mode === 'memory' || saveStatus.readOnly ? 'warning-text' : ''}>{saveStatus.mode === 'memory' ? t('save.memory') : saveStatus.readOnly ? t('save.readOnly') : saveStatus.lastSavedAt ? t('save.lastSuccess', { date: dateLabel(saveStatus.lastSavedAt, locale) }) : t('save.neverSaved')}</p></footer>

@@ -21,6 +21,8 @@ import { lookupLiveProduction } from '../core/economy/automatic-production';
 import type { ProductionWork } from '../core/economy/automatic-types';
 import { matchesInventoryDiscardGuard, type InventoryDiscardRequest, type InventoryDiscardGuard, type InventoryDiscardCommandResult } from './inventory-contract';
 
+import { getWorldCombatCatalog, getWorldRunContent, getWorldBuildContentContext } from '../core/world/content-access';
+
 export type DeepReadonly<T> = T extends (...args: never[]) => unknown ? T : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
 export type Selection = { kind: 'disciple' | 'building'; id: string } | null;
 export type SessionCommand = Pick<Extract<Command, { kind: 'production.start' }>, 'kind' | 'payload'> | Pick<Extract<Command, { kind: 'production.cancel' }>, 'kind' | 'payload'>;
@@ -273,6 +275,11 @@ export class ApplicationSession {
     // Engine transitions are immutable; imported/drafted branches are sealed before exposure.
     return controller ? deepFreeze(controller) : null;
   };
+
+  /** Registered immutable definitions follow the saved World/run identity; never inferred by UI. */
+  readonly getCombatCatalog = () => getWorldCombatCatalog(this.world);
+  readonly getRunContent = () => getWorldRunContent(this.world);
+  readonly getBuildContentContext = () => getWorldBuildContentContext(this.world);
 
   /** Full semantic build frame is queried only when its authority branch changes, never per tick. */
   readonly getBuildFrame = (): BuildStateFrame => {
