@@ -1,5 +1,14 @@
 # 开发状态
 
+## 共用工作导航（2026-10-01 21:57 UTC）
+
+- 资源原语提交[c25b2ef](https://github.com/AzureSkyHuHu/shanmen-changming/commit/c25b2ef663f3b1ff39a31ea66d965415c649bffa)的[GitHub检查36930883920](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36930883920)已于21:54:49 UTC成功
+- 导航冻结树 `7a15be422d064cc441c1517a4d3f0ef9ae47e2b8` 完整通过：113文件 / 1607项测试、1041中文键、边界/内容、双类型与生产构建；测试564.63秒
+- 将已有生产travel决策抽成纯工作导航效果，复用原四向BFS、4tick/格、20tick重试与版本失效。生产wrapper仍独占工位、阶段、事件、材料和终局，不复制另一套生产系统
+- 新的内部tick所有者可显式共享一个最多四次寻路预算，不能伪造/补充/跨tick使用；原tickProduction(world)默认行为保留。移动期间不加有效工时、抵达也不在同tick多加工一次
+- 36项新专项加旧导航/生产检查共65项聚焦通过；v7/v8真实生产和交付的默认/显式预算保存文本一致，含取消、暂停、堵路和重试。完整1607项再次通过
+- 下一步仅在新建造域接这些原语，尚未有v9 World/保存/界面。默认v7、候选入口关闭、未部署与待授权的真实浏览器验证状态不变
+
 ## 资源账本原语（2026-10-01 21:44 UTC）
 
 - 最近远端基础提交[208c5de](https://github.com/AzureSkyHuHu/shanmen-changming/commit/208c5de489e25d9bd1c3937b250ca3b94c1cf4d9)的[GitHub检查36928900525](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36928900525)已成功

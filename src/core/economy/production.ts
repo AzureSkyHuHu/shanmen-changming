@@ -3,12 +3,12 @@ import { acknowledgeAutomaticCancellation, classifyAutomaticHandle, isAutomaticJ
 import type { AutomaticWorld as ProductionWorld } from './automatic-production';
 import type { ProductionReceiptContext, ProductionWork } from './automatic-types';
 import { archiveTerminalProduction, lookupProduction } from '../world/history-access';
-import { BLOCKED_PATH_RETRY_TICKS, cardinalDistance, emptyNavigation, findCardinalPath, isWalkable, MAX_PATH_REQUESTS_PER_TICK, MOVEMENT_TICKS_PER_CELL, sameCell } from '../agents/navigation';
+import { cardinalDistance, emptyNavigation, isWalkable, sameCell } from '../agents/navigation';
+import { advanceWorkNavigationWithBudget, createWorkPathBudget, type WorkPathBudget } from '../agents/work-navigation';
 import type { CommandRejection, DomainEvent } from '../kernel/contracts';
 import { isPaused } from '../kernel/clock';
 import { appendEvent } from '../kernel/events';
 import { allocateId } from '../kernel/ids';
-import { checkedAdd } from '../kernel/numeric';
 import { compareStable } from '../kernel/serialization';
 import { MAX_DISCIPLES, type GridPosition, type WorldBuilding, type WorldState } from '../world/types';
 import { commitReservation, releaseReservation, reserveResources } from './inventory';
@@ -134,46 +134,30 @@ export function completeProduction<W extends ProductionWorld>(world: W, transact
   return endProduction(settled, transaction, 'Committed', 'production.committed');
 }
 
-interface PathBudget { remaining: number }
 /** Returns at a full movement boundary; arrival never awards work in the same tick. */
-function travel<W extends ProductionWorld>(world: W, transaction: ProductionWork, target: GridPosition, budget: PathBudget): W {
+function travel<W extends ProductionWorld>(world: W, transaction: ProductionWork, target: GridPosition, budget: WorkPathBudget): W {
   const worker = world.disciples.find((disciple) => disciple.id === transaction.workerId)!;
-  let navigation = transaction.navigation;
-  const targetChanged = navigation.target === null || !sameCell(navigation.target, target);
-  const versionChanged = navigation.routeVersion !== world.map.navVersion;
-  const first = navigation.path[0];
-  const invalidStep = first !== undefined && (!isWalkable(world.map, first) || cardinalDistance(worker.position, first) !== 1);
-  if (targetChanged || versionChanged || invalidStep) navigation = { ...emptyNavigation(), target: { x: target.x, y: target.y } };
-  if (!isWalkable(world.map, worker.position) || !isWalkable(world.map, target)) {
-    return block(world, { ...transaction, navigation: { ...navigation, path: [], routeVersion: world.map.navVersion, movementTicks: 0, retryAtTick: checkedAdd(world.clock.simulationTick, BLOCKED_PATH_RETRY_TICKS) } }, 'PATH_BLOCKED');
+  const effect = advanceWorkNavigationWithBudget({ map: world.map, position: worker.position, target,
+    navigation: transaction.navigation, simulationTick: world.clock.simulationTick }, budget);
+  if (effect.status === 'path-blocked') return block(world, { ...transaction, navigation: effect.navigation }, 'PATH_BLOCKED');
+  if (effect.status === 'path-budget-exhausted') {
+    return updateOrder(world, { ...(transaction.blockedReason === 'PATH_BLOCKED' ? transaction : running(transaction)), navigation: effect.navigation });
   }
-  if (sameCell(worker.position, target)) {
-    return updateOrder(world, { ...running(transaction), phase: transaction.phase === 'TravellingToWork' ? 'Working' : 'AwaitingDelivery', navigation: emptyNavigation() });
-  }
-  if (navigation.path.length === 0) {
-    if (world.clock.simulationTick < navigation.retryAtTick) return block(world, { ...transaction, navigation }, 'PATH_BLOCKED');
-    if (budget.remaining === 0) return updateOrder(world, { ...(transaction.blockedReason === 'PATH_BLOCKED' ? transaction : running(transaction)), navigation });
-    budget.remaining -= 1;
-    const path = findCardinalPath(world.map, worker.position, target);
-    navigation = { ...navigation, target: { x: target.x, y: target.y }, routeVersion: world.map.navVersion, path: path ?? [], movementTicks: 0, retryAtTick: path ? 0 : checkedAdd(world.clock.simulationTick, BLOCKED_PATH_RETRY_TICKS) };
-    if (!path) return block(world, { ...transaction, navigation }, 'PATH_BLOCKED');
-  }
-  const movementTicks = navigation.movementTicks + 1;
-  if (movementTicks < MOVEMENT_TICKS_PER_CELL) return updateOrder(world, { ...running(transaction), navigation: { ...navigation, movementTicks } }, true);
-  const position = navigation.path[0]!;
-  const path = navigation.path.slice(1);
-  const arrived = sameCell(position, target);
-  return updateOrder(world, { ...running(transaction), phase: arrived ? transaction.phase === 'TravellingToWork' ? 'Working' : 'AwaitingDelivery' : transaction.phase, navigation: arrived ? emptyNavigation() : { ...navigation, path, movementTicks: 0 } }, !arrived, position);
+  return updateOrder(world, { ...running(transaction),
+    phase: effect.status === 'arrived' ? transaction.phase === 'TravellingToWork' ? 'Working' : 'AwaitingDelivery' : transaction.phase,
+    navigation: effect.navigation }, effect.traveling, effect.position ?? undefined);
 }
 function candidates(world: ProductionWorld, blueprintId: string, position: GridPosition): WorldBuilding[] {
   return world.buildings.filter((building) => building.blueprintId === blueprintId && building.operational).sort((left, right) => cardinalDistance(position, left) - cardinalDistance(position, right) || compareStable(left.id, right.id));
 }
 
-/** Serialized phases own reservations and seats. Ordinary transit cells can be shared; work seats cannot. */
-export function tickProduction<W extends ProductionWorld>(world: W): W {
+/** Serialized phases own reservations and seats. Ordinary transit cells can be shared; work seats cannot.
+ * A versioned tick orchestrator may share one budget across modules; legacy callers retain four requests per tick. */
+export function tickProduction<W extends ProductionWorld>(world: W, sharedPathBudget?: WorkPathBudget): W {
   if (world.clock.mode !== 'management' || isPaused(world.clock)) return world;
   let next = world;
-  const budget = { remaining: MAX_PATH_REQUESTS_PER_TICK };
+  const budget = sharedPathBudget ?? createWorkPathBudget(world.clock.simulationTick);
+  if (budget.simulationTick !== world.clock.simulationTick) throw new RangeError('Path budget belongs to another tick');
   const ids = [...world.activeProductionTransactionIds].sort((left, right) => liveProductionAt(world, left)!.transaction.startedTick - liveProductionAt(world, right)!.transaction.startedTick || compareStable(left, right));
   for (const id of ids) {
     let transaction = liveProductionAt(next, id)!.transaction;
