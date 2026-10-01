@@ -1,5 +1,5 @@
 import { canonicalUtf8ByteLength, WORST_SAVE_METADATA, type SaveByteOptions } from '../save-budget';
-import type { WorldState } from './types';
+import type { WorldStateBase } from './types';
 
 /** Exact delta for already data-only JSON boundaries in one synchronous pure transition.
  * Unchanged references are algebraic cancellation, not a persisted mutable-object cache. */
@@ -26,7 +26,7 @@ export function canonicalByteDelta(before: unknown, after: unknown): number {
   return delta;
 }
 /** Header identities occur a second time outside payload; checksum width is always eight. */
-export function worldSaveByteDelta(before: WorldState, after: WorldState, beforeOptions: SaveByteOptions = {}, afterOptions: SaveByteOptions = beforeOptions): number {
+export function worldSaveByteDelta(before: WorldStateBase, after: WorldStateBase, beforeOptions: SaveByteOptions = {}, afterOptions: SaveByteOptions = beforeOptions): number {
   return canonicalByteDelta(before, after)
     + canonicalByteDelta(before.seed, after.seed) + canonicalByteDelta(before.simulationVersion, after.simulationVersion)
     + canonicalByteDelta(before.contentVersion, after.contentVersion)

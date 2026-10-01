@@ -1,5 +1,5 @@
-import type { SaveEnvelope, SaveErrorCode, SaveMigration } from '../../core/kernel/save';
-import type { WorldState } from '../../core/world/types';
+import type { SaveErrorCode } from '../../core/kernel/save';
+import type { VersionedSaveData } from '../save-codec';
 
 export const CAMPAIGN_SLOT_IDS = ['campaign-1', 'campaign-2', 'campaign-3'] as const;
 export type CampaignSlotId = (typeof CAMPAIGN_SLOT_IDS)[number];
@@ -53,15 +53,12 @@ export interface SnapshotIssue {
   snapshotId: string;
   code: SaveErrorCode | 'MISSING_SNAPSHOT' | 'INVALID_SNAPSHOT_RECORD';
 }
-export interface LoadedSave extends SaveCommit {
-  envelope: SaveEnvelope;
-  world: WorldState;
-  /** Core migration describes the in-memory envelope; snapshot.text remains the original source. */
-  migration: SaveMigration | null;
+/** Core migrations are in-memory only; snapshot.text remains the original source. */
+export type LoadedSave = SaveCommit & VersionedSaveData & {
   /** Fallback is read-only: loading never repairs or rewrites the current pointer. */
   recovered: boolean;
   issues: SnapshotIssue[];
-}
+};
 export interface WriteOptions {
   expectedRevision: number;
   lease: WriterLease;

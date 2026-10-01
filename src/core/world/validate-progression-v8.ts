@@ -1,3 +1,4 @@
+import { validateWorldLifecycleMigration } from './lifecycle-migration';
 import { validateBuildFrameV2 } from '../builds/v2';
 import { validateWorldExpeditionV8 } from '../expeditions/v8-world-validation';
 import { REALMS } from '../cultivation/types';
@@ -8,6 +9,7 @@ export function validateWorldProgressionV8(world: WorldStateV8): string[] { retu
 export function inspectWorldProgressionV8(world: WorldStateV8): WorldCampaignInspection {
   const fail = (message: string): WorldCampaignInspection => ({ errors: [message], paymentInstanceIds: [], actionRootIds: [] });
   try {
+    const lifecycle = validateWorldLifecycleMigration(world); if (lifecycle.length) return fail(lifecycle[0]!);
     const context = getWorldBuildContentContext(world); if (!context) return fail('Missing current build context');
     validateBuildFrameV2({ builds: world.builds, sequences: world.sequences }, context);
     if (world.builds.disciples.length !== world.disciples.length || world.builds.disciples.some(build => !world.disciples.some(actor => actor.id === build.discipleId))) return fail('Build identities differ from World');

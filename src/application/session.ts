@@ -1,22 +1,22 @@
 import {
-  accumulateFrame, advanceTicksWithStatus, CALENDAR_TICKS_PER_MONTH, cloneJson,
-  createFrameAccumulator, createWorld, dispatchCommand, isPaused, RESOURCE_IDS,
-  setClockSpeed, setPauseReason, validateWorldState, previewWorldBreakthrough, stableHash, canonicalStringify,
+  accumulateFrame, CALENDAR_TICKS_PER_MONTH, cloneJson,
+  createFrameAccumulator, createWorld, isPaused, RESOURCE_IDS,
+  setClockSpeed, setPauseReason, stableHash, canonicalStringify,
   type Command, type CommandResult, type Disciple, type DomainEvent, type PauseReason, type PlayerCultivationCommand,
   type ProductionTransaction, type SimulationSpeed, type WorldBuilding, type WorldMap, type WorldState,
 } from '../core/kernel';
-import type { BuildCommand, BuildData, BuildStateFrame } from '../core/builds';
+import type { BuildCommand, BuildData } from '../core/builds';
+import type { BuildDataV2 } from '../core/builds/v2-types';
 import type { CombatControllerState } from '../core/combat/ai';
 import type { OfferState, EndRunSettlement, RouteNode, RunTalent } from '../core/expeditions/types';
-import type { ExpeditionDepartureRequest, PlayerExpeditionCommand, WorldExpeditionPreview, WorldExpeditionProjection } from '../core/expeditions/world-types';
-import { previewWorldExpedition, projectWorldExpedition } from '../core/expeditions/world-adapter';
+import type { ExpeditionDepartureRequestV8 as ExpeditionDepartureRequest, PlayerExpeditionCommandV8 as PlayerExpeditionCommand, WorldExpeditionPreviewV8 as WorldExpeditionPreview, WorldExpeditionProjectionV8 as WorldExpeditionProjection } from '../core/expeditions/v8-world-types';
 import { REALM_RULES } from '../core/cultivation/rules';
 import { cloneWorldWithSharedHistory, lookupCommandReceipt, lookupProduction, recentWorldEvents } from '../core/world/history-access';
 import type { BreakthroughAttempt, BreakthroughPreparation, BreakthroughPreview, Cultivator, DeathCause } from '../core/cultivation/types';
 import type { SectEconomyCommand, SectEconomyState } from '../core/sect-economy/types';
 import { matchesWorkPlanGuard, type WorkPlanEditGuard } from './work-plan-contract';
 import { measureWorldSaveBytes, SAVE_FILE_LIMIT_BYTES } from '../core/save-budget';
-import { previewWorldAutomaticWork } from '../core/world/automatic-work-bridge';
+import { ownSessionWorld, exportSessionWorld, sessionBuildFrame, sessionSaveMetadata, withSessionClock, dispatchEngineCommand, advanceEngineTicks, engineAutomaticWorkPreview, engineBreakthroughPreview, engineDeparturePreview, engineExpeditionProjection, type SessionWorld, type OwnedSessionWorld, type SessionBuildFrame, type SessionEngineCommand } from './world-engine';
 import { lookupLiveProduction } from '../core/economy/automatic-production';
 import type { ProductionWork } from '../core/economy/automatic-types';
 import { matchesInventoryDiscardGuard, type InventoryDiscardRequest, type InventoryDiscardGuard, type InventoryDiscardCommandResult } from './inventory-contract';
@@ -110,7 +110,8 @@ export function deepFreeze<T>(value: T): DeepReadonly<T> {
 
 /** Owns the only authoritative world. Consumers receive detached, immutable DTOs. */
 export class ApplicationSession {
-  private world: WorldState;
+  private engineState: OwnedSessionWorld;
+  private get world(): SessionWorld { return this.engineState.world; }
   private listeners = new Set<() => void>();
   private selection: Selection = null;
   private lastCommand: CommandResult | null = null;
@@ -127,22 +128,16 @@ export class ApplicationSession {
   private readonly ephemeralPauses = new Set<PauseReason>();
   private capacityStop: 'SAVE_CAPACITY_EXCEEDED' | 'SAVE_OBLIGATION_UNBOUNDED' | null = null;
   private snapshot: DeepReadonly<SessionProjection>;
-  private automaticQuerySource: WorldState | null = null;
-  private automaticQuery: DeepReadonly<ReturnType<typeof previewWorldAutomaticWork>> | null = null;
-  private buildQuerySource: BuildData | null = null;
-  private buildQuery: BuildStateFrame | null = null;
+  private automaticQuerySource: SessionWorld | null = null;
+  private automaticQuery: DeepReadonly<ReturnType<typeof engineAutomaticWorkPreview>> | null = null;
+  private buildQuerySource: BuildData | BuildDataV2 | null = null;
+  private buildQuery: SessionBuildFrame | null = null;
 
-  constructor(world = createWorld()) {
-    this.world = this.ownWorld(world);
+  constructor(world: SessionWorld = createWorld()) {
+    this.engineState = ownSessionWorld(world);
     this.selection = this.world.disciples[1] ? { kind: 'disciple', id: this.world.disciples[1].id } : null;
     this.sequence = this.nextSequence();
     this.snapshot = this.project();
-  }
-
-  private ownWorld(world: WorldState): WorldState {
-    const errors = validateWorldState(world);
-    if (errors.length) throw new TypeError('Invalid session world');
-    return cloneWorldWithSharedHistory(world);
   }
 
   private nextSequence(start = 0): number {
@@ -194,7 +189,7 @@ export class ApplicationSession {
   }
 
   private expeditionProjection(): DeepReadonly<ExpeditionProjection> {
-    const source = projectWorldExpedition(this.world);
+    const source = engineExpeditionProjection(this.engineState);
     const { battle: _battle, currentOffer: offer, ...summary } = source;
     const run = this.world.expedition.run;
     const settlement = run?.settlement;
@@ -267,7 +262,10 @@ export class ApplicationSession {
   };
 
   /** Mutable gameplay is detached; immutable authenticated history can safely share its pages. */
-  exportWorld(): WorldState { return cloneWorldWithSharedHistory(this.world); }
+  exportWorld(): SessionWorld { return exportSessionWorld(this.engineState); }
+
+  readonly getEngineVersion = (): 7 | 8 => this.engineState.version;
+  readonly getSaveIdentity = () => sessionSaveMetadata(this.engineState);
 
   /** Separate stable readonly query: controller audit/event trees are not copied into UI DTOs. */
   readonly getBattleController = (): CombatControllerState | null => {
@@ -282,10 +280,10 @@ export class ApplicationSession {
   readonly getBuildContentContext = () => getWorldBuildContentContext(this.world);
 
   /** Full semantic build frame is queried only when its authority branch changes, never per tick. */
-  readonly getBuildFrame = (): BuildStateFrame => {
+  readonly getBuildFrame = (): SessionBuildFrame => {
     if (this.buildQuerySource !== this.world.builds || !this.buildQuery) {
       this.buildQuerySource = this.world.builds;
-      this.buildQuery = deepFreeze({ builds: this.world.builds, sequences: { ...this.world.sequences } });
+      this.buildQuery = deepFreeze(sessionBuildFrame(this.engineState));
     }
     return this.buildQuery;
   };
@@ -297,7 +295,7 @@ export class ApplicationSession {
     this.publish(false);
   }
 
-  private submit(create: (commandId: string, sequence: number, issuedTick: number) => Command): DeepReadonly<CommandResult> {
+  private submit(create: (commandId: string, sequence: number, issuedTick: number) => SessionEngineCommand): DeepReadonly<CommandResult> {
     const sequence = this.nextSequence(this.sequence);
     this.sequence = sequence + 1;
     const commandId = `app-command.${sequence}`;
@@ -307,10 +305,10 @@ export class ApplicationSession {
       return deepFreeze(cloneJson(this.lastCommand));
     }
     const wasPaused = isPaused(this.world.clock);
-    const outcome = dispatchCommand(this.world, create(commandId, sequence, this.world.clock.simulationTick));
-    this.world = outcome.world;
+    const outcome = dispatchEngineCommand(this.engineState, create(commandId, sequence, this.world.clock.simulationTick));
+    this.engineState = outcome.state;
     this.lastCommand = outcome.result;
-    if (outcome.result.status === 'accepted' && !outcome.world.clock.pauseReasons.includes('save-capacity')) this.capacityStop = null;
+    if (outcome.result.status === 'accepted' && !outcome.state.world.clock.pauseReasons.includes('save-capacity')) this.capacityStop = null;
     // A domain decision may remove its own pause. Never charge the paused interval to the next frame.
     if (wasPaused !== isPaused(this.world.clock)) this.resetFrameBaseline();
     this.publish();
@@ -333,10 +331,10 @@ export class ApplicationSession {
   }
 
   /** Requested only by the work-plan inspector; never part of the universal frame projection. */
-  getAutomaticWorkPreview(): DeepReadonly<ReturnType<typeof previewWorldAutomaticWork>> {
+  getAutomaticWorkPreview(): DeepReadonly<ReturnType<typeof engineAutomaticWorkPreview>> {
     if (this.automaticQuerySource !== this.world || !this.automaticQuery) {
       this.automaticQuerySource = this.world;
-      this.automaticQuery = deepFreeze(cloneJson(previewWorldAutomaticWork(this.world)));
+      this.automaticQuery = deepFreeze(cloneJson(engineAutomaticWorkPreview(this.engineState)));
     }
     return this.automaticQuery;
   }
@@ -362,7 +360,7 @@ export class ApplicationSession {
   }
 
   prepareExpedition(request: ExpeditionDepartureRequest): DeepReadonly<DepartureProposal> {
-    return deepFreeze(cloneJson({ request, preview: previewWorldExpedition(this.world, request), basisStamp: this.departureBasis(), sessionEpoch: this.sessionEpoch }));
+    return deepFreeze(cloneJson({ request, preview: engineDeparturePreview(this.engineState, request), basisStamp: this.departureBasis(), sessionEpoch: this.sessionEpoch }));
   }
 
   isDepartureProposalCurrent(proposal: DeepReadonly<DepartureProposal>): boolean { return proposal.sessionEpoch === this.sessionEpoch && proposal.basisStamp === this.departureBasis(); }
@@ -370,7 +368,7 @@ export class ApplicationSession {
   confirmDeparture(proposal: DeepReadonly<DepartureProposal>): DeepReadonly<CommandResult> {
     let matchesDisplayedPreview = false;
     if (this.isDepartureProposalCurrent(proposal)) {
-      try { matchesDisplayedPreview = canonicalStringify(previewWorldExpedition(this.world, cloneJson(proposal.request) as ExpeditionDepartureRequest)) === canonicalStringify(proposal.preview); }
+      try { matchesDisplayedPreview = canonicalStringify(engineDeparturePreview(this.engineState, cloneJson(proposal.request) as ExpeditionDepartureRequest)) === canonicalStringify(proposal.preview); }
       catch { /* Invalid copied proposals are rejected without entering the authority dispatcher. */ }
     }
     if (!matchesDisplayedPreview) {
@@ -382,7 +380,7 @@ export class ApplicationSession {
   }
 
   prepareBreakthrough(discipleId: string, preparation: BreakthroughPreparation = { method: 'standard', arraySupport: 0 }): DeepReadonly<BreakthroughProposal> {
-    return deepFreeze(cloneJson({ preview: previewWorldBreakthrough(this.world, discipleId, preparation), resourceStamp: stableHash(this.world.inventory), sessionEpoch: this.sessionEpoch }));
+    return deepFreeze(cloneJson({ preview: engineBreakthroughPreview(this.engineState, discipleId, preparation), resourceStamp: stableHash(this.world.inventory), sessionEpoch: this.sessionEpoch }));
   }
 
   isBreakthroughProposalCurrent(proposal: DeepReadonly<BreakthroughProposal>): boolean {
@@ -406,24 +404,24 @@ export class ApplicationSession {
   setSpeed(speed: SimulationSpeed): void {
     if (this.storageReadOnly || this.overlayPaused || this.invariantStopped) return;
     if (this.world.clock.speed === speed) return;
-    this.world = { ...this.world, clock: setClockSpeed(this.world.clock, speed) };
+    this.engineState = withSessionClock(this.engineState, setClockSpeed(this.world.clock, speed));
     this.resetFrameBaseline();
     this.publish();
   }
 
   /** A UI pause must not push a valid imported save past its byte ceiling. */
-  private withSafePause(world: WorldState, reason: PauseReason, paused: boolean): WorldState {
+  private withSafePause(state: OwnedSessionWorld, reason: PauseReason, paused: boolean): OwnedSessionWorld {
     this.ephemeralPauses.delete(reason);
-    const candidate = { ...world, clock: setPauseReason(world.clock, reason, paused) };
-    if (!paused || measureWorldSaveBytes(candidate, { saveVersion: 7 }) <= SAVE_FILE_LIMIT_BYTES) return candidate;
+    const candidate = withSessionClock(state, setPauseReason(state.world.clock, reason, paused));
+    if (!paused || measureWorldSaveBytes(candidate.world, sessionSaveMetadata(state)) <= SAVE_FILE_LIMIT_BYTES) return candidate;
     this.ephemeralPauses.add(reason);
-    return world;
+    return state;
   }
 
   setPaused(reason: PauseReason, paused: boolean): void {
     if (reason === 'player' && (this.storageReadOnly || this.overlayPaused || this.invariantStopped)) return;
     if ((this.world.clock.pauseReasons.includes(reason) || this.ephemeralPauses.has(reason)) === paused) return;
-    this.world = this.withSafePause(this.world, reason, paused);
+    this.engineState = this.withSafePause(this.engineState, reason, paused);
     this.resetFrameBaseline();
     this.publish();
   }
@@ -464,8 +462,8 @@ export class ApplicationSession {
     const accumulated = accumulateFrame(this.accumulator, elapsed, this.world.clock, 20);
     this.accumulator = accumulated.accumulator;
     if (accumulated.ticks === 0) return;
-    const result = advanceTicksWithStatus(this.world, accumulated.ticks);
-    this.world = result.world;
+    const result = advanceEngineTicks(this.engineState, accumulated.ticks);
+    this.engineState = result.state;
     this.capacityStop = result.capacityStop;
     this.invariantStopped = result.invariantStop !== null;
     if (this.capacityStop || this.invariantStopped) this.resetFrameBaseline();
@@ -473,18 +471,18 @@ export class ApplicationSession {
   }
 
   /** Loading discards wall time, removes stale hidden state and preserves all safety pauses. */
-  replaceWorld(world: WorldState): void {
-    let owned = this.ownWorld(world);
+  replaceWorld(world: SessionWorld): void {
+    let owned = ownSessionWorld(world);
     this.ephemeralPauses.clear();
     owned = this.withSafePause(owned, 'hidden', !this.foreground.visible || !this.foreground.focused);
     owned = this.withSafePause(owned, 'player', true);
-    this.world = owned;
+    this.engineState = owned;
     this.sessionEpoch += 1;
     this.capacityStop = null;
     this.invariantStopped = false;
     this.sequence = this.nextSequence();
     this.lastCommand = null;
-    this.selection = owned.disciples[1] ? { kind: 'disciple', id: owned.disciples[1].id } : null;
+    this.selection = owned.world.disciples[1] ? { kind: 'disciple', id: owned.world.disciples[1].id } : null;
     this.accumulator = createFrameAccumulator();
     this.resetFrameBaseline();
     this.publish();

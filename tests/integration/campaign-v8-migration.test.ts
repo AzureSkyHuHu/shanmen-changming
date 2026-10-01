@@ -36,7 +36,7 @@ describe('additive frozen v7 to World v8 structural migration', () => {
     const world = migrateWorldV7ToV8(source('save-v7-ended-clear.json').world);
     expect(world.campaign.progress.clears).toHaveLength(1); expect(world.campaign.clearEvidence).toHaveLength(1);
     expect(world.campaign.progress.clears[0]!.routeId).toBe('route.qingfeng-trial');
-    expect(world.campaign.clearEvidence[0]!.expedition.run).toEqual(world.expedition.run);
+    expect(world.campaign.settledRunEvidence[0]!.run).toEqual(world.expedition.run);
     expect(world.campaign.progress.claims).toEqual([]); expect(world.campaign.progress.mode).toBe('standard');
     const summaryOnly = source('save-v7-active-automatic.json').world;
     summaryOnly.unlocks.push('region.qingfeng.cleared'); expect(validateLegacyWorldStateV7(summaryOnly)).toEqual([]);

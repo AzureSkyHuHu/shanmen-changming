@@ -9,7 +9,7 @@ import type { WorldState } from '../world/types';
 import type { LegacyWorldStateV7 } from '../world/legacy-types';
 import type { PersistentPresentationId, WorldStateV8 } from '../world/v8-types';
 import type { WorldCampaignState, WorldEstateRecord } from '../world/campaign-state';
-import { cloneJson } from './serialization';
+import { cloneJson, stableHash } from './serialization';
 import { copy } from '../expeditions/shared';
 
 /** The caller has verified the original envelope checksum and frozen v7 World schema.
@@ -27,11 +27,11 @@ export function migrateWorldV7ToV8(value: unknown): WorldStateV8 {
     randomStreams: source.randomStreams, sequences: source.sequences });
   const registered = source.expedition.run ? pinLegacyExpedition(source.expedition.run) : null;
   const legacyIdentity = contentIdentity(LEGACY_V7_CONTENT);
-  const campaign: WorldCampaignState = { schemaVersion: 1, progress: copy(createCampaignStateV2('standard')), clearEvidence: [] };
+  const campaign: WorldCampaignState = { schemaVersion: 2, progress: copy(createCampaignStateV2('standard')), clearEvidence: [], settledRunEvidence: [] };
   if (registered?.run.phase === 'Ended' && registered.run.settlement?.reason === 'victory' && registered.run.settlement.committed) {
     const imported = recordCampaignVictoryV2(campaign.progress, 'route.qingfeng-trial', registered.run, LEGACY_V7_CONTENT.combat);
     if (!imported.ok) throw new TypeError(`Legacy clear evidence rejected: ${imported.code}`);
-    campaign.progress = copy(imported.state); campaign.clearEvidence.push({ routeId: 'route.qingfeng-trial', expedition: registered });
+    campaign.progress = copy(imported.state); campaign.clearEvidence.push({ routeId: 'route.qingfeng-trial', runId: registered.run.runId }); campaign.settledRunEvidence.push(registered);
   }
   const estates: WorldEstateRecord[] = cultivation.cultivation.deaths.map(death => ({
     estateId: `estate/${death.deathId}`, deathId: death.deathId, discipleId: death.discipleId, beneficiaryId: death.beneficiaryId,
@@ -43,7 +43,11 @@ export function migrateWorldV7ToV8(value: unknown): WorldStateV8 {
     contentIdentity: cloneJson(identity), disciples: source.disciples.map((disciple, index) => ({ ...disciple,
       presentationId: `disciple-${index % 4}` as PersistentPresentationId })),
     builds: copy(builds.builds), cultivation: cultivation.cultivation, campaign,
-    legacy: { schemaVersion: 1, archivedIdentities: [], estates },
+    legacy: { schemaVersion: 1, archivedIdentities: [], estates, migrationLifecycle: { kind: 'legacy-v7',
+      sourceBuildBoundaryHash: stableHash(builds.builds.migration), sourceCultivationRevision: source.cultivation.revision, sourceCalendarMonth: source.cultivation.calendarMonth,
+      receiptCount: source.cultivation.receipts.length, eventCount: source.cultivation.events.length, deathCount: source.cultivation.deaths.length,
+      prefixHash: stableHash({ receipts: source.cultivation.receipts, events: source.cultivation.events, deaths: source.cultivation.deaths, pendingDeaths: source.cultivation.pendingDeaths }),
+      finalizedDeaths: source.cultivation.deaths.map(({ deathId, discipleId, cause, month }) => ({ deathId, discipleId, cause, month })), pendingDeaths: copy(source.cultivation.pendingDeaths) } },
     expedition: { ...source.expedition, schemaVersion: 2, run: registered?.run ?? null,
       contentIdentity: registered ? cloneJson(registered.identity) : null, protocol: registered?.protocol ?? null,
       routeId: registered ? 'route.qingfeng-trial' : null,

@@ -52,9 +52,12 @@ export function assertCampaignHistoricalAdmission(world: WorldStateV8, request: 
     const death = world.cultivation.deaths.find(record => record.discipleId === id);
     const died = world.cultivation.events.filter(record => record.kind === 'cultivation.died' && record.discipleId === id && record.relatedId === death?.deathId);
     if (died.length > 1) throw new Error('Ambiguous historical death source');
-    // The later migrationLifecycle contract will explicitly authenticate old
-    // no-event deaths. Until then this exceptional input cannot justify a claim.
-    if (death && !died.length) throw new Error('Campaign eligibility lacks legacy lifecycle evidence');
+    // The World validator binds this explicit exception to the retained v7 prefix.
+    if (death && !died.length) {
+      const old = world.legacy.migrationLifecycle?.finalizedDeaths.find(record => record.deathId === death.deathId && record.discipleId === id);
+      if (!old || !world.builds.migration || event < world.builds.migration.sequencesAtMigration.nextEvent) throw new Error('Campaign eligibility lacks legacy lifecycle evidence');
+      deadBefore.add(id);
+    }
     if (died[0] && before(died[0].eventId)) deadBefore.add(id);
     const member = roster.get(id); if (!member) continue;
     const profile = allProfiles.find(value => value.discipleId === id); const identity = identities.get(id);

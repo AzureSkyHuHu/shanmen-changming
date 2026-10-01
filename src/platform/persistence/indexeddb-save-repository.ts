@@ -1,5 +1,4 @@
-import { createSaveEnvelope, parseSave, serializeSave, type SaveMetadata } from '../../core/kernel/save';
-import type { WorldState } from '../../core/world/types';
+import { createVersionedSaveEnvelope, parseVersionedSave, serializeVersionedSave, type SaveMetadata, type VersionedWorldState } from '../save-codec';
 import { describeSaveFile, parseSaveFile, type SaveFile } from '../files/save-files';
 import {
   AUTO_GENERATIONS, CAMPAIGN_SLOT_IDS, DATABASE_NAME, DATABASE_VERSION, DEFAULT_LEASE_DURATION_MS,
@@ -247,9 +246,9 @@ export class IndexedDbSaveRepository {
     });
   }
 
-  async saveWorld(slotId: CampaignSlotId, world: WorldState, metadata: SaveMetadata, options: WriteOptions): Promise<SaveCommit> {
+  async saveWorld(slotId: CampaignSlotId, world: VersionedWorldState, metadata: SaveMetadata, options: WriteOptions): Promise<SaveCommit> {
     let text: string;
-    try { text = serializeSave(createSaveEnvelope(world, metadata)); }
+    try { text = serializeVersionedSave(createVersionedSaveEnvelope(world, metadata)); }
     catch (cause) { throw new PersistenceError('INVALID_SAVE', 'Cannot snapshot an invalid world or metadata', { cause }); }
     return this.saveText(slotId, text, options);
   }
@@ -317,7 +316,7 @@ export class IndexedDbSaveRepository {
           throw new PersistenceError('NEWER_SAVE_PROTECTED', 'Unrecognized snapshot record version was preserved');
         }
         const record = readSnapshot(value, prior, id);
-        const result = record ? parseSave(record.text) : null;
+        const result = record ? parseVersionedSave(record.text) : null;
         if (result && !result.ok && UNSUPPORTED_VERSIONS.has(result.error.code)) {
           throw new PersistenceError('NEWER_SAVE_PROTECTED', 'Unsupported stored save was preserved; export it before using another build', { saveErrorCode: result.error.code });
         }
@@ -372,7 +371,8 @@ export class IndexedDbSaveRepository {
         if (!snapshot) { issues.push({ snapshotId: id, code: value === undefined ? 'MISSING_SNAPSHOT' : 'INVALID_SNAPSHOT_RECORD' }); continue; }
         const parsed = parseSaveFile(snapshot.text);
         if (!parsed.ok) { issues.push({ snapshotId: id, code: parsed.error.code }); continue; }
-        return { slot, snapshot, envelope: parsed.envelope, world: parsed.world, migration: parsed.migration, recovered: id !== slot.currentSnapshotId, issues };
+        const { ok: _ok, ...data } = parsed;
+        return { slot, snapshot, ...data, recovered: id !== slot.currentSnapshotId, issues };
       }
       throw new PersistenceError('NO_VALID_SNAPSHOT', 'No retained snapshot passed validation; raw data was preserved', { issues });
     });

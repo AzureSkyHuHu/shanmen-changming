@@ -90,8 +90,8 @@ export function campaignDomainRequest(world: WorldStateV8, request: Exclude<Camp
 }
 export function previewWorldCampaign(world: WorldStateV8, request: CampaignPlayerRequest): WorldCampaignPreview {
   const basisStamp = stableHash({ stateStamp: worldCampaignStateStamp(world), request });
-  const blockers: WorldCampaignError[] = []; let costs: WorldCampaignPreview['costs'] = []; let recruitProfiles: WorldCampaignPreview['recruitProfiles'] = [];
-  if (!isCampaignPlayerRequest(request)) return { request: copy(request), basisStamp, costs, recruitProfiles, blockers: ['INVALID_COMMAND'] };
+  const blockers: WorldCampaignError[] = []; let costs: WorldCampaignPreview['costs'] = []; let recruitProfiles: WorldCampaignPreview['recruitProfiles'] = []; let grantedResources: WorldCampaignPreview['grantedResources'] = [];
+  if (!isCampaignPlayerRequest(request)) return { request: copy(request), basisStamp, costs, recruitProfiles, grantedResources, blockers: ['INVALID_COMMAND'] };
   if (!campaignManagementAvailable(world)) blockers.push('BLOCKED_BY_DECISION');
   try {
     if (request.kind === 'estate.assign') {
@@ -105,7 +105,7 @@ export function previewWorldCampaign(world: WorldStateV8, request: CampaignPlaye
       if ((request.kind === 'campaign.relief' || request.kind === 'campaign.recover') && hasActiveCampaignRun(world)) blockers.push('ACTIVE_EXPEDITION');
       const plan = prepareCampaignClaimV2(world.campaign.progress, campaignDomainRequest(world, request), worldCampaignContext(world));
       if (!plan.ok) blockers.push(plan.code);
-      else { costs = copy(plan.plan.costs); recruitProfiles = plan.plan.grants.flatMap(grant => grant.kind === 'recruit' ? [copy(grant.profile)] : []); }
+      else { grantedResources = plan.plan.grants.flatMap(grant => grant.kind === 'resources' ? copy(grant.resources) : []); costs = copy(plan.plan.costs); recruitProfiles = plan.plan.grants.flatMap(grant => grant.kind === 'recruit' ? [copy(grant.profile)] : []); }
       // Costs remain visible when a target/resource check prevents preparing a plan.
       if (!costs.length) {
         if (request.kind === 'campaign.recruit') costs = copy(RECRUIT_COSTS);
@@ -114,7 +114,7 @@ export function previewWorldCampaign(world: WorldStateV8, request: CampaignPlaye
       }
     }
   } catch (error) { blockers.push(error instanceof RangeError ? 'OVERFLOW' : 'INVALID_STATE'); }
-  return { request: copy(request), basisStamp, costs, recruitProfiles, blockers: [...new Set(blockers)] };
+  return { request: copy(request), basisStamp, costs, recruitProfiles, grantedResources, blockers: [...new Set(blockers)] };
 }
 export function projectWorldCampaign(world: WorldStateV8): WorldCampaignProjection {
   const content = getWorldContent(world); const catalog = content.campaign;
@@ -150,7 +150,7 @@ export function projectWorldCampaign(world: WorldStateV8): WorldCampaignProjecti
     recruitProfiles: copy(CAMPAIGN_RECRUITS),
     relief: { available: relief.blockers.length === 0, costs: copy(STANDARD_RELIEF_POLICY.costs), blockers: relief.blockers,
       nextEligibleMonth: progress.lastReliefMonth === null ? null : progress.lastReliefMonth + STANDARD_RELIEF_POLICY.cooldownMonths },
-    recovery: { available: recovery.blockers.length === 0, nextGeneration: progress.recoveryGeneration + 1, resources: copy(RECOVERY_RESOURCES), blockers: recovery.blockers },
+    recovery: { available: recovery.blockers.length === 0, nextGeneration: progress.recoveryGeneration + 1, resources: copy(recovery.grantedResources), recruitProfiles: copy(recovery.recruitProfiles), blockers: recovery.blockers },
     estateItems: world.legacy.estates.flatMap(estate => estate.itemInstanceIds.flatMap(itemInstanceId => {
       const item = world.builds.equipment.find(entry => entry.instanceId === itemInstanceId);
       return !item ? [] : [{ itemInstanceId, definitionId: item.definitionId, acquisitionId: item.acquisitionId, owner: copy(item.owner),

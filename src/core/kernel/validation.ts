@@ -1,3 +1,5 @@
+import type { CommandV8 } from './contracts-v8';
+import { isCommandV8 } from './command-shape-v8';
 import { isPlayerCampaignCommand } from '../world/campaign-queries';
 import type { Command } from './contracts';
 import { LEGACY_V7_CONTENT } from '../../content/registry';
@@ -63,6 +65,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   const hasProgression = version >= 4;
   const hasCultivation = version >= 3;
   const hasCampaign = version >= 8;
+  const isVersionCommand = (command: unknown): command is CommandV8 => hasCampaign ? isCommandV8(command) : isCommand(command);
   const errors: string[] = [];
   const fail = (message: string): string[] => [message];
   if (!object(value)) return fail('World must be an object');
@@ -116,7 +119,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     const entry = inventory[id];
     return object(entry) && entry.resourceId === id && isNonNegativeInteger(entry.owned) && isNonNegativeInteger(entry.reserved) && isNonNegativeInteger(entry.capacity) && entry.reserved <= entry.owned && entry.owned <= entry.capacity;
   })) return fail('Invalid inventory');
-  if (!object(value.reservations) || !object(value.transactions) || !object(value.commandReceipts) || !list(value.pendingCommands) || !value.pendingCommands.every((command) => isCommand(command) && (hasAutomatic || (command.kind !== 'inventory.discard' && (command.kind !== 'production.cancel' || !isAutomaticJobId(command.payload.transactionId)))) && (hasCultivation || command.kind !== 'cultivation.command') && (hasProgression || (command.kind !== 'build.command' && command.kind !== 'expedition.command')) && (hasEconomy || (command.kind !== 'sect-economy.command' && (command.kind !== 'production.start' || LEGACY_RECIPE_IDS.has(command.payload.recipeId)))))) return fail('Invalid ledgers or command queue');
+  if (!object(value.reservations) || !object(value.transactions) || !object(value.commandReceipts) || !list(value.pendingCommands) || !value.pendingCommands.every((command) => isVersionCommand(command) && (hasAutomatic || (command.kind !== 'inventory.discard' && (command.kind !== 'production.cancel' || !isAutomaticJobId(command.payload.transactionId)))) && (hasCultivation || command.kind !== 'cultivation.command') && (hasProgression || (command.kind !== 'build.command' && command.kind !== 'expedition.command')) && (hasEconomy || (command.kind !== 'sect-economy.command' && (command.kind !== 'production.start' || LEGACY_RECIPE_IDS.has(command.payload.recipeId)))))) return fail('Invalid ledgers or command queue');
   if (!legacy && (!list(value.activeProductionTransactionIds) || !unique(value.activeProductionTransactionIds) || !value.activeProductionTransactionIds.every(text) || value.activeProductionTransactionIds.length > MAX_DISCIPLES)) return fail('Invalid active production index');
   let cultivation: CultivationState | CultivationStateV3 | null = null;
   if (hasCultivation) {
@@ -353,7 +356,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   }
   const expeditionActionRoots = new Set(hasCampaign ? [
     (value as unknown as WorldStateV8).expedition.run?.runId, ...(value as unknown as WorldStateV8).expedition.history.map(run => run.runId),
-    ...(value as unknown as WorldStateV8).campaign.clearEvidence.map(proof => proof.expedition.run.runId),
+    ...(value as unknown as WorldStateV8).campaign.settledRunEvidence.map(proof => proof.run.runId),
   ].filter((id): id is string => typeof id === 'string' && /^run:[1-9][0-9]*$/.test(id)).map(id => id.replace('run:', 'action:')) : []);
   if (campaignActionRootIds.some(id => expeditionActionRoots.has(id) || nonCampaignRoots.has(id) || manualRootActions.has(id)
     || automatic && [...Object.values(automatic.live).map(pair => pair.transaction.rootActionId), ...Object.values(automatic.pins).map(pin => pin.rootActionId)].includes(id))) return fail('Campaign action collides with another authority');
@@ -378,6 +381,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     receiptIds.add(key);
     if (!object(receipt) || receipt.commandId !== key || typeof receipt.fingerprint !== 'string' || receipt.fingerprint.length === 0 || receipt.fingerprint.length > (hasCultivation ? 16384 : 2048) || !object(receipt.result) || receipt.result.commandId !== key || !['accepted', 'rejected'].includes(receipt.result.status as string) || !list(receipt.result.eventIds) || !receipt.result.eventIds.every((id) => typeof id === 'string' && eventIds.has(id))) return fail('Invalid command receipt');
     const result = receipt.result;
+    if (!hasCampaign && object(result.rejection) && ['IDENTITY_REUSED','INVALID_PROVENANCE','ALREADY_RETIRED','TRANSFER_CONFLICT'].includes(String(result.rejection.buildCode))) return fail('Legacy receipt contains unsupported build result');
     const origin = originatingCommands.get(key);
     if (origin) {
       if (receipt.fingerprint !== origin.fingerprint || result.status !== 'accepted' || result.transactionId !== origin.transactionId || result.rejection !== null) return fail('Transaction is missing its matching originating command receipt');
@@ -417,7 +421,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
         if (!buildReceipt || buildReceipt.authority || buildReceipt.fingerprint !== canonicalStringify({ command: sourceCommand.payload.command, authority: false })
           || canonicalStringify(result.buildResult) !== canonicalStringify({ commandId: key, kind: sourceCommand.payload.command.kind, revision: buildReceipt.revision, resultId: buildReceipt.resultId })) return fail('Build receipt projection mismatch');
       } else if (hasProgression && object(sourceCommand) && sourceCommand.kind === 'expedition.command') {
-        if (!isCommand({ ...sourceCommand, commandId: key, sequence: 0, issuedTick: 0 }) || !object(sourceCommand.payload) || !object(sourceCommand.payload.command)
+        if (!(hasCampaign ? isCommandV8 : isCommand)({ ...sourceCommand, commandId: key, sequence: 0, issuedTick: 0 }) || !object(sourceCommand.payload) || !object(sourceCommand.payload.command)
           || result.transactionId !== null || result.rejection !== null || !object(result.expeditionResult)
           || result.expeditionResult.kind !== sourceCommand.payload.command.kind) return fail('Invalid accepted expedition receipt');
         const recordedRunId = result.expeditionResult.runId;

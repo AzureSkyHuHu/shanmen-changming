@@ -1,4 +1,4 @@
-import type { Command } from '../kernel/contracts';
+import type { CommandV8 as Command } from '../kernel/contracts-v8';
 import { canonicalStringify } from '../kernel/serialization';
 import { automaticJobByteBudget, pendingCommandByteBudget, type SaveBudgetMap } from './bounds';
 import { measureWorldSaveBytes, WORST_SAVE_METADATA, type SaveByteOptions } from './envelope';

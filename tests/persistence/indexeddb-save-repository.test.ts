@@ -96,8 +96,11 @@ describe('IndexedDB snapshot repository', () => {
     const loaded = await reopened.loadSlot(slotId);
     expect(loaded.recovered).toBe(false);
     expect(loaded.issues).toEqual([]);
-    expect(domainHash(loaded.world)).toBe(domainHash(world));
-    expect(domainHash(advanceTicks(loaded.world, 120))).toBe(domainHash(advanceTicks(world, 120)));
+    expect(loaded.envelope.saveVersion).toBe(7);
+    if (loaded.envelope.saveVersion !== 7) throw new Error('This regression expects a legacy v7 snapshot');
+    const loadedV7 = loaded.envelope.payload;
+    expect(domainHash(loadedV7)).toBe(domainHash(world));
+    expect(domainHash(advanceTicks(loadedV7, 120))).toBe(domainHash(advanceTicks(world, 120)));
     // Returned world objects are detached from stored text.
     loaded.world.seed = 'mutated-client-object';
     expect((await reopened.loadSlot(slotId)).world.seed).toBe('production-roundtrip');
@@ -446,7 +449,9 @@ describe('safe file import and export', () => {
     expect(file.mimeType).toBe('application/json');
     expect(file.filename).toMatch(/^shanmen-changming-.*\.json$/);
     const parsed = parseSaveFile(file.text);
-    expect(parsed.ok && domainHash(parsed.world)).toBe(domainHash(world));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.envelope.saveVersion !== 7) throw new Error('This regression expects a legacy v7 export');
+    expect(domainHash(parsed.envelope.payload)).toBe(domainHash(world));
     expect(JSON.parse(JSON.stringify(file))).toEqual(file);
   });
 });

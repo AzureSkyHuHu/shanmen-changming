@@ -1,3 +1,4 @@
+import { permanentTeachingLesson } from './teaching-provenance';
 import { contentIdentity, LEGACY_V7_CONTENT, resolveContentIdentity } from '../../content/registry';
 import { campaignRoute, campaignKnowledge } from '../campaign/catalog';
 import { validateCampaignStateV2 } from '../campaign/v2';
@@ -16,16 +17,32 @@ export interface WorldCampaignInspection { errors: string[]; paymentInstanceIds:
 export function validateWorldCampaign(world: WorldStateV8): string[] { return inspectWorldCampaign(world).errors; }
 export function inspectWorldCampaign(world: WorldStateV8): WorldCampaignInspection {
   try {
-    if (!exact(world.campaign, ['schemaVersion', 'progress', 'clearEvidence']) || world.campaign.schemaVersion !== 1
-      || !Array.isArray(world.campaign.clearEvidence) || world.campaign.clearEvidence.length > 5
+    if (!exact(world.campaign, ['schemaVersion', 'progress', 'clearEvidence', 'settledRunEvidence']) || world.campaign.schemaVersion !== 2
+      || !Array.isArray(world.campaign.clearEvidence) || world.campaign.clearEvidence.length > 5 || !Array.isArray(world.campaign.settledRunEvidence)
       || validateCampaignStateV2(world.campaign.progress).length) throw new Error('Invalid campaign authority');
     const progress = world.campaign.progress; const proofs = world.campaign.clearEvidence;
     const transactions = validateWorldCampaignProofs(world, collectWorldCampaignProofFacts(world));
     if (!transactions.ok) throw new Error(transactions.errors[0]);
     if (proofs.length !== progress.clears.length || new Set(proofs.map(proof => proof.routeId)).size !== proofs.length) throw new Error('Campaign clear proof count differs');
+    const runProofs = world.campaign.settledRunEvidence.map(proof => restoreRegisteredExpedition(proof));
+    if (new Set(runProofs.map(proof => proof.run.runId)).size !== runProofs.length) throw new Error('Duplicate settled run evidence');
+    for (const registered of runProofs) {
+      const run = registered.run; const settlement = run.settlement;
+      const history = world.expedition.history.find(entry => entry.runId === run.runId);
+      if (run.phase !== 'Ended' || run.locked || !settlement?.committed || !history || history.settlementId !== settlement.settlementId
+        || history.routeId !== registered.routeId || !same(history.contentIdentity, registered.identity) || history.protocol !== registered.protocol
+        || history.reason !== settlement.reason || !same(history.loot, settlement.loot) || !same(history.returnedSupplies, settlement.unusedSupplies)
+        || !same(history.lostLoot, settlement.lostLoot) || !same([...history.survivingDiscipleIds].sort(), run.members.filter(member => member.alive).map(member => member.discipleId).sort())
+        || !same([...history.deadDiscipleIds].sort(), run.members.filter(member => !member.alive).map(member => member.discipleId).sort())) throw new Error('Settled evidence differs from its World settlement');
+      const permanent = proofs.some(proof => proof.runId === run.runId) || world.builds.history.slice(world.builds.migration?.prefixLength ?? 0).some(entry => entry.authority
+        && entry.command.kind === 'milestone.award' && entry.command.ruleId === 'expedition.first-victory' && entry.command.commandId === `${run.runId}/award/${entry.command.discipleId}`)
+        || run.members.some(member => !member.alive && world.cultivation.deaths.some(death => death.deathId === member.permanentDeathId && death.discipleId === member.discipleId));
+      if (!permanent) throw new Error('Orphan settled run evidence');
+    }
     for (const proof of proofs) {
-      if (!exact(proof, ['routeId', 'expedition'])) throw new Error('Invalid campaign proof shape');
-      const registered = restoreRegisteredExpedition(proof.expedition); const run = registered.run;
+      if (!exact(proof, ['routeId', 'runId'])) throw new Error('Invalid campaign proof shape');
+      const registered = runProofs.find(entry => entry.run.runId === proof.runId); if (!registered) throw new Error('Campaign clear has no settled run reference');
+      const run = registered.run;
       const route = campaignRoute(proof.routeId); const clear = progress.clears.find(entry => entry.routeId === proof.routeId);
       const settlement = run.settlement;
       if (!route || !clear || registered.routeId !== proof.routeId || run.phase !== 'Ended' || run.locked || run.currentEncounter
@@ -38,7 +55,7 @@ export function inspectWorldCampaign(world: WorldStateV8): WorldCampaignInspecti
         && history.routeId === proof.routeId && same(history.contentIdentity, registered.identity) && history.protocol === registered.protocol
         && history.reason === 'victory')) throw new Error('Campaign proof lacks World return settlement');
     }
-    if (!exact(world.legacy, ['schemaVersion', 'archivedIdentities', 'estates']) || world.legacy.schemaVersion !== 1
+    if (!exact(world.legacy, ['schemaVersion', 'archivedIdentities', 'estates', 'migrationLifecycle']) || world.legacy.schemaVersion !== 1
       || !Array.isArray(world.legacy.archivedIdentities) || !Array.isArray(world.legacy.estates)) throw new Error('Invalid deceased/estate authority');
     const archived = world.legacy.archivedIdentities;
     if (archived.length !== world.builds.retiredDisciples.length || archived.length !== world.cultivation.archivedDisciples.length
@@ -73,6 +90,8 @@ export function inspectWorldCampaign(world: WorldStateV8): WorldCampaignInspecti
             && grant.discipleId === command.discipleId && grant.knowledgeId === command.provenance.knowledgeId && grant.skillId === command.skillId)) throw new Error('Build knowledge grant lacks paid campaign lesson');
         } else {
           const provenance = command.provenance;
+          const lesson = permanentTeachingLesson(world, provenance.teachingId);
+          if (!lesson || lesson.teacherId !== provenance.teacherId || lesson.studentId !== command.discipleId || lesson.definition.skillId !== command.skillId) throw new Error('Teaching lacked its permanent source at admission');
           const student = [...world.cultivation.disciples, ...world.cultivation.archivedDisciples].find(member => member.discipleId === command.discipleId);
           if (!student?.knowledge.some(knowledge => knowledge.knowledgeId === provenance.knowledgeId && knowledge.teacherId === provenance.teacherId && knowledge.teachingId === provenance.teachingId)
             || command.acquisitionId !== `teaching/${provenance.teachingId}/${command.discipleId}`
@@ -90,10 +109,9 @@ export function inspectWorldCampaign(world: WorldStateV8): WorldCampaignInspecti
         if (!transactions.buildCommandIds.includes(command.commandId)) throw new Error('Estate assignment lacks a defined World transaction proof');
       } else if (command.kind === 'milestone.award') {
         if (command.ruleId === 'expedition.first-victory') {
-          // Route-first-clear proof cannot justify a recruit's first victory on
-          // a later repeat run. New awards stay closed until the World bridge
-          // records the exact settled run/survivor evidence for every such award.
-          throw new Error('First-victory award lacks a defined World settlement proof');
+          if (!runProofs.some(proof => proof.run.settlement?.reason === 'victory' && proof.run.members.some(member => member.discipleId === command.discipleId && member.alive)
+            && command.commandId === `${proof.run.runId}/award/${command.discipleId}`
+            && command.milestoneId === `milestone.first-expedition.${command.discipleId.replace(':', '-')}`)) throw new Error('First-victory award lacks a defined World settlement proof');
         } else {
           const profile = [...world.cultivation.disciples, ...world.cultivation.archivedDisciples].find(member => member.discipleId === command.discipleId);
           if (!profile || REALMS.indexOf(profile.realm) < REALMS.indexOf(command.ruleId.slice(6) as typeof REALMS[number])) throw new Error('Realm award lacks attained realm');

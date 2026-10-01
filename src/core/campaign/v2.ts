@@ -1,6 +1,8 @@
 import type { CombatContentCatalog } from '../combat/definitions/types';
 import { RESOURCE_IDS } from '../economy/types';
 import { restoreExpedition, serializeExpedition } from '../expeditions/snapshot';
+import { restoreRegisteredExpedition } from '../expeditions/versioned';
+import type { RegisteredExpedition } from '../expeditions/versioned';
 import type { ExpeditionState } from '../expeditions/types';
 import { canonicalStringify, compareStable, stableHash } from '../kernel/serialization';
 import { CAMPAIGN_RECRUITS, CAMPAIGN_ROUTES, RECRUIT_COSTS, RECOVERY_RESOURCES, campaignKnowledge, campaignRoute } from './catalog';
@@ -52,6 +54,19 @@ export function recordCampaignVictoryV2(state: CampaignState, routeId: CampaignR
     const route = campaignRoute(routeId) ?? fail('UNKNOWN_ROUTE');
     let validated: ExpeditionState;
     try { validated = restoreExpedition(serializeExpedition(run), catalog); } catch { fail('INVALID_VICTORY'); }
+    return recordValidatedVictory(state, routeId, validated);
+  } catch (error) { return { ok: false, state, code: errorCode(error) }; }
+}
+/** Current registered protocol is replayed without relabeling it as legacy data. */
+export function recordRegisteredCampaignVictoryV2(state: CampaignState, routeId: CampaignRouteId, evidence: RegisteredExpedition): CampaignTransition {
+  try {
+    assertState(state); const registered = restoreRegisteredExpedition(evidence);
+    if (registered.routeId !== routeId) fail('INVALID_VICTORY');
+    return recordValidatedVictory(state, routeId, registered.run);
+  } catch (error) { return { ok: false, state, code: errorCode(error) }; }
+}
+function recordValidatedVictory(state: CampaignState, routeId: CampaignRouteId, validated: RegisteredExpedition['run']): CampaignTransition {
+    const route = campaignRoute(routeId) ?? fail('UNKNOWN_ROUTE');
     const settlement = validated.settlement;
     const specification = copy(route.specification); specification.regularEncounterIds.sort(compareStable);
     if (!same(validated.origin.route, specification) || validated.phase !== 'Ended' || validated.locked || validated.currentEncounter
@@ -76,7 +91,6 @@ export function recordCampaignVictoryV2(state: CampaignState, routeId: CampaignR
     next.clears.push({ revision: next.revision, routeId, runId: validated.runId, settlementId: settlement.settlementId,
       endedMonth: validated.calendarMonth, evidenceHash });
     return { ok: true, state: sealed(next), replayed: false };
-  } catch (error) { return { ok: false, state, code: errorCode(error) }; }
 }
 
 const equipmentClaimId = (routeId: string) => `campaign/equipment/${routeId}`;

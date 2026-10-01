@@ -1,3 +1,4 @@
+import { permanentTeachingLesson } from './teaching-provenance';
 import { REALMS } from '../cultivation/types';
 import { assessBuildHistoryObligations } from '../save-budget/build-obligations';
 import type { BuildHistoryObligationFacts, BuildHistoryObligationAssessment } from '../save-budget/build-obligations';
@@ -11,23 +12,17 @@ export function worldBuildHistoryObligationFacts(world: WorldStateV8): BuildHist
   const content = getWorldContent(world);
   const profiles = new Map(world.cultivation.disciples.map(profile => [profile.discipleId, profile]));
   const activeBuilds = new Set(world.builds.disciples.map(build => build.discipleId));
-  const permanentKnowledge = (teacherId: string, knowledgeId: string): boolean => {
-    const definition = content.campaign?.knowledge.find(entry => entry.id === knowledgeId);
-    const teacher = [...world.builds.disciples, ...world.builds.retiredDisciples].find(entry => entry.discipleId === teacherId);
-    return !!definition && !!teacher?.learnedSkills.some(skill => skill.skillId === definition.skillId
-      && 'provenance' in skill && skill.provenance.knowledgeId === knowledgeId);
-  };
   const teachingGrants = new Set(world.builds.history.flatMap(entry => entry.authority && entry.command.kind === 'skill.grantKnowledge'
     && entry.command.provenance.kind === 'teaching' ? [entry.command.provenance.teachingId] : []));
   const teachingIds = new Set<string>();
-  for (const teacher of world.cultivation.disciples) if (teacher.teaching && permanentKnowledge(teacher.discipleId, teacher.teaching.knowledgeId) && !teachingGrants.has(teacher.teaching.teachingId)) teachingIds.add(teacher.teaching.teachingId);
+  for (const teacher of world.cultivation.disciples) if (teacher.teaching && permanentTeachingLesson(world, teacher.teaching.teachingId) && !teachingGrants.has(teacher.teaching.teachingId)) teachingIds.add(teacher.teaching.teachingId);
   // The event and retained knowledge bridge the in-memory month -> build-grant
   // transition, including when several teachings finish in the same month.
   for (const event of world.cultivation.events) {
     if (event.kind !== 'cultivation.taught' || !event.relatedId || teachingGrants.has(event.relatedId)) continue;
     const student = profiles.get(event.discipleId);
     const knowledge = student?.knowledge.find(entry => entry.teachingId === event.relatedId);
-    if (!knowledge?.teacherId || !permanentKnowledge(knowledge.teacherId, knowledge.knowledgeId)) continue;
+    if (!knowledge?.teacherId || !permanentTeachingLesson(world, event.relatedId)) continue;
     if (!activeBuilds.has(event.discipleId)) throw new TypeError('Uncommitted teaching has no active build recipient');
     teachingIds.add(event.relatedId);
   }

@@ -1,7 +1,8 @@
+import type { CommandV8 as Command } from '../kernel/contracts-v8';
 import type { AutomaticLiveJob, AutomaticProductionNotice, AutomaticTerminalPin } from '../economy/automatic-types';
 import { STARTER_RECIPES } from '../economy/recipes';
 import { PRODUCTION_BLOCKED_REASONS, PRODUCTION_PHASES, RESOURCE_IDS, type ProductionTransaction, type Reservation } from '../economy/types';
-import type { Command, CommandReceipt, DomainEvent } from '../kernel/contracts';
+import type { CommandReceipt, DomainEvent } from '../kernel/contracts';
 import { canonicalStringify } from '../kernel/serialization';
 import { MAX_STOCK_TARGET, MAX_WORK_PRIORITIES, type DiscipleWorkPlan } from '../sect-economy/types';
 import { canonicalUtf8ByteLength as size, jsonStringByteLength } from './canonical-bytes';

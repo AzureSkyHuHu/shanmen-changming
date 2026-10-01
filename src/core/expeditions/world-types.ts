@@ -84,7 +84,7 @@ export type WorldExpeditionCommand = PlayerExpeditionCommand;
 export type WorldExpeditionError = 'INVALID_COMMAND' | 'INVALID_PHASE' | 'BUSY' | 'MEMBER_UNAVAILABLE' | 'BUILD_UNAVAILABLE'
   | 'INSUFFICIENT_SUPPLIES' | 'INVENTORY_FULL' | 'STALE_OFFER' | 'ILLEGAL_CHOICE' | 'NO_NEW_CANDIDATE'
   | 'REROLLS_EXHAUSTED' | 'CHECKPOINT_MISMATCH' | 'CONTENT_MISMATCH' | 'INVALID_STATE' | 'BLOCKED_BY_DECISION';
-export interface WorldExpeditionResult { kind: PlayerExpeditionCommand['kind']; runId: string | null; phase: ExpeditionState['phase'] | null; relatedId: string | null; }
+export interface WorldExpeditionResult { kind: PlayerExpeditionCommand['kind'] | 'expedition.emergency-retreat'; runId: string | null; phase: ExpeditionState['phase'] | null; relatedId: string | null; }
 export interface WorldExpeditionPreview {
   routeId: 'route.qingfeng-trial';
   squadIds: string[];

@@ -107,7 +107,12 @@ describe('historical campaign admission authority', () => {
     expect(parsed.ok).toBe(true); if (!parsed.ok) throw new Error(parsed.error.message);
     const world = migrateWorldV7ToV8(parsed.world);
     expect(world.cultivation.deaths[0]!.cause).toBe('legacy-unknown'); expect(validateWorldStateV8(world)).toEqual([]);
+    // The explicit migration contract now authenticates this old death, but one
+    // dead member and no genuine recovery claim do not establish total loss.
     expect(() => assertCampaignHistoricalAdmission(world, { kind: 'campaign.recover', acknowledgeLoss: true }, undefined,
+      `action:${world.sequences.nextAction}`, `event:${world.sequences.nextEvent}`, world.clock.calendarTick)).toThrow('Recovery lacked an actual finalized total loss');
+    const unbound = { ...world, legacy: { ...world.legacy, migrationLifecycle: null } };
+    expect(() => assertCampaignHistoricalAdmission(unbound, { kind: 'campaign.recover', acknowledgeLoss: true }, undefined,
       `action:${world.sequences.nextAction}`, `event:${world.sequences.nextEvent}`, world.clock.calendarTick)).toThrow('Campaign eligibility lacks legacy lifecycle evidence');
   });
   it('preserves a genuine equipment claim after a later real lifespan death, inheritance, retirement and JSON roundtrip', () => {

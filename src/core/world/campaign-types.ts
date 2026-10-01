@@ -22,7 +22,7 @@ export interface WorldCampaignResult {
 export interface WorldCampaignPreview {
   /** Request stamp: hash({ stateStamp: projection.basisStamp, request }). */
   request: CampaignPlayerRequest; basisStamp: string; costs: ResourceLine[]; blockers: WorldCampaignError[];
-  recruitProfiles: CampaignRecruitDefinition[];
+  recruitProfiles: CampaignRecruitDefinition[]; grantedResources: ResourceLine[];
 }
 export interface CampaignRecipientProjection {
   discipleId: string; nameKey: string; presentationId: 'disciple-0' | 'disciple-1' | 'disciple-2' | 'disciple-3';
@@ -49,6 +49,6 @@ export interface WorldCampaignProjection {
   recruitInvitations: { routeId: CampaignRouteId; costs: ResourceLine[] }[];
   recruitProfiles: CampaignRecruitDefinition[];
   relief: { available: boolean; costs: ResourceLine[]; nextEligibleMonth: number | null; blockers: WorldCampaignError[] };
-  recovery: { available: boolean; nextGeneration: number; resources: ResourceLine[]; blockers: WorldCampaignError[] };
+  recovery: { available: boolean; nextGeneration: number; resources: ResourceLine[]; recruitProfiles: CampaignRecruitDefinition[]; blockers: WorldCampaignError[] };
   estateItems: CampaignEstateItemProjection[];
 }

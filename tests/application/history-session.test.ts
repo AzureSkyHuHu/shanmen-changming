@@ -18,6 +18,7 @@ describe('application queries over archived campaign history', () => {
   it('restores receipt allocation without reusing archived or pending IDs', () => {
     const { session, workerId } = campaignWithArchivedWork();
     const world = session.exportWorld();
+    if ('contentIdentity' in world) throw new Error('This archived-history fixture must remain on the legacy v7 engine');
     expect(world.history.production.count).toBe(70);
     expect(world.commandReceipts['app-command.0']).toBeUndefined();
     const original = lookupCommandReceipt(world, 'app-command.0')!;

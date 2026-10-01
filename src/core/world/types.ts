@@ -1,3 +1,4 @@
+import type { CommandV8 } from '../kernel/contracts-v8';
 import type { AutomaticProductionState } from '../economy/automatic-types';
 import type { HistoryArchive } from '../history/types';
 import type { InventoryLedger, ProductionTransaction, Reservation } from '../economy/types';
@@ -28,7 +29,7 @@ export interface Disciple {
 }
 export interface WorldBuilding extends GridPosition { id: string; blueprintId: string; nameKey: string; operational: boolean; stationTransactionId: string | null }
 /** Fields shared by frozen legacy schemas and v8. Domain authority stays in the selected version. */
-export interface WorldStateBase<TDisciple extends Disciple = Disciple> {
+export interface WorldStateBase<TDisciple extends Disciple = Disciple, TCommand extends CommandV8 = CommandV8> {
   seed: string;
   simulationVersion: string;
   contentVersion: string;
@@ -47,13 +48,13 @@ export interface WorldStateBase<TDisciple extends Disciple = Disciple> {
   /** Source-owned live job index; historical ledgers are retained for idempotency. */
   activeProductionTransactionIds: string[];
   commandReceipts: Record<string, CommandReceipt>;
-  pendingCommands: Command[];
+  pendingCommands: TCommand[];
   events: DomainEvent[];
   unlocks: string[];
   diagnostics: CoreDiagnostic[];
 }
 /** The live alias remains v7 until the complete v8 admission/budget boundary is ready. */
-export interface WorldState extends WorldStateBase {
+export interface WorldState extends WorldStateBase<Disciple, Command> {
   cultivation: CultivationState;
   builds: BuildData;
   expedition: WorldExpeditionState;

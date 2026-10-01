@@ -53,7 +53,7 @@ export function prepareWorldCampaignTransaction(world: WorldStateV8, input: unkn
   const previous = lookupCommandReceipt(world, input.commandId);
   if (previous) return previous.fingerprint === fingerprint ? { ok: true, candidate: world, result: cloneJson(previous.result), replayed: true }
     : failure(input.commandId, 'COMMAND_CONFLICT');
-  if (world.pendingCommands.some(command => command.commandId === input.commandId)) return failure(input.commandId, 'COMMAND_CONFLICT');
+  if (world.pendingCommands.some(command => command.commandId === input.commandId && canonicalStringify({ kind: command.kind, payload: command.payload }) !== fingerprint)) return failure(input.commandId, 'COMMAND_CONFLICT');
   if (input.issuedTick > world.clock.simulationTick) return failure(input.commandId, 'COMMAND_NOT_DUE');
   if (world.clock.pauseReasons.includes('error')) return failure(input.commandId, 'CORE_PAUSED_ERROR');
   try {

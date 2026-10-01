@@ -1,4 +1,6 @@
-import { createSaveEnvelope, createWorld, serializeSave, SIMULATION_VERSION } from '../core/kernel';
+import { createWorld } from '../core/kernel';
+import { measureWorldSaveBytes } from '../core/save-budget';
+import { createVersionedSaveEnvelope, serializeVersionedSave, type VersionedWorldState } from '../platform/save-codec';
 import { exportWorldSave, MAX_SAVE_FILE_BYTES, parseSaveFile, type SaveFile } from '../platform/files/save-files';
 import {
   CAMPAIGN_SLOT_IDS, openSaveRepository, PersistenceError,
@@ -62,7 +64,7 @@ export class SaveController {
   private status: DeepReadonly<SaveStatus> = deepFreeze({ mode: 'opening', busy: false, slots: CAMPAIGN_SLOT_IDS.map((slotId) => ({ slotId, slot: null })), boundSlot: null, readOnly: false, lastSavedAt: null, notice: null, import: emptyImport() });
   private readonly ownerId = globalThis.crypto?.randomUUID?.() ?? `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  constructor(private readonly session: ApplicationSession) {}
+  constructor(private readonly session: ApplicationSession, private readonly newWorldFactory: (seed: string) => VersionedWorldState = createWorld) {}
   readonly getSnapshot = (): DeepReadonly<SaveStatus> => this.status;
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -72,7 +74,7 @@ export class SaveController {
     this.status = deepFreeze({ ...this.status, ...patch }) as DeepReadonly<SaveStatus>;
     for (const listener of [...this.listeners]) listener();
   }
-  private metadata() { return { buildId: `playable-${SIMULATION_VERSION}`, savedAt: new Date().toISOString() }; }
+  private metadata() { return { buildId: `playable-${this.session.getSaveIdentity().simulationVersion}`, savedAt: new Date().toISOString() }; }
 
   async start(): Promise<void> {
     const generation = ++this.generation;
@@ -153,7 +155,7 @@ export class SaveController {
     this.update({ busy: true, notice: null });
     const current = () => generation === this.generation && repository === this.repository;
     try {
-      const fresh = createWorld(seed.trim());
+      const fresh = this.newWorldFactory(seed.trim());
       if (repository && oldLease) await repository.releaseLease(oldLease);
       if (!current()) return false;
       this.lease = null;
@@ -174,11 +176,16 @@ export class SaveController {
     if (this.status.busy || this.status.mode === 'opening') return;
     if (!this.canSave(slotId)) { this.update({ notice: 'save.error.slotOccupied' }); return; }
     this.update({ busy: true, notice: null });
-    const world = this.session.exportWorld();
-    const metadata = this.metadata();
     try {
+      const world = this.session.exportWorld();
+      const metadata = this.metadata();
+      // Classify actual encoded size before a codec can throw an untyped RangeError.
+      // Use the real metadata, not the budget helper's conservative worst-case default.
+      if (measureWorldSaveBytes(world, { saveVersion: this.session.getSaveIdentity().saveVersion, metadata }) > MAX_SAVE_FILE_BYTES) {
+        throw new PersistenceError('INVALID_SAVE', 'Save exceeds the file size limit; previous save preserved', { saveErrorCode: 'TOO_LARGE' });
+      }
       if (this.status.mode === 'memory') {
-        const text = serializeSave(createSaveEnvelope(world, metadata));
+        const text = serializeVersionedSave(createVersionedSaveEnvelope(world, metadata));
         const checked = parseSaveFile(text);
         if (!checked.ok) throw new PersistenceError('INVALID_SAVE', 'Memory save failed validation; previous save preserved', { saveErrorCode: checked.error.code });
         this.memory.set(slotId, text);
@@ -198,7 +205,7 @@ export class SaveController {
         this.update({ lastSavedAt: result.slot.savedAt, notice: 'save.saved' });
       } else {
         // New campaigns only enter empty slots. This operation atomically rejects occupied slots.
-        const result = await repository.importSave(serializeSave(createSaveEnvelope(world, metadata)), { mode: 'new-slot', slotId, ownerId: this.ownerId });
+        const result = await repository.importSave(serializeVersionedSave(createVersionedSaveEnvelope(world, metadata)), { mode: 'new-slot', slotId, ownerId: this.ownerId });
         const old = this.lease;
         this.lease = result.lease;
         this.boundRevision = result.slot.revision;

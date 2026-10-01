@@ -1,7 +1,7 @@
 import { campaignMessageKey } from './campaign-messages';
 import type { CommandResult, RejectionCode } from '../core/kernel';
 import type { TextKey } from '../i18n';
-import type { BuildError } from '../core/builds';
+import type { BuildErrorV2 } from '../core/builds/v2-types';
 import type { WorldExpeditionError } from '../core/expeditions/world-types';
 import type { CultivationError } from '../core/cultivation/types';
 import type { SectEconomyError } from '../core/sect-economy/types';
@@ -75,7 +75,7 @@ export const expeditionMessages: Record<WorldExpeditionError, TextKey> = {
   INVALID_STATE: 'expedition.error.INVALID_STATE',
   BLOCKED_BY_DECISION: 'expedition.error.BLOCKED_BY_DECISION',
 };
-const buildMessages: Partial<Record<BuildError, TextKey>> = {
+const buildMessages: Partial<Record<BuildErrorV2, TextKey>> = {
   REVISION_CONFLICT: 'buildView.draftStale', EXPEDITION_LOCKED: 'buildView.locked',
   MISSING_PREREQUISITE: 'buildView.missingPrerequisite', INSUFFICIENT_POINTS: 'buildView.insufficientPoints',
   POINT_LIMIT: 'buildView.pointLimit', INSUFFICIENT_LEARNING_CREDITS: 'buildView.insufficientCredits',

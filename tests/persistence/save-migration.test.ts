@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { IDBFactory as FakeIDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SAVE_VERSION, SIMULATION_VERSION, stableHash } from '../../src/core/kernel';
+import { SAVE_VERSION_V8 } from '../../src/core/kernel/save-v8';
 import { parseSaveFile } from '../../src/platform/files/save-files';
 import {
   openSaveRepository, type IndexedDbSaveRepository, type SlotManifest, type SnapshotRecord,
@@ -155,7 +156,7 @@ describe('stored v1 migration and source preservation', () => {
   it('rejects future schema imports and loads while preserving their exact stored source', async () => {
     const { repository, raw } = await createStorage();
     try {
-      const future = withVersions(SAVE_VERSION + 1);
+      const future = withVersions(Math.max(SAVE_VERSION, SAVE_VERSION_V8) + 1);
       await seedLegacy(raw, future);
       const before = await inspect(raw);
       await expect(repository.loadSlot(slotId)).rejects.toMatchObject({

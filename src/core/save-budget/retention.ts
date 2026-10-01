@@ -1,8 +1,9 @@
+import type { CommandV8 as Command } from '../kernel/contracts-v8';
 import { emptyNavigation } from '../agents/navigation';
 import type { ProductionTransaction, Reservation } from '../economy/types';
 import { getHistoryArchiveUsage } from '../history/archive';
 import { MAX_HISTORY_EXPANDED_CHARACTERS, MAX_HISTORY_EXPANDED_NODES, MAX_HISTORY_RECORDS_PER_TABLE, type HistoryArchive } from '../history/types';
-import type { Command, CommandReceipt, DomainEvent } from '../kernel/contracts';
+import type { CommandReceipt, DomainEvent } from '../kernel/contracts';
 import { canonicalStringify } from '../kernel/serialization';
 import { automaticJobByteBudget, retainedRecordBytes, type SaveBudgetMap } from './bounds';
 import { canonicalUtf8ByteLength } from './canonical-bytes';

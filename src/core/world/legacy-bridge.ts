@@ -74,7 +74,7 @@ export function prepareWorldEstateSettlement(world: WorldStateV8): WorldEstatePr
       if (!archived.ok) return fail(archived.code === 'HISTORY_LIMIT' ? 'SAVE_CAPACITY_EXCEEDED' : 'CULTIVATION_REJECTED', [archived.code]);
       candidate = { ...candidate, ...archived.frame, disciples: candidate.disciples.filter(member => member.id !== estate.discipleId),
         sectEconomy: { ...candidate.sectEconomy, plans: candidate.sectEconomy.plans.filter(plan => plan.workerId !== estate.discipleId) },
-        legacy: { schemaVersion: 1, archivedIdentities: [...candidate.legacy.archivedIdentities, { discipleId: actor.id, nameKey: actor.nameKey, presentationId: actor.presentationId,
+        legacy: { ...candidate.legacy, schemaVersion: 1, archivedIdentities: [...candidate.legacy.archivedIdentities, { discipleId: actor.id, nameKey: actor.nameKey, presentationId: actor.presentationId,
           birthCalendarTick: actor.birthCalendarTick, ageMonths: profile.ageMonths, aptitude: profile.aptitude, school: build.school, realm: profile.realm,
           deathId: estate.deathId, archivedMonth: candidate.cultivation.calendarMonth }],
           estates: candidate.legacy.estates.map(entry => entry.deathId !== estate.deathId ? entry : { ...estate, pendingRunId: null, transferCommandIds,
