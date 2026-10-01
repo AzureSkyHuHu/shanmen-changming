@@ -1,5 +1,14 @@
 # 开发状态
 
+## 版本绑定的生产阶段执行器（2026-10-01 22:45 UTC）
+
+- 建造域提交[ef0cb91](https://github.com/AzureSkyHuHu/shanmen-changming/commit/ef0cb91d61db7b5c4ee2a4b60087635b13b3f94d)的[GitHub检查36935540842](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36935540842)已成功
+- 生产抽取冻结树 `c8c2af04755683fd733633b05d8b09c649eb5514` 完整通过：115文件 / 1676项测试、1041中文键、边界/内容、双类型及生产构建；测试566.85秒
+- 只有阶段循环抽到资源无关的内部typed context：按稳定顺序选任务/岗位、行走、加工、实际送仓，并共享同一个tick寻路预算；每个任务重新读前一任务结算后的候选
+- 原v7/v8私有绑定仍用旧配方和点坐标，四个公开入口签名不变；start/cancel/complete的资源、ID、事件、归档、自动工作pins/notices及拒绝顺序保持原实现，不向命令或存档暴露callback
+- 21专项用冻结抽取前算法逐tick对比完整规范World，不仅比较v7和v8彼此；真实保存恢复、自动退役/精确回执、丢失人员/岗位、暂停/战斗、堵路重试及重复结算都覆盖。额外无World/资源的typed harness验证外部入口与不可通行锚点分离
+- 此阶段不是新生产配方开放：三项无研究前置的宗门手动配方另在开发；研究门禁、维护状态、v9自动计划与全World/保存/UI仍需分别接入。默认v7、候选入口关闭及私有预览不变
+
 ## 藏经阁建造领域闭环（2026-10-01 22:29 UTC）
 
 - 导航提交[aa2413f](https://github.com/AzureSkyHuHu/shanmen-changming/commit/aa2413f3c08a6718990526d55e45dbcc904c55e9)的[GitHub检查36932212110](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36932212110)已成功

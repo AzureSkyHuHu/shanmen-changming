@@ -3,17 +3,17 @@ import { acknowledgeAutomaticCancellation, classifyAutomaticHandle, isAutomaticJ
 import type { AutomaticWorld as ProductionWorld } from './automatic-production';
 import type { ProductionReceiptContext, ProductionWork } from './automatic-types';
 import { archiveTerminalProduction, lookupProduction } from '../world/history-access';
-import { cardinalDistance, emptyNavigation, isWalkable, sameCell } from '../agents/navigation';
-import { advanceWorkNavigationWithBudget, createWorkPathBudget, type WorkPathBudget } from '../agents/work-navigation';
+import { emptyNavigation, isWalkable, sameCell } from '../agents/navigation';
+import type { WorkPathBudget } from '../agents/work-navigation';
+import { runProductionPhases, type ProductionContext, type ProductionSite } from './production-context';
 import type { CommandRejection, DomainEvent } from '../kernel/contracts';
 import { isPaused } from '../kernel/clock';
 import { appendEvent } from '../kernel/events';
 import { allocateId } from '../kernel/ids';
-import { compareStable } from '../kernel/serialization';
 import { MAX_DISCIPLES, type GridPosition, type WorldBuilding, type WorldState } from '../world/types';
 import { commitReservation, releaseReservation, reserveResources } from './inventory';
 import { getRecipe } from './recipes';
-import type { ProductionBlockedReason, ProductionTransaction } from './types';
+import type { ProductionTransaction } from './types';
 
 export type ProductionResult<W extends ProductionWorld = WorldState> = { ok: true; world: W; transactionId: string; eventIds: string[] } | { ok: false; rejection: CommandRejection };
 
@@ -57,16 +57,6 @@ function updateOrder<W extends ProductionWorld>(world: W, transaction: Productio
 function releaseStation<W extends ProductionWorld>(world: W, id: string): W {
   return { ...world, buildings: world.buildings.map((building) => building.stationTransactionId === id ? { ...building, stationTransactionId: null } : building) };
 }
-function block<W extends ProductionWorld>(world: W, transaction: ProductionWork, reason: ProductionBlockedReason): W {
-  const next = transaction.blockedReason !== reason
-    ? isAutomaticTransaction(transaction)
-      ? recordAutomaticNotice(world, { cycle: transaction.origin.cycle, workerId: transaction.workerId, recipeId: transaction.recipeId, kind: 'blocked', reason })
-      : appendEvent(world, { kind: 'production.blocked', rootActionId: transaction.rootActionId, parentEventId: null, payload: { transactionId: transaction.transactionId, reason } }).world
-    : world;
-  return updateOrder(next, { ...transaction, state: 'Blocked', blockedReason: reason });
-}
-function running(transaction: ProductionWork): ProductionWork { return { ...transaction, state: 'Running', blockedReason: null }; }
-
 function endProduction<W extends ProductionWorld>(world: W, transaction: ProductionWork, state: 'Committed' | 'Cancelled', kind: DomainEvent['kind'], receiptContext?: ProductionReceiptContext): ProductionResult<W> {
   if (isAutomaticTransaction(transaction)) {
     const released = { ...releaseStation(world, transaction.transactionId),
@@ -134,96 +124,32 @@ export function completeProduction<W extends ProductionWorld>(world: W, transact
   return endProduction(settled, transaction, 'Committed', 'production.committed');
 }
 
-/** Returns at a full movement boundary; arrival never awards work in the same tick. */
-function travel<W extends ProductionWorld>(world: W, transaction: ProductionWork, target: GridPosition, budget: WorkPathBudget): W {
-  const worker = world.disciples.find((disciple) => disciple.id === transaction.workerId)!;
-  const effect = advanceWorkNavigationWithBudget({ map: world.map, position: worker.position, target,
-    navigation: transaction.navigation, simulationTick: world.clock.simulationTick }, budget);
-  if (effect.status === 'path-blocked') return block(world, { ...transaction, navigation: effect.navigation }, 'PATH_BLOCKED');
-  if (effect.status === 'path-budget-exhausted') {
-    return updateOrder(world, { ...(transaction.blockedReason === 'PATH_BLOCKED' ? transaction : running(transaction)), navigation: effect.navigation });
-  }
-  return updateOrder(world, { ...running(transaction),
-    phase: effect.status === 'arrived' ? transaction.phase === 'TravellingToWork' ? 'Working' : 'AwaitingDelivery' : transaction.phase,
-    navigation: effect.navigation }, effect.traveling, effect.position ?? undefined);
-}
-function candidates(world: ProductionWorld, blueprintId: string, position: GridPosition): WorldBuilding[] {
-  return world.buildings.filter((building) => building.blueprintId === blueprintId && building.operational).sort((left, right) => cardinalDistance(position, left) - cardinalDistance(position, right) || compareStable(left.id, right.id));
+/** Fixed legacy binding. v7/v8 keep their original catalog, point positions and
+ * authoritative settlement; none of these callbacks are save or command data. */
+function legacyProductionContext<W extends ProductionWorld>(): ProductionContext<W, ProductionWork> {
+  const site = (building: WorldBuilding): ProductionSite => ({ id: building.id,
+    position: { x: building.x, y: building.y }, ownerTransactionId: building.stationTransactionId });
+  return {
+    view: world => ({ simulationTick: world.clock.simulationTick, management: world.clock.mode === 'management',
+      paused: isPaused(world.clock), map: world.map, activeTransactionIds: world.activeProductionTransactionIds }),
+    job: (world, id) => liveProductionAt(world, id)!.transaction,
+    recipe: (_world, recipeId) => getRecipe(recipeId),
+    worker: (world, workerId) => world.disciples.find(disciple => disciple.id === workerId),
+    workSites: (world, recipe) => world.buildings.filter(building => building.blueprintId === recipe.workstation && building.operational).map(site),
+    storageSites: world => world.buildings.filter(building => building.blueprintId === 'storage' && building.operational).map(site),
+    writeProgress: updateOrder,
+    claimSite: (world, siteId, transactionId) => ({ ...world, buildings: world.buildings.map(building => building.id === siteId ? { ...building, stationTransactionId: transactionId } : building) }),
+    releaseSites: releaseStation,
+    blockedNotice: (world, transaction, reason) => isAutomaticTransaction(transaction)
+      ? recordAutomaticNotice(world, { cycle: transaction.origin.cycle, workerId: transaction.workerId, recipeId: transaction.recipeId, kind: 'blocked', reason })
+      : appendEvent(world, { kind: 'production.blocked', rootActionId: transaction.rootActionId, parentEventId: null, payload: { transactionId: transaction.transactionId, reason } }).world,
+    cancel: cancelProduction,
+    complete: completeProduction,
+  };
 }
 
 /** Serialized phases own reservations and seats. Ordinary transit cells can be shared; work seats cannot.
  * A versioned tick orchestrator may share one budget across modules; legacy callers retain four requests per tick. */
 export function tickProduction<W extends ProductionWorld>(world: W, sharedPathBudget?: WorkPathBudget): W {
-  if (world.clock.mode !== 'management' || isPaused(world.clock)) return world;
-  let next = world;
-  const budget = sharedPathBudget ?? createWorkPathBudget(world.clock.simulationTick);
-  if (budget.simulationTick !== world.clock.simulationTick) throw new RangeError('Path budget belongs to another tick');
-  const ids = [...world.activeProductionTransactionIds].sort((left, right) => liveProductionAt(world, left)!.transaction.startedTick - liveProductionAt(world, right)!.transaction.startedTick || compareStable(left, right));
-  for (const id of ids) {
-    let transaction = liveProductionAt(next, id)!.transaction;
-    if (transaction.state !== 'Running' && transaction.state !== 'Blocked') continue;
-    const worker = next.disciples.find((disciple) => disciple.id === transaction.workerId);
-    const recipe = getRecipe(transaction.recipeId);
-    if (!recipe) throw new Error('Production references a missing recipe');
-    if (!worker || worker.lifeState === 'dead') {
-      const cancelled = cancelProduction(next, id);
-      if (!cancelled.ok) throw new Error('Cannot release unavailable worker reservation');
-      next = cancelled.world;
-      continue;
-    }
-    if (worker.assignmentTransactionId !== id) throw new Error('Production worker assignment mismatch');
-    if (!worker.canWork) {
-      next = releaseStation(next, id);
-      transaction = { ...transaction, phase: transaction.activeTicks === transaction.requiredTicks ? 'TravellingToStorage' : 'WaitingForStation', worksiteId: null, navigation: emptyNavigation() };
-      next = block(next, transaction, 'WORKER_UNAVAILABLE');
-      continue;
-    }
-    if (transaction.activeTicks === transaction.requiredTicks && transaction.phase !== 'TravellingToStorage' && transaction.phase !== 'AwaitingDelivery') {
-      next = releaseStation(next, id);
-      transaction = { ...running(transaction), phase: 'TravellingToStorage', navigation: emptyNavigation() };
-    }
-    if (transaction.phase === 'WaitingForStation') {
-      const sites = candidates(next, recipe.workstation, worker.position);
-      const station = sites.find((building) => building.stationTransactionId === null || building.stationTransactionId === id);
-      if (!station) { next = block(next, transaction, sites.length ? 'WAITING_FOR_STATION' : 'WORKSTATION_UNAVAILABLE'); continue; }
-      next = { ...next, buildings: next.buildings.map((building) => building.id === station.id ? { ...building, stationTransactionId: id } : building) };
-      transaction = { ...running(transaction), phase: 'TravellingToWork', worksiteId: station.id, navigation: emptyNavigation() };
-    }
-    if (transaction.phase === 'TravellingToWork' || transaction.phase === 'Working') {
-      const station = next.buildings.find((building) => building.id === transaction.worksiteId && building.blueprintId === recipe.workstation && building.operational && building.stationTransactionId === id);
-      if (!station) {
-        next = releaseStation(next, id);
-        next = block(next, { ...transaction, phase: 'WaitingForStation', worksiteId: null, navigation: emptyNavigation() }, 'WORKSTATION_UNAVAILABLE');
-        continue;
-      }
-      if (transaction.phase === 'TravellingToWork' || !sameCell(worker.position, station) || !isWalkable(next.map, station)) {
-        next = travel(next, { ...transaction, phase: 'TravellingToWork' }, station, budget);
-        continue;
-      }
-      const activeTicks = Math.min(transaction.activeTicks + 1, transaction.requiredTicks);
-      transaction = { ...running(transaction), activeTicks };
-      if (activeTicks === transaction.requiredTicks) {
-        next = releaseStation(next, id);
-        transaction = { ...transaction, phase: 'TravellingToStorage', navigation: emptyNavigation() };
-      }
-      next = updateOrder(next, transaction);
-      continue;
-    }
-    if (transaction.phase === 'TravellingToStorage' || transaction.phase === 'AwaitingDelivery') {
-      const storage = next.buildings.find((building) => building.id === transaction.storageId && building.blueprintId === 'storage' && building.operational) ?? candidates(next, 'storage', worker.position)[0];
-      if (!storage) { next = block(next, { ...transaction, phase: 'TravellingToStorage', storageId: null, navigation: emptyNavigation() }, 'STORAGE_UNAVAILABLE'); continue; }
-      const changedStorage = transaction.storageId !== storage.id;
-      transaction = { ...transaction, storageId: storage.id, ...(changedStorage ? { phase: 'TravellingToStorage', navigation: emptyNavigation() } : {}) };
-      if (transaction.phase === 'TravellingToStorage' || !sameCell(worker.position, storage) || !isWalkable(next.map, storage)) {
-        next = travel(next, { ...transaction, phase: 'TravellingToStorage' }, storage, budget);
-        continue;
-      }
-      next = updateOrder(next, transaction);
-      const completion = completeProduction(next, id);
-      if (completion.ok) next = completion.world;
-      else if (completion.rejection.code === 'CAPACITY_EXCEEDED') next = block(next, transaction, 'CAPACITY_EXCEEDED');
-      else throw new Error(`Cannot commit production: ${completion.rejection.code}`);
-    }
-  }
-  return next;
+  return runProductionPhases(world, legacyProductionContext<W>(), sharedPathBudget);
 }
