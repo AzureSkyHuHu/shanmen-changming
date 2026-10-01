@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceTicks, allocateId, accumulateFrame, availableResource, CALENDAR_TICKS_PER_MONTH,
   canonicalStringify, cancelProduction, completeProduction, createFrameAccumulator, createRandomStreams,
-  createSaveEnvelope, createSequences, createWorld, dispatchCommand, domainHash, drawInteger,
-  MAX_DISCIPLES, multiplyDivideFloor, nextUint32, parseSave, RANDOM_ALGORITHM, serializeSave,
+  createSaveEnvelope, createSequences, createWorld, dispatchCommand, domainHash, drawInteger, enqueueCommands,
+  mapNonZeroWordToBucket, MAX_DISCIPLES, multiplyDivideFloor, nextUint32, parseSave, RANDOM_ALGORITHM,
+  RANDOM_WORD_DOMAIN_SIZE, serializeSave, SIMULATION_VERSION,
   setClockMode, setClockSpeed, setPauseReason, stableHash, STARTER_RECIPES, validateWorldState,
   type Command, type RandomStream, type WorldState,
 } from '../../src/core/kernel';
@@ -24,7 +25,7 @@ function withProduction(seed = 'test-world'): WorldState {
 }
 
 describe('deterministic primitives', () => {
-  it('locks xorshift32-v1 to its golden uint32 vector', () => {
+  it('locks the v2 nonzero generator to its golden uint32 recurrence vector', () => {
     let stream: RandomStream = { algorithm: RANDOM_ALGORITHM, state: 1, draws: 0 };
     const values: number[] = [];
     for (let index = 0; index < 5; index += 1) {
@@ -51,6 +52,41 @@ describe('deterministic primitives', () => {
     expect(stableHash({ b: 2, a: 1 })).toBe(stableHash({ a: 1, b: 2 }));
     expect(() => canonicalStringify({ value: Infinity })).toThrow();
     expect(() => canonicalStringify({ value: undefined })).toThrow();
+  });
+  it('maps every reduced-width nonzero domain to equal-sized buckets without modulo bias', () => {
+    for (const domainSize of [3, 7, 15, 31]) {
+      for (let span = 1; span <= domainSize; span += 1) {
+        const counts = Array.from({ length: span }, () => 0);
+        let rejected = 0;
+        for (let word = 1; word <= domainSize; word += 1) {
+          const bucket = mapNonZeroWordToBucket(word, span, domainSize);
+          if (bucket === null) rejected += 1;
+          else counts[bucket] = counts[bucket]! + 1;
+        }
+        expect(counts).toEqual(Array.from({ length: span }, () => Math.floor(domainSize / span)));
+        expect(rejected).toBe(domainSize % span);
+      }
+    }
+  });
+  it('reaches both supported range endpoints and rejects a 2^32-value range', () => {
+    // Reverse xorshift's three reversible xor/shift stages to obtain endpoint fixtures.
+    function stateBeforeWord(word: number): number {
+      let beforeLastShift = word;
+      for (let shift = 5; shift < 32; shift += 5) beforeLastShift ^= word << shift;
+      const beforeRightShift = beforeLastShift ^ (beforeLastShift >>> 17);
+      return (beforeRightShift ^ (beforeRightShift << 13) ^ (beforeRightShift << 26)) >>> 0;
+    }
+    const streams = createRandomStreams('domain-endpoints');
+    const low = { ...streams, economy: { ...streams.economy, state: stateBeforeWord(1) } };
+    const high = { ...streams, economy: { ...streams.economy, state: stateBeforeWord(0xffffffff) } };
+    expect(nextUint32(low.economy).value).toBe(1);
+    expect(nextUint32(high.economy).value).toBe(0xffffffff);
+    expect(drawInteger(low, 'economy', 0, RANDOM_WORD_DOMAIN_SIZE - 1).value).toBe(0);
+    expect(drawInteger(high, 'economy', 0, RANDOM_WORD_DOMAIN_SIZE - 1).value).toBe(RANDOM_WORD_DOMAIN_SIZE - 1);
+    expect(() => drawInteger(streams, 'economy', 0, 0xffffffff)).toThrow(RangeError);
+    expect(() => mapNonZeroWordToBucket(0, 2)).toThrow(RangeError);
+    expect(() => mapNonZeroWordToBucket(1, 0x100000000)).toThrow(RangeError);
+    expect(streams.economy.draws).toBe(0);
   });
 });
 
@@ -140,6 +176,35 @@ describe('command idempotency and atomic resource accounting', () => {
     expect(first.world.events).toHaveLength(1);
     expect(original.inventory.wood.reserved).toBe(0);
   });
+  it('detaches returned accepted results and duplicate responses from stored receipts', () => {
+    const original = createWorld('receipt-alias');
+    const command = start(original);
+    const first = dispatchCommand(original, command);
+    const stored = JSON.parse(JSON.stringify(first.world.commandReceipts[command.commandId]!.result));
+    first.result.eventIds.push('event:999999');
+    first.result.transactionId = 'instance:999999';
+    expect(first.world.commandReceipts[command.commandId]!.result).toEqual(stored);
+    const retry = dispatchCommand(first.world, command);
+    expect(retry.result).toEqual(stored);
+    retry.result.eventIds.length = 0;
+    retry.result.status = 'rejected';
+    expect(dispatchCommand(retry.world, command).result).toEqual(stored);
+    expect(roundtrip(retry.world)).toEqual(first.world);
+  });
+  it('detaches nested rejection results from stored receipts on initial and duplicate replies', () => {
+    const world = createWorld('rejection-alias');
+    const command = start(world, 'bad-worker', 'craft.plank', 0);
+    const first = dispatchCommand(world, command);
+    expect(first.result.rejection?.code).toBe('WORKER_UNAVAILABLE');
+    first.result.rejection!.code = 'COMMAND_CONFLICT';
+    first.result.eventIds.push('event:123');
+    const retry = dispatchCommand(first.world, command);
+    expect(retry.result.rejection?.code).toBe('WORKER_UNAVAILABLE');
+    expect(retry.result.eventIds).toEqual([]);
+    retry.result.rejection!.code = 'INVALID_COMMAND';
+    expect(dispatchCommand(retry.world, command).result.rejection?.code).toBe('WORKER_UNAVAILABLE');
+    expect(roundtrip(retry.world)).toEqual(first.world);
+  });
   it('rejects the same ID with different payload, including after save/reload', () => {
     const original = createWorld('conflict');
     const first = dispatchCommand(original, start(original));
@@ -219,6 +284,25 @@ describe('command idempotency and atomic resource accounting', () => {
     expect(partial.events).toHaveLength(0);
     expect(advanceTicks(roundtrip(partial), 3)).toEqual(advanceTicks(initial, 6, [future]));
   });
+  it('takes a detached immutable snapshot of caller-owned queued commands and payloads', () => {
+    const initial = createWorld('caller-mutation');
+    const future = start(initial, 'queued.original');
+    if (future.kind !== 'production.start') throw new Error('Expected a production start');
+    future.issuedTick = 5;
+    const expected = JSON.parse(JSON.stringify(future)) as Command;
+    const queued = enqueueCommands(initial, [future]);
+    expect(queued.pendingCommands[0]).not.toBe(future);
+    expect(queued.pendingCommands[0]!.payload).not.toBe(future.payload);
+    expect(Object.isFrozen(queued.pendingCommands[0])).toBe(true);
+    expect(Object.isFrozen(queued.pendingCommands[0]!.payload)).toBe(true);
+    future.commandId = 'queued.changed';
+    future.issuedTick = 0;
+    future.sequence = 999;
+    future.payload.recipeId = 'gather.herbs';
+    future.payload.workerId = initial.disciples[2]!.id;
+    expect(queued.pendingCommands).toEqual([expected]);
+    expect(advanceTicks(queued, 6)).toEqual(advanceTicks(initial, 6, [expected]));
+  });
 });
 
 describe('pure save envelopes', () => {
@@ -246,10 +330,135 @@ describe('pure save envelopes', () => {
     expect(parseSave(JSON.stringify({ ...envelope, saveVersion: 999 }))).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
     expect(parseSave('{bad')).toMatchObject({ ok: false, error: { code: 'INVALID_JSON' } });
   });
+  it('explicitly rejects the prior integer-mapping simulation version without rewriting its bytes', () => {
+    const current = createSaveEnvelope(createWorld('prior-rng-version'), metadata);
+    expect(SIMULATION_VERSION).toBe('0.1.1');
+    expect(RANDOM_ALGORITHM).toBe('xorshift32-nonzero-v2');
+    const { checksum: _checksum, ...currentBody } = current;
+    const previousBody = {
+      ...currentBody, simulationVersion: '0.1.0', payload: {
+        ...current.payload, simulationVersion: '0.1.0',
+        randomStreams: Object.fromEntries(Object.entries(current.payload.randomStreams).map(([name, stream]) => [name, { ...stream, algorithm: 'xorshift32-v1' }])),
+      },
+    };
+    const previousBytes = JSON.stringify({ ...previousBody, checksum: stableHash(previousBody) });
+    const preservedBytes = previousBytes;
+    expect(parseSave(previousBytes)).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SIMULATION_VERSION' } });
+    expect(previousBytes).toBe(preservedBytes);
+    expect(parseSave(serializeSave(current)).ok).toBe(true);
+    const incompatibleBody = { ...previousBody, simulationVersion: SIMULATION_VERSION, payload: { ...previousBody.payload, simulationVersion: SIMULATION_VERSION } };
+    expect(parseSave(JSON.stringify({ ...incompatibleBody, checksum: stableHash(incompatibleBody) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+  });
+  it.each(['missing', 'wrong-fingerprint', 'wrong-transaction'] as const)('rejects completed imports with a %s originating receipt', (problem) => {
+    const initial = withProduction(`receipt-${problem}`);
+    const transaction = Object.values(initial.transactions)[0]!;
+    const complete = advanceTicks(initial, transaction.requiredTicks);
+    const envelope = createSaveEnvelope(complete, metadata);
+    if (problem === 'missing') envelope.payload.commandReceipts = {};
+    else if (problem === 'wrong-fingerprint') envelope.payload.commandReceipts[transaction.commandId]!.fingerprint = canonicalStringify({ kind: 'production.start', payload: { recipeId: 'gather.herbs', workerId: transaction.workerId } });
+    else envelope.payload.commandReceipts[transaction.commandId]!.result.transactionId = 'instance:9999';
+    const { checksum: _checksum, ...body } = envelope;
+    expect(validateWorldState(envelope.payload)).toContain('Transaction is missing its matching originating command receipt');
+    expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+  });
+  it('rejects two transactions claiming the same originating command ID', () => {
+    const world = createWorld('duplicate-command-ownership');
+    const first = dispatchCommand(world, start(world, 'origin.first', 'craft.plank', 1));
+    const second = dispatchCommand(first.world, start(first.world, 'origin.second', 'craft.plank', 2));
+    const envelope = createSaveEnvelope(advanceTicks(second.world, 160), metadata);
+    envelope.payload.transactions[second.result.transactionId!]!.commandId = 'origin.first';
+    const { checksum: _checksum, ...body } = envelope;
+    expect(validateWorldState(envelope.payload)).toContain('Duplicate transaction originating command ID');
+    expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+  });
   it('rejects forged inconsistent reservations even with a recomputed checksum', () => {
     const envelope = createSaveEnvelope(withProduction('forged'), metadata);
     envelope.payload.inventory.wood.reserved = 0;
     const { checksum: _checksum, ...body } = envelope;
     expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+  });
+  it('rejects duplicate reservations whose claimed transaction does not point back', () => {
+    const envelope = createSaveEnvelope(withProduction('duplicate-reservation'), metadata);
+    const transaction = Object.values(envelope.payload.transactions)[0]!;
+    const original = envelope.payload.reservations[transaction.reservationId]!;
+    const duplicateId = allocateId(envelope.payload.sequences, 'instance');
+    envelope.payload.sequences = duplicateId.sequences;
+    envelope.payload.reservations[duplicateId.id] = { ...original, reservationId: duplicateId.id };
+    envelope.payload.inventory.wood.reserved += 3;
+    const { checksum: _checksum, ...body } = envelope;
+    expect(validateWorldState(envelope.payload)).toContain('Reservation ownership is not bidirectional');
+    expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+    const cancelled = cancelProduction(envelope.payload, transaction.transactionId);
+    expect(cancelled.ok).toBe(true);
+    if (!cancelled.ok) return;
+    // Even an invalid state passed directly to a reducer cannot then masquerade as a valid save.
+    expect(validateWorldState(cancelled.world)).toContain('Reservation ownership is not bidirectional');
+    expect(() => createSaveEnvelope(cancelled.world, metadata)).toThrow();
+  });
+  it.each(['Committed', 'Cancelled'] as const)('rejects a %s transaction with an active reservation', (terminalState) => {
+    const initial = withProduction(`terminal-${terminalState}`);
+    const transaction = Object.values(initial.transactions)[0]!;
+    let terminal: WorldState;
+    if (terminalState === 'Committed') terminal = advanceTicks(initial, transaction.requiredTicks);
+    else {
+      const cancelled = cancelProduction(initial, transaction.transactionId);
+      if (!cancelled.ok) throw new Error('Cancellation failed');
+      terminal = cancelled.world;
+    }
+    const envelope = createSaveEnvelope(terminal, metadata);
+    envelope.payload.reservations[transaction.reservationId]!.state = 'reserved';
+    envelope.payload.inventory.wood.reserved += 3;
+    const { checksum: _checksum, ...body } = envelope;
+    expect(validateWorldState(envelope.payload)).not.toEqual([]);
+    expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+  });
+  it.each(['future-birth', 'inconsistent-age'] as const)('rejects a checksummed import with %s', (problem) => {
+    const envelope = createSaveEnvelope(createWorld('bad-birth'), metadata);
+    const disciple = envelope.payload.disciples[0]!;
+    if (problem === 'future-birth') disciple.birthCalendarTick = envelope.payload.clock.calendarTick + 1;
+    else disciple.ageMonths += 1;
+    const { checksum: _checksum, ...body } = envelope;
+    expect(validateWorldState(envelope.payload)).not.toEqual([]);
+    expect(parseSave(JSON.stringify({ ...body, checksum: stableHash(body) }))).toMatchObject({ ok: false, error: { code: 'INVALID_WORLD' } });
+  });
+  it('keeps normal ages consistent through a calendar-month boundary and roundtrip', () => {
+    const initial = createWorld('normal-age');
+    const before = advanceTicks(initial, CALENDAR_TICKS_PER_MONTH - 1);
+    expect(before.disciples.map((disciple) => disciple.ageMonths)).toEqual(initial.disciples.map((disciple) => disciple.ageMonths));
+    expect(validateWorldState(before)).toEqual([]);
+    const after = advanceTicks(roundtrip(before), 1);
+    expect(after.disciples.map((disciple) => disciple.ageMonths)).toEqual(initial.disciples.map((disciple) => disciple.ageMonths + 1));
+    expect(roundtrip(after)).toEqual(after);
+  });
+  it('updates an imported off-boundary birthday on its exact calendar tick', () => {
+    const initial = createWorld('off-boundary-birth');
+    const disciple = initial.disciples[0]!;
+    disciple.birthCalendarTick += 17;
+    disciple.ageMonths -= 1;
+    const before = advanceTicks(roundtrip(initial), 16);
+    expect(before.disciples[0]!.ageMonths).toBe(disciple.ageMonths);
+    expect(validateWorldState(before)).toEqual([]);
+    const birthday = advanceTicks(before, 1);
+    expect(birthday.disciples[0]!.ageMonths).toBe(disciple.ageMonths + 1);
+    expect(roundtrip(birthday)).toEqual(birthday);
+  });
+  it.each(['alive', 'dead'] as const)('rolls back lifetime overflow for an %s disciple to a valid exportable boundary', (lifeState) => {
+    const initial = createWorld(`lifetime-overflow-${lifeState}`);
+    const disciple = initial.disciples[0]!;
+    disciple.birthCalendarTick = -Number.MAX_SAFE_INTEGER;
+    disciple.lifeState = lifeState;
+    disciple.ageMonths = lifeState === 'alive' ? Math.floor(Number.MAX_SAFE_INTEGER / CALENDAR_TICKS_PER_MONTH) : 0;
+    expect(validateWorldState(initial)).toEqual([]);
+    const restored = roundtrip(initial);
+    const stopped = advanceTicks(restored, 1);
+    expect(stopped.clock.simulationTick).toBe(0);
+    expect(stopped.clock.calendarTick).toBe(0);
+    expect(stopped.clock.pauseReasons).toContain('error');
+    expect(stopped.diagnostics).toEqual([{ code: 'INVARIANT_FAILURE', tick: 0, message: 'Safe integer overflow' }]);
+    expect(stopped.disciples).toEqual(initial.disciples);
+    expect(stopped.inventory).toEqual(initial.inventory);
+    expect(stopped.sequences).toEqual(initial.sequences);
+    expect(stopped.randomStreams).toEqual(initial.randomStreams);
+    expect(roundtrip(stopped)).toEqual(stopped);
   });
 });

@@ -4,7 +4,8 @@ import { allocateId, createSequences } from '../kernel/ids';
 import { createRandomStreams, drawInteger } from '../kernel/random';
 import type { Disciple, WorldBuilding, WorldState, WorldTile } from './types';
 
-export const SIMULATION_VERSION = '0.1.0';
+/** 0.1.1 corrects RNG integer mapping. 0.1.0 saves must not be replayed with this version. */
+export const SIMULATION_VERSION = '0.1.1';
 export const CONTENT_VERSION = 'starter-0.1.0';
 
 /** Seeded starter fixture. The central road and all four resource stations are guaranteed reachable. */

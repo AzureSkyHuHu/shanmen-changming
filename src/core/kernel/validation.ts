@@ -2,7 +2,7 @@ import { RESOURCE_IDS, type ResourceLine } from '../economy/types';
 import { getRecipe } from '../economy/recipes';
 import { CONTENT_VERSION, SIMULATION_VERSION } from '../world/create-world';
 import { MAX_DISCIPLES, type WorldState } from '../world/types';
-import { PAUSE_REASONS } from './clock';
+import { CALENDAR_TICKS_PER_MONTH, PAUSE_REASONS } from './clock';
 import { isCommand } from './commands';
 import { isNonNegativeInteger } from './numeric';
 import { RANDOM_ALGORITHM, RANDOM_STREAM_NAMES } from './random';
@@ -45,6 +45,11 @@ export function validateWorldState(value: unknown): string[] {
   const entityIds: string[] = [];
   for (const disciple of value.disciples) {
     if (!object(disciple) || idNumber(disciple.id, 'entity') === null || !text(disciple.nameKey) || !isNonNegativeInteger(disciple.ageMonths) || !finiteInteger(disciple.birthCalendarTick) || !inMap(disciple.position) || !['alive', 'dead'].includes(disciple.lifeState as string) || typeof disciple.canWork !== 'boolean' || typeof disciple.traveling !== 'boolean' || !isNonNegativeInteger(disciple.aptitude) || disciple.aptitude > 100 || !(disciple.assignmentTransactionId === null || text(disciple.assignmentTransactionId))) return fail('Invalid disciple');
+    const lifetimeTicks = clock.calendarTick - disciple.birthCalendarTick;
+    if (!isNonNegativeInteger(lifetimeTicks)) return fail('Invalid disciple birth calendar tick');
+    const chronologicalAgeMonths = Math.floor(lifetimeTicks / CALENDAR_TICKS_PER_MONTH);
+    // Living ages must match their birth timestamp. Dead disciples retain age at death.
+    if (disciple.lifeState === 'alive' ? disciple.ageMonths !== chronologicalAgeMonths : disciple.ageMonths > chronologicalAgeMonths) return fail('Disciple age does not match birth calendar tick');
     entityIds.push(disciple.id as string);
   }
   for (const building of value.buildings) {
@@ -60,6 +65,7 @@ export function validateWorldState(value: unknown): string[] {
   if (!object(value.reservations) || !object(value.transactions) || !object(value.commandReceipts) || !list(value.pendingCommands) || !value.pendingCommands.every(isCommand)) return fail('Invalid ledgers or command queue');
   const reservedTotals = Object.fromEntries(RESOURCE_IDS.map((id) => [id, 0])) as Record<string, number>;
   const instanceIds: string[] = [];
+  const originatingCommandIds = new Set<string>();
   for (const [key, reservation] of Object.entries(value.reservations)) {
     if (!object(reservation) || reservation.reservationId !== key || idNumber(key, 'instance') === null || !text(reservation.ownerTransactionId) || !['reserved', 'committed', 'released'].includes(reservation.state as string) || !linesValid(reservation.lines)) return fail('Invalid reservation');
     instanceIds.push(key);
@@ -80,9 +86,20 @@ export function validateWorldState(value: unknown): string[] {
     if ((transaction.state === 'Blocked') !== (transaction.blockedReason === 'CAPACITY_EXCEEDED')) return fail('Invalid blocked reason');
     const recipe = getRecipe(transaction.recipeId)!;
     if (canonicalStringify(reservation.lines) !== canonicalStringify(recipe.inputs)) return fail('Reservation does not match locked recipe inputs');
+    if (originatingCommandIds.has(transaction.commandId)) return fail('Duplicate transaction originating command ID');
+    originatingCommandIds.add(transaction.commandId);
+    const receipt = Object.hasOwn(value.commandReceipts, transaction.commandId) ? value.commandReceipts[transaction.commandId] : undefined;
+    const expectedFingerprint = canonicalStringify({ kind: 'production.start', payload: { recipeId: transaction.recipeId, workerId: transaction.workerId } });
+    if (!object(receipt) || receipt.commandId !== transaction.commandId || receipt.fingerprint !== expectedFingerprint || !object(receipt.result) || receipt.result.commandId !== transaction.commandId || receipt.result.status !== 'accepted' || receipt.result.transactionId !== key || receipt.result.rejection !== null) return fail('Transaction is missing its matching originating command receipt');
   }
   if (!unique(instanceIds) || instanceIds.some((id) => idNumber(id, 'instance')! >= (sequences.nextInstance as number))) return fail('Invalid instance sequence continuity');
-  for (const reservation of Object.values(value.reservations)) if (object(reservation) && !Object.hasOwn(value.transactions, reservation.ownerTransactionId as string)) return fail('Orphaned reservation');
+  for (const [reservationId, reservation] of Object.entries(value.reservations)) {
+    if (!object(reservation) || typeof reservation.ownerTransactionId !== 'string' || !Object.hasOwn(value.transactions, reservation.ownerTransactionId)) return fail('Orphaned reservation');
+    const owner = value.transactions[reservation.ownerTransactionId];
+    if (!object(owner) || owner.reservationId !== reservationId) return fail('Reservation ownership is not bidirectional');
+    const expectedState = owner.state === 'Committed' ? 'committed' : owner.state === 'Cancelled' ? 'released' : 'reserved';
+    if (reservation.state !== expectedState) return fail('Reservation state does not match its owning transaction');
+  }
   for (const disciple of value.disciples) {
     if (object(disciple) && disciple.assignmentTransactionId !== null) {
       const transaction = value.transactions[disciple.assignmentTransactionId as string];

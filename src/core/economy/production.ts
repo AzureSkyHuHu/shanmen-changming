@@ -75,7 +75,7 @@ export function completeProduction(world: WorldState, transactionId: string): Pr
   return endProduction({ ...world, inventory: committed.inventory, reservations: { ...world.reservations, [reservation.reservationId]: committed.reservation } }, transaction, 'Committed', 'production.committed');
 }
 
-/** Stable transaction order is part of simulation v0.1.0, including capacity races. */
+/** Stable transaction order is versioned with the simulation, including capacity races. */
 export function tickProduction(world: WorldState): WorldState {
   if (world.clock.mode !== 'management') return world;
   let next = world;

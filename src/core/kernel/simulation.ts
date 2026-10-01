@@ -3,7 +3,7 @@ import type { WorldState } from '../world/types';
 import { CALENDAR_TICKS_PER_MONTH, isPaused, setPauseReason, tickClock } from './clock';
 import { compareCommands, dispatchCommand, enqueueCommands } from './commands';
 import type { Command } from './contracts';
-import { assertNonNegativeInteger } from './numeric';
+import { assertNonNegativeInteger, checkedAdd } from './numeric';
 import { stableHash } from './serialization';
 
 /** Integer ticks only. Speed is converted by the frame adapter, never inside simulation. */
@@ -20,10 +20,15 @@ export function advanceTicks(world: WorldState, steps: number, commands: readonl
       // No expiring effects in this starter slice. Reserve the scheduler position for them.
       next = { ...next, clock: tickClock(next.clock) };
       next = tickProduction(next);
-      if (next.clock.mode === 'management' && next.clock.calendarTick % CALENDAR_TICKS_PER_MONTH === 0) {
+      if (next.clock.mode === 'management') {
         next = { ...next, disciples: next.disciples.map((disciple) => {
+          // Validate lifetime arithmetic for every entity before committing the tick,
+          // including dead disciples whose displayed age no longer advances.
+          const lifetimeTicks = checkedAdd(next.clock.calendarTick, -disciple.birthCalendarTick);
+          assertNonNegativeInteger(lifetimeTicks, 'disciple lifetime ticks');
           if (disciple.lifeState !== 'alive') return disciple;
-          const ageMonths = Math.floor((next.clock.calendarTick - disciple.birthCalendarTick) / CALENDAR_TICKS_PER_MONTH);
+          const ageMonths = Math.floor(lifetimeTicks / CALENDAR_TICKS_PER_MONTH);
+          if (ageMonths === disciple.ageMonths) return disciple;
           return { ...disciple, ageMonths, canWork: ageMonths >= 16 * 12 };
         }) };
       }
