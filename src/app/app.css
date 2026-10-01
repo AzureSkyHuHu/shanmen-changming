@@ -1,0 +1,71 @@
+:root {
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  color: #ede6d3;
+  background: #102526;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --paper: #ede6d3;
+  --muted: #b7c5b6;
+  --jade-dark: #142d2c;
+  --gold: #d3b880;
+  --border: #80948445;
+}
+
+* { box-sizing: border-box; }
+body { min-width: 320px; margin: 0; }
+button, select { font: inherit; }
+button:focus-visible, select:focus-visible { outline: 2px solid #f2d593; outline-offset: 5px; }
+::selection { color: #102526; background: #e3c98f; }
+
+.game-shell {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: clamp(18px, 3vw, 48px);
+}
+
+.shell-header { display: flex; justify-content: space-between; align-items: center; gap: 28px; margin-bottom: 28px; }
+.brand { display: flex; align-items: center; gap: 18px; }
+.brand-seal { flex: 0 0 auto; width: 34px; height: 42px; }
+.brand-seal rect { fill: #956445; }
+.brand-seal path { fill: none; stroke: #e9d4ad; stroke-width: 2; }
+h1, h2, p { margin: 0; }
+h1, h2, .scene-caption { font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif; }
+h1 { font-size: clamp(24px, 2.3vw, 34px); font-weight: 500; letter-spacing: 0.16em; line-height: 1.4; }
+.brand-subtitle { color: var(--muted); font-size: 12px; line-height: 1.7; letter-spacing: 0.1em; margin-top: 3px; }
+.language-control { display: flex; align-items: center; gap: 13px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
+.language-control select { border: 1px solid var(--border); border-radius: 3px; background: var(--jade-dark); padding: 9px 12px; color: var(--paper); min-height: 40px; cursor: pointer; }
+
+.scene-frame { position: relative; min-height: 390px; height: min(53vw, 610px); overflow: hidden; border: 1px solid #81908367; isolation: isolate; }
+.scene-frame::after { content: ""; position: absolute; inset: 8px; border: 1px solid #c7be9347; z-index: 1; pointer-events: none; }
+.mountain-scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scene-vignette { position: absolute; inset: 0; background: linear-gradient(90deg, #071b2266, transparent 40%), linear-gradient(0deg, #102626cf, transparent 50%); pointer-events: none; }
+.scene-caption { position: absolute; top: 12%; left: 5%; display: flex; align-items: center; gap: 20px; font-size: clamp(19px, 2.2vw, 31px); line-height: 1.6; letter-spacing: 0.2em; text-shadow: 0 2px 10px #142c2c; max-width: 76%; }
+.fine-rule { width: 28px; height: 1px; background: var(--gold); flex-shrink: 0; }
+.preview-note { position: absolute; left: 5%; right: 5%; bottom: 9%; max-width: 510px; }
+.preview-tag { color: #e9d2a1; font-size: 11px; letter-spacing: 0.16em; border: 1px solid #c7b17870; border-radius: 2px; padding: 5px 9px; background: #152e2ecc; display: inline-block; }
+.preview-note p { font-size: 13px; color: #e0e5d7; line-height: 1.8; margin-top: 12px; }
+
+.development-note { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 48px; padding: 30px 3px 10px; }
+.phase-label { font-size: 11px; letter-spacing: 0.16em; color: var(--gold); margin-bottom: 10px; line-height: 1.6; }
+h2 { font-size: 23px; font-weight: 500; letter-spacing: 0.05em; margin-bottom: 10px; }
+.development-heading > p:last-child { font-size: 13px; color: var(--muted); max-width: 550px; line-height: 1.9; }
+.development-status { border-left: 1px solid var(--border); padding-left: 30px; align-self: center; }
+.status-line { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #dbdfce; line-height: 1.9; }
+.status-mark { width: 6px; height: 6px; border: 1px solid var(--gold); transform: rotate(45deg); flex-shrink: 0; margin-top: 9px; }
+.status-hint { margin-top: 11px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+
+@media (min-width: 1600px) { .game-shell { padding-top: 48px; } }
+@media (max-width: 700px) {
+  .shell-header { align-items: flex-start; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+  .brand { gap: 12px; }
+  .brand-subtitle { font-size: 11px; letter-spacing: 0.025em; }
+  .language-control { margin-left: auto; }
+  .scene-frame { min-height: 390px; }
+  .scene-caption { font-size: 21px; letter-spacing: 0.1em; gap: 12px; left: 7%; }
+  .fine-rule { width: 16px; }
+  .preview-note { left: 7%; right: 7%; bottom: 8%; }
+  .development-note { grid-template-columns: 1fr; gap: 24px; padding-top: 26px; }
+  .development-status { border-left: 0; border-top: 1px solid var(--border); padding: 22px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }

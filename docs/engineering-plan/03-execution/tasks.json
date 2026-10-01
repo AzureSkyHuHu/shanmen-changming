@@ -1,0 +1,2408 @@
+[
+  {
+    "id": "TASK-001",
+    "title": "冻结范围与待定决策",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M0",
+    "requirements": [
+      "REQ-001",
+      "REQ-015",
+      "REQ-029",
+      "REQ-030"
+    ],
+    "dependencies": [],
+    "design": [
+      "00-overview/baseline.md#开工前批准项",
+      "decisions/ADR-001-run-boundary.md#决定建议"
+    ],
+    "owner_role": "产品/技术负责人",
+    "assignee": "unassigned",
+    "modules": [
+      "docs/adr/",
+      "docs/design/"
+    ],
+    "inputs": [
+      "冻结设计源与需求目录",
+      "用户已确认边界"
+    ],
+    "outputs": [
+      "范围批准记录",
+      "run边界决策与变更影响表"
+    ],
+    "steps": [
+      "逐项区分已确认/建议/待测试",
+      "确认整趟远征为run或记录修改需求",
+      "确认开发环境与实现授权后才开放实施任务"
+    ],
+    "acceptance_tests": [
+      "需求不得把30开发小时写成游玩时长",
+      "未确认run保持proposed",
+      "没有实现授权不得将任何实现任务改为in_progress"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-002",
+    "title": "建立可复现工程基线",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M0",
+    "requirements": [
+      "REQ-024",
+      "REQ-027",
+      "REQ-030"
+    ],
+    "dependencies": [
+      "TASK-001"
+    ],
+    "design": [
+      "00-overview/architecture.md",
+      "02-detailed-design/13-assets-performance.md#release"
+    ],
+    "owner_role": "工程基础",
+    "assignee": "unassigned",
+    "modules": [
+      "package.json",
+      "lockfile",
+      "tsconfig.json",
+      "vite.config.ts",
+      "docs/adr/"
+    ],
+    "inputs": [
+      "范围批准",
+      "官方框架文档和目标浏览器"
+    ],
+    "outputs": [
+      "精确工具链锁定",
+      "干净构建和检查脚本",
+      "依赖许可初表"
+    ],
+    "steps": [
+      "复核Phaser/React/Vite兼容与官方模板统计脚本",
+      "建立单仓纯core导入限制与基础测试入口",
+      "记录可重复安装及nolog构建流程"
+    ],
+    "acceptance_tests": [
+      "干净环境安装/typecheck/build可重复",
+      "core反向导入框架时CI失败",
+      "当前阶段只登记计划不安装依赖"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-003",
+    "title": "建立内容模式与校验器",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-013",
+      "REQ-014",
+      "REQ-016",
+      "REQ-018",
+      "REQ-031"
+    ],
+    "dependencies": [
+      "TASK-002"
+    ],
+    "design": [
+      "02-detailed-design/09-content-authoring.md#schema",
+      "02-detailed-design/09-content-authoring.md#pipeline"
+    ],
+    "owner_role": "内容工程",
+    "assignee": "unassigned",
+    "modules": [
+      "src/content/schemas/",
+      "tools/validate-content/",
+      "tests/unit/content/"
+    ],
+    "inputs": [
+      "统一定义约定",
+      "冻结目录数量"
+    ],
+    "outputs": [
+      "运行时schema",
+      "重复ID和引用/图校验报告"
+    ],
+    "steps": [
+      "列出所有定义联合类型和单位",
+      "实现静态图/范围/未知操作检查",
+      "设计非法数据夹具与错误定位"
+    ],
+    "acceptance_tests": [
+      "重复ID/悬空引用/树循环均拒绝",
+      "未知effect操作阻断构建",
+      "48机缘两轴分别总计48",
+      "全部玩家文本有中文键且英文参数对应"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-004",
+    "title": "实现确定性ID随机与数值",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-005",
+      "REQ-020"
+    ],
+    "dependencies": [
+      "TASK-002"
+    ],
+    "design": [
+      "02-detailed-design/01-kernel-contracts.md#data"
+    ],
+    "owner_role": "模拟核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/kernel/",
+      "tests/replay/kernel/"
+    ],
+    "inputs": [
+      "数值单位与精度决策",
+      "稳定ID契约"
+    ],
+    "outputs": [
+      "ID序列器",
+      "多随机流",
+      "统一数值工具与黄金向量"
+    ],
+    "steps": [
+      "选定并记录PRNG算法版本",
+      "分离generation/combat/offers等随机流",
+      "固定取整与序列化规则"
+    ],
+    "acceptance_tests": [
+      "同种子向量完全相同",
+      "消费表现查询不动核心流",
+      "存读后下一个ID和随机值连续"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-005",
+    "title": "实现三种时钟与调度",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-004",
+      "REQ-005"
+    ],
+    "dependencies": [
+      "TASK-004"
+    ],
+    "design": [
+      "02-detailed-design/01-kernel-contracts.md#advance"
+    ],
+    "owner_role": "模拟核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/simulation/",
+      "src/core/world/calendar.ts",
+      "tests/replay/time/"
+    ],
+    "inputs": [
+      "固定tick与历法映射",
+      "暂停原因集合"
+    ],
+    "outputs": [
+      "调度表",
+      "安全推进API",
+      "暂停/加速合同"
+    ],
+    "steps": [
+      "定义系统次序与低频tick周期",
+      "实现多原因暂停和整数步推进",
+      "为战略月份暴露逐检查点推进端口"
+    ],
+    "acceptance_tests": [
+      "逐步/3倍/低帧到同tick同hash",
+      "取消一个暂停原因不清其余原因",
+      "战斗秒数不增长经营年龄"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-006",
+    "title": "实现指令事务事件入口",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-005",
+      "REQ-007",
+      "REQ-019"
+    ],
+    "dependencies": [
+      "TASK-004",
+      "TASK-005"
+    ],
+    "design": [
+      "02-detailed-design/01-kernel-contracts.md#idempotency"
+    ],
+    "owner_role": "模拟核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/kernel/commands/",
+      "src/core/kernel/events/",
+      "src/application/command-dispatcher.ts",
+      "tests/unit/commands/"
+    ],
+    "inputs": [
+      "指令/事件合同",
+      "ID与时钟"
+    ],
+    "outputs": [
+      "有序dispatcher",
+      "事务结果与去重账本",
+      "不可变事件包"
+    ],
+    "steps": [
+      "区分接受/拒绝/提交反馈",
+      "执行同ID同payload幂等与异payload拒绝",
+      "事件序号/根因关联在提交时生成"
+    ],
+    "acceptance_tests": [
+      "双击只扣一次",
+      "非法命令不消耗随机流",
+      "同ID异payload不能复用旧成功"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-007",
+    "title": "构造可解的开局世界",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-001",
+      "REQ-003",
+      "REQ-007"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-004",
+      "TASK-006"
+    ],
+    "design": [
+      "02-detailed-design/02-world-economy.md#data"
+    ],
+    "owner_role": "世界模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/world/",
+      "src/content/maps/",
+      "tests/fixtures/scenarios/"
+    ],
+    "inputs": [
+      "开局4人混合年龄规则",
+      "地图基础资源和道路约束"
+    ],
+    "outputs": [
+      "种子开局生成器",
+      "4人/6人/36人夹具"
+    ],
+    "steps": [
+      "生成地块灵脉资源与稳定人物ID",
+      "约束至少两人能承担生计",
+      "验证关键资源及突破路线可达"
+    ],
+    "acceptance_tests": [
+      "同seed生成同世界",
+      "4人开局可达食物与住处",
+      "硬上限36不能越界招募"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-008",
+    "title": "实现库存与原子生产事务",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-007",
+      "REQ-008"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-006",
+      "TASK-007"
+    ],
+    "design": [
+      "02-detailed-design/02-world-economy.md#transaction"
+    ],
+    "owner_role": "经济模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/economy/inventory/",
+      "src/core/economy/transactions/",
+      "tests/property/economy/"
+    ],
+    "inputs": [
+      "库存/预留/在途定义",
+      "配方schema"
+    ],
+    "outputs": [
+      "资源账本",
+      "预约提交取消接口",
+      "流水解释查询"
+    ],
+    "steps": [
+      "定义库存和预留不变量",
+      "统一生产/交易/拆除事务提交",
+      "故障注入每个提交阶段"
+    ],
+    "acceptance_tests": [
+      "两订单抢同材料不负库存",
+      "完成重试不双产出",
+      "取消只退未耗且不复制产物"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-009",
+    "title": "实现早期完整快照保存",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-025",
+      "REQ-005"
+    ],
+    "dependencies": [
+      "TASK-006",
+      "TASK-008"
+    ],
+    "design": [
+      "02-detailed-design/10-save-and-recovery.md#envelope",
+      "02-detailed-design/10-save-and-recovery.md#write"
+    ],
+    "owner_role": "平台持久化",
+    "assignee": "unassigned",
+    "modules": [
+      "src/application/save-coordinator.ts",
+      "src/platform/persistence/",
+      "tests/integration/saves/"
+    ],
+    "inputs": [
+      "世界和事务可序列化状态",
+      "版本字段"
+    ],
+    "outputs": [
+      "SaveEnvelope",
+      "IndexedDB端口",
+      "写新再切指针协议"
+    ],
+    "steps": [
+      "定义最小完整快照与checksum",
+      "仅在完整tick/事务边界取快照",
+      "写新记录验证成功后更新current"
+    ],
+    "acceptance_tests": [
+      "roundtrip领域hash不变",
+      "写新后断电仍可读上一成功档",
+      "保存失败UI不能收到成功事件"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-010",
+    "title": "实现迁移导入与坏档保护",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M1",
+    "requirements": [
+      "REQ-025",
+      "REQ-026"
+    ],
+    "dependencies": [
+      "TASK-009"
+    ],
+    "design": [
+      "02-detailed-design/10-save-and-recovery.md#migration"
+    ],
+    "owner_role": "平台持久化",
+    "assignee": "unassigned",
+    "modules": [
+      "src/platform/persistence/migrations/",
+      "src/platform/files/",
+      "tests/fixtures/saves/"
+    ],
+    "inputs": [
+      "保存schema",
+      "最早版本fixture"
+    ],
+    "outputs": [
+      "纯迁移链",
+      "导入校验/预览端口",
+      "原始备份保留"
+    ],
+    "steps": [
+      "按vN到vN+1编写纯迁移",
+      "导入做大小/结构/范围/引用/版本检查",
+      "覆盖提交需明确目标槽和确认"
+    ],
+    "acceptance_tests": [
+      "坏JSON/超大/未知新版本不覆盖",
+      "逐版与链式迁移结果一致",
+      "迁移失败保留原始字节"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-011",
+    "title": "实现任务岗位与恢复",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-002",
+      "REQ-006"
+    ],
+    "dependencies": [
+      "TASK-005",
+      "TASK-008",
+      "TASK-009"
+    ],
+    "design": [
+      "02-detailed-design/03-agents-navigation.md#model"
+    ],
+    "owner_role": "人物模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/agents/jobs/",
+      "src/core/agents/reservations/",
+      "tests/unit/jobs/"
+    ],
+    "inputs": [
+      "事务接口",
+      "Job状态图"
+    ],
+    "outputs": [
+      "岗位令牌",
+      "任务状态机",
+      "中断恢复序列化"
+    ],
+    "steps": [
+      "将每个状态的申请/释放动作显式化",
+      "工作只累计合法有效工时",
+      "取消/读档恢复复用原job与事务ID"
+    ],
+    "acceptance_tests": [
+      "任务中断不重复产出",
+      "一个席位最多一名合法占用",
+      "保存后恢复不再预约同材料"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-012",
+    "title": "实现路径入口与堵塞诊断",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-002",
+      "REQ-006"
+    ],
+    "dependencies": [
+      "TASK-007",
+      "TASK-011"
+    ],
+    "design": [
+      "02-detailed-design/03-agents-navigation.md#path"
+    ],
+    "owner_role": "空间模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/agents/navigation/",
+      "src/core/world/navigation/",
+      "tests/integration/navigation/"
+    ],
+    "inputs": [
+      "地图与job目的地",
+      "入口/排队规则"
+    ],
+    "outputs": [
+      "有预算寻路",
+      "navVersion缓存",
+      "阻塞原因查询"
+    ],
+    "steps": [
+      "建立可达区域和入口令牌",
+      "地图变更局部失效路径",
+      "加入让行/排队/超时诊断"
+    ],
+    "acceptance_tests": [
+      "断路不穿墙完成任务",
+      "移动建筑后缓存失效",
+      "36人寻路预算有界且任务最终可诊断"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-013",
+    "title": "实现需求日程和调岗政策",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-006",
+      "REQ-009"
+    ],
+    "dependencies": [
+      "TASK-011",
+      "TASK-012"
+    ],
+    "design": [
+      "02-detailed-design/03-agents-navigation.md#selection"
+    ],
+    "owner_role": "人物模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/agents/needs/",
+      "src/core/agents/schedules/",
+      "src/core/queries/agents/"
+    ],
+    "inputs": [
+      "生理安全优先级",
+      "角色特质与岗位政策"
+    ],
+    "outputs": [
+      "需求变化",
+      "确定性工作选择",
+      "调岗原因"
+    ],
+    "steps": [
+      "落实安全/照护/承诺/日程/兴趣顺序",
+      "过滤伤员/闭关/出征独占状态",
+      "提供批量配额与冲突说明"
+    ],
+    "acceptance_tests": [
+      "饥饿可中断非紧急工作",
+      "远征角色不继续产资源",
+      "同分候选按稳定ID且可解释"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-014",
+    "title": "实现建筑研究维护闭环",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-008",
+      "REQ-007"
+    ],
+    "dependencies": [
+      "TASK-008",
+      "TASK-011",
+      "TASK-012"
+    ],
+    "design": [
+      "02-detailed-design/02-world-economy.md#buildings"
+    ],
+    "owner_role": "经济模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/economy/construction/",
+      "src/core/economy/research/",
+      "src/content/definitions/buildings/"
+    ],
+    "inputs": [
+      "蓝图与入口校验",
+      "建筑/研究源目录"
+    ],
+    "outputs": [
+      "建设升级/取消/搬迁",
+      "维护结算",
+      "研究解锁图"
+    ],
+    "steps": [
+      "预览和提交均验地形/入口",
+      "施工预算与已耗材料分账",
+      "升级和研究奖励用独立提交ID"
+    ],
+    "acceptance_tests": [
+      "缺料蓝图不清空仓库",
+      "拆除返还低于投入且重复操作幂等",
+      "研究图无环且奖励只发一次"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-015",
+    "title": "验证基础经济与恢复路线",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-003",
+      "REQ-007",
+      "REQ-027"
+    ],
+    "dependencies": [
+      "TASK-013",
+      "TASK-014"
+    ],
+    "design": [
+      "02-detailed-design/02-world-economy.md#recovery"
+    ],
+    "owner_role": "玩法验证",
+    "assignee": "unassigned",
+    "modules": [
+      "tools/simulate-economy/",
+      "tests/property/economy/",
+      "tests/fixtures/scenarios/"
+    ],
+    "inputs": [
+      "生产维护与人物系统",
+      "4/12/24/36人口夹具"
+    ],
+    "outputs": [
+      "经济批量模拟报告",
+      "反套利和困境恢复案例"
+    ],
+    "steps": [
+      "建立稳定/坏收成/主力伤病等场景",
+      "追踪供需/有效劳力/关键材料",
+      "用失败seed定位并提出参数修订"
+    ],
+    "acceptance_tests": [
+      "基础觅食不需口粮启动",
+      "拆造/交易/配方循环不净增资源",
+      "150年中锁死均有记录与修复路径"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-016",
+    "title": "实现修炼与突破风险事务",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-010",
+      "REQ-009"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-005",
+      "TASK-008",
+      "TASK-013"
+    ],
+    "design": [
+      "02-detailed-design/04-cultivation-legacy.md#breakthrough"
+    ],
+    "owner_role": "人物成长",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/cultivation/",
+      "src/core/queries/breakthrough/",
+      "tests/unit/cultivation/"
+    ],
+    "inputs": [
+      "境界和公式基线",
+      "预留与风险停表接口"
+    ],
+    "outputs": [
+      "风险纯查询",
+      "闭关状态机",
+      "一次性抽样结果"
+    ],
+    "steps": [
+      "统一预览与结算因素计算",
+      "预览版本过期重新评估",
+      "保存成本/sampleId/随机流位置与结果"
+    ],
+    "acceptance_tests": [
+      "70%成功不能显示成30%死亡",
+      "重复确认不重扣或重抽",
+      "闭关短粮能停在安全检查点"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-017",
+    "title": "实现寿元倒地外死亡接入",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-011",
+      "REQ-004"
+    ],
+    "dependencies": [
+      "TASK-005",
+      "TASK-006",
+      "TASK-016"
+    ],
+    "design": [
+      "02-detailed-design/04-cultivation-legacy.md#death"
+    ],
+    "owner_role": "人物成长",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/legacy/lifespan/",
+      "src/core/legacy/death/",
+      "tests/unit/legacy/"
+    ],
+    "inputs": [
+      "经营年龄",
+      "突破致死与统一死亡ID合同"
+    ],
+    "outputs": [
+      "年龄/寿元逻辑",
+      "CharacterDeath事务",
+      "一次性历史"
+    ],
+    "steps": [
+      "区分寿元上限和年龄",
+      "统一不同死亡源的提交入口",
+      "解除任务预约并保留死者档案"
+    ],
+    "acceptance_tests": [
+      "突破不重置年龄",
+      "重复deathId不重复遗物",
+      "隐藏/暂停不推进自然致死"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-018",
+    "title": "实现师承关系与继任传承",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M2",
+    "requirements": [
+      "REQ-009",
+      "REQ-011"
+    ],
+    "dependencies": [
+      "TASK-013",
+      "TASK-017"
+    ],
+    "design": [
+      "02-detailed-design/04-cultivation-legacy.md#progression",
+      "02-detailed-design/04-cultivation-legacy.md#death"
+    ],
+    "owner_role": "叙事模拟",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/legacy/mentorship/",
+      "src/core/legacy/inheritance/",
+      "src/core/world/relationships/"
+    ],
+    "inputs": [
+      "人物ID/死亡事件",
+      "授业与记忆规则"
+    ],
+    "outputs": [
+      "三轴关系及原因",
+      "授课和继承事务",
+      "掌门继任/复兴状态"
+    ],
+    "steps": [
+      "给关系变化附原因与周期上限",
+      "按生前传授记录转交合法资产",
+      "最后一人死亡触发明确复兴选择"
+    ],
+    "acceptance_tests": [
+      "师父死亡不删弟子已学技能",
+      "未传授战力不无损复制",
+      "继任保留宗门库存与建筑"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-019",
+    "title": "定义战斗强类型协议",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-012",
+      "REQ-018"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-004",
+      "TASK-006"
+    ],
+    "design": [
+      "02-detailed-design/07-combat-pipeline.md#action",
+      "02-detailed-design/08-effects-statuses-triggers.md#source"
+    ],
+    "owner_role": "战斗核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/definitions/",
+      "src/content/schemas/combat/",
+      "tests/unit/combat-contracts/"
+    ],
+    "inputs": [
+      "白名单内容schema",
+      "动作/事件和生命周期合同"
+    ],
+    "outputs": [
+      "Skill/Talent/Status/Effect协议",
+      "能力注册表"
+    ],
+    "steps": [
+      "区分Definition与Instance及scope/duration",
+      "把目标/条件/效果写成辨识联合",
+      "建立未实现能力阻塞规则"
+    ],
+    "acceptance_tests": [
+      "内容不能执行任意脚本",
+      "run来源5秒盾可合法表达",
+      "未实现Summon不能加载纸傀内容"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-020",
+    "title": "实现属性求值与目标仲裁",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-018",
+      "REQ-020"
+    ],
+    "dependencies": [
+      "TASK-019"
+    ],
+    "design": [
+      "02-detailed-design/08-effects-statuses-triggers.md#modifier",
+      "02-detailed-design/07-combat-pipeline.md#pipeline"
+    ],
+    "owner_role": "战斗核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/modifiers/",
+      "src/core/combat/targeting/",
+      "tests/unit/stats-targeting/"
+    ],
+    "inputs": [
+      "属性/目标定义",
+      "稳定ID和取整工具"
+    ],
+    "outputs": [
+      "统一属性桶",
+      "快照/live读取",
+      "目标筛选排序"
+    ],
+    "steps": [
+      "实现来源账本和缓存revision",
+      "固定加法/乘区/上限/取整顺序",
+      "实现距离/低血量同分稳定选择"
+    ],
+    "acceptance_tests": [
+      "移除甲光环不删乙贡献",
+      "快照不持有可变对象",
+      "同位置同血量总选相同合法ID"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-021",
+    "title": "实现施法预约提交与打断",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-019",
+      "REQ-012"
+    ],
+    "dependencies": [
+      "TASK-019",
+      "TASK-020",
+      "TASK-008"
+    ],
+    "design": [
+      "02-detailed-design/07-combat-pipeline.md#action"
+    ],
+    "owner_role": "战斗核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/pipeline/actions/",
+      "tests/unit/actions/"
+    ],
+    "inputs": [
+      "动作状态机",
+      "资源预约端口"
+    ],
+    "outputs": [
+      "ActionCommitted入口",
+      "冷却与施法队列",
+      "打断释放"
+    ],
+    "steps": [
+      "请求时预约但不发施法收益",
+      "前摇末重验再提交费用/冷却",
+      "已发投射物落空按定义处理"
+    ],
+    "acceptance_tests": [
+      "两个技能不能花同份灵力",
+      "前摇取消不刷天赋收益",
+      "投射物落空默认不退正式费用"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-022",
+    "title": "实现伤害护盾濒死倒地",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-019",
+      "REQ-011"
+    ],
+    "dependencies": [
+      "TASK-020",
+      "TASK-021",
+      "TASK-017"
+    ],
+    "design": [
+      "02-detailed-design/07-combat-pipeline.md#pipeline",
+      "02-detailed-design/07-combat-pipeline.md#life"
+    ],
+    "owner_role": "战斗核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/pipeline/damage/",
+      "src/core/combat/pipeline/life/",
+      "tests/combat/life/"
+    ],
+    "inputs": [
+      "规范阶段顺序",
+      "角色永久死亡入口"
+    ],
+    "outputs": [
+      "统一伤害/治疗事件",
+      "Alive/Downed/Recovered/Dead",
+      "真实吸盾统计"
+    ],
+    "steps": [
+      "区分请求/减免/盾/生命损失",
+      "濒死自保先于倒地/死亡提交",
+      "倒地释放行动且只死亡发遗产"
+    ],
+    "acceptance_tests": [
+      "全盾吸收不触发生命伤害",
+      "UnitDowned不发UnitDied奖励",
+      "双致死源只产生一个deathId"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-023",
+    "title": "实现状态叠层到期与清理",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-018",
+      "REQ-020"
+    ],
+    "dependencies": [
+      "TASK-020",
+      "TASK-022"
+    ],
+    "design": [
+      "02-detailed-design/08-effects-statuses-triggers.md#status"
+    ],
+    "owner_role": "战斗核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/statuses/",
+      "tests/combat/statuses/"
+    ],
+    "inputs": [
+      "状态身份和duration",
+      "伤害事件"
+    ],
+    "outputs": [
+      "状态实例管理器",
+      "驱散与来源回收",
+      "周期调度"
+    ],
+    "steps": [
+      "实现刷新/延长/独立/强者覆盖策略",
+      "排他到期先清再周期",
+      "按scope和sourceInstance统一回收"
+    ],
+    "acceptance_tests": [
+      "到期tick不多跳伤害",
+      "不同施法者独立状态按规则共存",
+      "每shieldInstance只触发一次破裂"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-024",
+    "title": "实现触发队列与防递归",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-020",
+      "REQ-017"
+    ],
+    "dependencies": [
+      "TASK-021",
+      "TASK-022",
+      "TASK-023"
+    ],
+    "design": [
+      "02-detailed-design/08-effects-statuses-triggers.md#triggers"
+    ],
+    "owner_role": "战斗核心",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/triggers/",
+      "src/core/combat/diagnostics/",
+      "tests/combat/triggers/"
+    ],
+    "inputs": [
+      "规范事件字段",
+      "状态和效果执行器"
+    ],
+    "outputs": [
+      "确定性触发排序",
+      "预算/ICD/限次",
+      "因果日志"
+    ],
+    "steps": [
+      "冻结每事件的触发器快照",
+      "按固定排序生成后续EffectCommand",
+      "超预算截断并保存诊断状态"
+    ],
+    "acceptance_tests": [
+      "新增状态不监听过去事件",
+      "proc默认不再同类递归",
+      "深度8/派生64截断可重放且不重抽"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-025",
+    "title": "实现自动战斗战术与撤退",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-012",
+      "REQ-013"
+    ],
+    "dependencies": [
+      "TASK-021",
+      "TASK-022",
+      "TASK-023",
+      "TASK-024"
+    ],
+    "design": [
+      "02-detailed-design/07-combat-pipeline.md#tactics"
+    ],
+    "owner_role": "战斗玩法",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/combat/ai/",
+      "src/core/combat/tactics/",
+      "tests/combat/tactics/"
+    ],
+    "inputs": [
+      "动作合法性",
+      "选敌与导航合同"
+    ],
+    "outputs": [
+      "自动行为规则",
+      "玩家战术队列",
+      "有限消耗与撤退过程"
+    ],
+    "steps": [
+      "自动/手动同走意图校验",
+      "实现集火/护卫/位移/保留技能规则",
+      "撤退出口读条与中断明确"
+    ],
+    "acceptance_tests": [
+      "无命令可过低风险遭遇",
+      "暂停排令恢复不会重复执行",
+      "稀缺救命品不默认自动消耗"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-026",
+    "title": "验证战斗回放与数据扩展",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-005",
+      "REQ-018",
+      "REQ-019",
+      "REQ-020"
+    ],
+    "dependencies": [
+      "TASK-024",
+      "TASK-025"
+    ],
+    "design": [
+      "02-detailed-design/08-effects-statuses-triggers.md#tests"
+    ],
+    "owner_role": "战斗验证",
+    "assignee": "unassigned",
+    "modules": [
+      "tests/replay/combat/",
+      "tests/combat/extension/",
+      "tools/replay/"
+    ],
+    "inputs": [
+      "完整战斗管线",
+      "两个代表构筑链"
+    ],
+    "outputs": [
+      "黄金回放",
+      "数据新增证明",
+      "触发异常诊断"
+    ],
+    "steps": [
+      "记录初态/seed/指令/版本与hash",
+      "只加定义做一技能一天赋",
+      "执行暴击雷引与吸盾反震黄金链"
+    ],
+    "acceptance_tests": [
+      "增内容不修改主循环",
+      "暂停/低帧/重载同结算",
+      "日志截断不改变累计伤害"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-027",
+    "title": "实现永久树与点数重配",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-014",
+      "REQ-013"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-016",
+      "TASK-020"
+    ],
+    "design": [
+      "02-detailed-design/06-builds-offers.md#tree"
+    ],
+    "owner_role": "构筑系统",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/builds/permanent-tree/",
+      "tests/builds/tree/"
+    ],
+    "inputs": [
+      "36节点方向目录",
+      "里程碑/来源账本"
+    ],
+    "outputs": [
+      "主树与点数",
+      "拓扑重配事务",
+      "解锁解释"
+    ],
+    "steps": [
+      "验证3×3节点拓扑",
+      "按个人里程碑幂等发5点",
+      "宗门内逆拓扑撤销重装来源"
+    ],
+    "acceptance_tests": [
+      "5点不能双终点",
+      "重配不残留旧加成",
+      "读档/重复任务不重复发点"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-028",
+    "title": "实现技能配装与装备词条",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-013",
+      "REQ-017"
+    ],
+    "dependencies": [
+      "TASK-019",
+      "TASK-020",
+      "TASK-027"
+    ],
+    "design": [
+      "02-detailed-design/06-builds-offers.md#tree"
+    ],
+    "owner_role": "构筑系统",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/builds/loadout/",
+      "src/content/definitions/items/",
+      "tests/builds/loadout/"
+    ],
+    "inputs": [
+      "技能学习与主树",
+      "槽位/装备基线"
+    ],
+    "outputs": [
+      "合法装配查询",
+      "配装事务",
+      "词条来源映射"
+    ],
+    "steps": [
+      "校验技能已学/境界/槽位",
+      "终极替换主动而非扩槽",
+      "统一词条来源与静态强度桶"
+    ],
+    "acceptance_tests": [
+      "两个主动槽不能装三项",
+      "更换装备清理旧来源",
+      "普通底盘能启动四套代表循环"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-029",
+    "title": "实现远征节点战略时间",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-004",
+      "REQ-015",
+      "REQ-021"
+    ],
+    "dependencies": [
+      "TASK-005",
+      "TASK-009",
+      "TASK-025",
+      "TASK-028"
+    ],
+    "design": [
+      "02-detailed-design/05-run-lifecycle.md#state",
+      "02-detailed-design/05-run-lifecycle.md#entry"
+    ],
+    "owner_role": "远征系统",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/expeditions/",
+      "src/core/queries/expeditions/",
+      "tests/integration/expedition-time/"
+    ],
+    "inputs": [
+      "已批准run边界",
+      "出发配装/补给与路线"
+    ],
+    "outputs": [
+      "RunState",
+      "节点月耗账本",
+      "战斗出入接口"
+    ],
+    "steps": [
+      "出发锁配装与人员生产占用",
+      "旅行月份走经营检查点",
+      "保存节点部分月耗与提交ID"
+    ],
+    "acceptance_tests": [
+      "三场战斗不额外增加经营月耗",
+      "返程只扣标注返程月数",
+      "旅行风险暂停后恢复不双计"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-030",
+    "title": "实现三选一保底与刷新",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-016",
+      "REQ-017"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-024",
+      "TASK-027",
+      "TASK-029"
+    ],
+    "design": [
+      "02-detailed-design/06-builds-offers.md#offer",
+      "02-detailed-design/06-builds-offers.md#reroll"
+    ],
+    "owner_role": "构筑系统",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/builds/run-talents/",
+      "tests/builds/offers/",
+      "tools/simulate-offers/"
+    ],
+    "inputs": [
+      "合法卡/持有人查询",
+      "offer随机流与run状态"
+    ],
+    "outputs": [
+      "OfferState",
+      "核心/补件保障",
+      "刷新及补给退路"
+    ],
+    "steps": [
+      "按合法/退路/保底/类别/权重顺序抽选",
+      "立即保存offer和随机状态",
+      "选择及持有人/次数原子提交"
+    ],
+    "acceptance_tests": [
+      "1万seed无非法卡/重复卡",
+      "无新合法卡禁用刷新不扣次数",
+      "重载不重抽且空池有补给退路"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-031",
+    "title": "实现远征退出损失与清理",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-015",
+      "REQ-016",
+      "REQ-011"
+    ],
+    "dependencies": [
+      "TASK-023",
+      "TASK-029",
+      "TASK-030"
+    ],
+    "design": [
+      "02-detailed-design/05-run-lifecycle.md#exit"
+    ],
+    "owner_role": "远征系统",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/expeditions/settlement/",
+      "tests/integration/run-exit/"
+    ],
+    "inputs": [
+      "封存/未封存规则",
+      "source生命周期管理"
+    ],
+    "outputs": [
+      "唯一EndRun事务",
+      "损失报告",
+      "安全重试接口"
+    ],
+    "steps": [
+      "汇合胜利/安全撤回/紧急撤退/全灭入口",
+      "结算返程月耗和资产",
+      "清理run/encounter并恢复幸存者岗位资格"
+    ],
+    "acceptance_tests": [
+      "重复EndRun不双奖励",
+      "character树留下而run机缘清除",
+      "Ending中途读档和新run重试无旧队列"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-032",
+    "title": "制作首地区路线与首领",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-021",
+      "REQ-012"
+    ],
+    "dependencies": [
+      "TASK-025",
+      "TASK-029",
+      "TASK-031"
+    ],
+    "design": [
+      "02-detailed-design/12-campaign.md#quests",
+      "02-detailed-design/05-run-lifecycle.md#encounter"
+    ],
+    "owner_role": "遭遇内容",
+    "assignee": "unassigned",
+    "modules": [
+      "src/content/encounters/",
+      "src/content/maps/",
+      "tests/fixtures/encounters/"
+    ],
+    "inputs": [
+      "近山区域设计",
+      "预告/打断/净化能力"
+    ],
+    "outputs": [
+      "近山路线",
+      "千藤妖木首领",
+      "普通敌群切片"
+    ],
+    "steps": [
+      "用数据建立营地/分支/战斗/返程",
+      "首领加入藤核与蓄力处理",
+      "配置侦察与材料保底"
+    ],
+    "acceptance_tests": [
+      "首领有可见预告/阶段/主动处理",
+      "不同合理队伍可击败",
+      "失败可疗伤重试而非经济锁死"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-033",
+    "title": "制作垂直切片内容包",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-013",
+      "REQ-014",
+      "REQ-016",
+      "REQ-017",
+      "REQ-031"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-018",
+      "TASK-026",
+      "TASK-027",
+      "TASK-030",
+      "TASK-032",
+      "TASK-051"
+    ],
+    "design": [
+      "02-detailed-design/09-content-authoring.md#catalog"
+    ],
+    "owner_role": "内容制作",
+    "assignee": "unassigned",
+    "modules": [
+      "src/content/definitions/",
+      "src/content/locales/zh-CN/",
+      "tests/fixtures/content/"
+    ],
+    "inputs": [
+      "源§2切片数量",
+      "两套核心构筑与已实现操作"
+    ],
+    "outputs": [
+      "8技能/12机缘/2树原型",
+      "6类建筑/8配方/12事件切片",
+      "内容manifest"
+    ],
+    "steps": [
+      "先选能自启动且有对比的两套构筑",
+      "逐条制作定义/说明/能力依赖/测试",
+      "按切片标签计数并校验引用"
+    ],
+    "acceptance_tests": [
+      "没有未实现操作混入包",
+      "每卡显示来源/持有人/触发约束",
+      "切片计数达标且每项实际可用"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-034",
+    "title": "建立应用会话只读投影",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-024",
+      "REQ-005"
+    ],
+    "dependencies": [
+      "TASK-009",
+      "TASK-013",
+      "TASK-025",
+      "TASK-031"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#projection"
+    ],
+    "owner_role": "应用集成",
+    "assignee": "unassigned",
+    "modules": [
+      "src/application/session.ts",
+      "src/application/projections/",
+      "src/core/queries/"
+    ],
+    "inputs": [
+      "核心状态与事件",
+      "模式切换合同"
+    ],
+    "outputs": [
+      "唯一Session",
+      "稳定查询订阅",
+      "实体差量与命令反馈"
+    ],
+    "steps": [
+      "建立场景/UI共用只读DTO",
+      "按查询revision局部刷新",
+      "统一挂载卸载与错误暂停"
+    ],
+    "acceptance_tests": [
+      "UI不能直接改核心字段",
+      "无变化查询保持稳定引用",
+      "模式切换不新建第二份世界"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-035",
+    "title": "实现可见宗门Phaser场景",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-002",
+      "REQ-003",
+      "REQ-024"
+    ],
+    "dependencies": [
+      "TASK-012",
+      "TASK-013",
+      "TASK-014",
+      "TASK-034"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#projection"
+    ],
+    "owner_role": "场景表现",
+    "assignee": "unassigned",
+    "modules": [
+      "src/phaser/scenes/sect/",
+      "src/phaser/views/agents/",
+      "tests/integration/scene/"
+    ],
+    "inputs": [
+      "地图/任务/动作意图投影",
+      "暂定视觉规范"
+    ],
+    "outputs": [
+      "可点选宗门",
+      "移动工作/练功/照护表现",
+      "镜头与实体定位"
+    ],
+    "steps": [
+      "差量创建销毁精灵",
+      "显示入口排队/缺料/阻塞/施工",
+      "所有互动提交领域命令"
+    ],
+    "acceptance_tests": [
+      "不开资源表可认主要活动区",
+      "暂停动画不产经济资源",
+      "重复场景切换无监听器累积"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-036",
+    "title": "实现战斗表现预告和日志",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-012",
+      "REQ-023",
+      "REQ-024"
+    ],
+    "dependencies": [
+      "TASK-025",
+      "TASK-032",
+      "TASK-034"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#screens"
+    ],
+    "owner_role": "场景表现",
+    "assignee": "unassigned",
+    "modules": [
+      "src/phaser/scenes/battle/",
+      "src/phaser/views/effects/",
+      "src/ui/panels/combat-log/"
+    ],
+    "inputs": [
+      "战斗事件/伤害分解",
+      "首领预告数据"
+    ],
+    "outputs": [
+      "战场指令反馈",
+      "危险图形+文本",
+      "因果日志"
+    ],
+    "steps": [
+      "用逻辑事件驱动VFX不反向结算",
+      "区分命令接收/拒绝/执行",
+      "展示倒地/救援/死亡区别"
+    ],
+    "acceptance_tests": [
+      "静音/色觉差异仍识别危险",
+      "伤害事件与日志一致",
+      "慢动画不推迟权威伤害或冷却"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-037",
+    "title": "实现管理突破与存档界面",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-023",
+      "REQ-010",
+      "REQ-025",
+      "REQ-031"
+    ],
+    "dependencies": [
+      "TASK-010",
+      "TASK-016",
+      "TASK-018",
+      "TASK-034",
+      "TASK-035",
+      "TASK-051"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#screens",
+      "02-detailed-design/10-save-and-recovery.md#migration"
+    ],
+    "owner_role": "管理界面",
+    "assignee": "unassigned",
+    "modules": [
+      "src/ui/hud/",
+      "src/ui/panels/",
+      "src/ui/dialogs/"
+    ],
+    "inputs": [
+      "只读查询/命令",
+      "风险和保存状态"
+    ],
+    "outputs": [
+      "弟子/岗位/库存/建设面板",
+      "突破风险页",
+      "存档导入导出页"
+    ],
+    "steps": [
+      "布局按信息重要性分层",
+      "风险预览过期时刷新不可沿用",
+      "显示最近成功保存与覆盖预览"
+    ],
+    "acceptance_tests": [
+      "风险数值与结算同源",
+      "双击确定不双扣",
+      "返回面板保留镜头/选中/暂停"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-038",
+    "title": "实现配装三选一和结算UI",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-014",
+      "REQ-016",
+      "REQ-023",
+      "REQ-031"
+    ],
+    "dependencies": [
+      "TASK-027",
+      "TASK-028",
+      "TASK-030",
+      "TASK-031",
+      "TASK-034",
+      "TASK-051"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#screens",
+      "02-detailed-design/06-builds-offers.md#reroll"
+    ],
+    "owner_role": "构筑界面",
+    "assignee": "unassigned",
+    "modules": [
+      "src/ui/panels/builds/",
+      "src/ui/dialogs/offers/",
+      "src/ui/panels/expedition/"
+    ],
+    "inputs": [
+      "树/offer/结算查询",
+      "中文卡面同源文案"
+    ],
+    "outputs": [
+      "树重配界面",
+      "选卡再选持有人",
+      "损失原因与清理反馈"
+    ],
+    "steps": [
+      "显示前置/机会成本/配装锁原因",
+      "处理持有人失效/空池/不能刷新",
+      "结算按伤/撤/死/失物展示"
+    ],
+    "acceptance_tests": [
+      "出征中不能重配树",
+      "无新卡刷新禁用且有解释",
+      "关页重开同offer同选项"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-039",
+    "title": "实现隐藏暂停单写标签页",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-026",
+      "REQ-004",
+      "REQ-025"
+    ],
+    "dependencies": [
+      "TASK-009",
+      "TASK-010",
+      "TASK-034",
+      "TASK-037"
+    ],
+    "design": [
+      "02-detailed-design/10-save-and-recovery.md#tabs"
+    ],
+    "owner_role": "平台集成",
+    "assignee": "unassigned",
+    "modules": [
+      "src/platform/browser/",
+      "src/platform/persistence/ownership/",
+      "tests/e2e/multitab/"
+    ],
+    "inputs": [
+      "暂停原因集合",
+      "保存写权epoch"
+    ],
+    "outputs": [
+      "单writer适配器",
+      "隐藏/恢复反馈",
+      "存储错误告警"
+    ],
+    "steps": [
+      "核验目标浏览器锁API并选fallback",
+      "每次写入验证当前epoch",
+      "隐藏加暂停恢复保留其他暂停原因"
+    ],
+    "acceptance_tests": [
+      "两个标签不能并行写同槽",
+      "旧writer被接管后拒写",
+      "离线/隐藏不自动衰老死亡"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-040",
+    "title": "实现键盘焦点与辅助设置",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-023"
+    ],
+    "dependencies": [
+      "TASK-035",
+      "TASK-036",
+      "TASK-037",
+      "TASK-038"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#input"
+    ],
+    "owner_role": "可访问界面",
+    "assignee": "unassigned",
+    "modules": [
+      "src/input/",
+      "src/ui/settings/",
+      "src/ui/components/",
+      "tests/e2e/accessibility/"
+    ],
+    "inputs": [
+      "模式/模态堆栈",
+      "UI和Canvas对象列表"
+    ],
+    "outputs": [
+      "可重绑键位",
+      "文字/动态/音频设置",
+      "键盘等价入口"
+    ],
+    "steps": [
+      "建立ActionMap和文本焦点隔离",
+      "模态捕获与返回焦点",
+      "实现150%重排和非颜色标签"
+    ],
+    "acceptance_tests": [
+      "输入名字不触发快捷技能",
+      "键盘可选对象并发命令",
+      "150%卡片及确认按钮可见可达"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-041",
+    "title": "实现事件主线与终章骨架",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-022",
+      "REQ-009",
+      "REQ-011",
+      "REQ-031"
+    ],
+    "dependencies": [
+      "TASK-018",
+      "TASK-031",
+      "TASK-032",
+      "TASK-034",
+      "TASK-051"
+    ],
+    "design": [
+      "02-detailed-design/12-campaign.md#events",
+      "02-detailed-design/12-campaign.md#quests"
+    ],
+    "owner_role": "战役系统",
+    "assignee": "unassigned",
+    "modules": [
+      "src/core/progression/",
+      "src/content/events/",
+      "tests/integration/campaign/"
+    ],
+    "inputs": [
+      "事件/主线合同",
+      "死亡继任与区域结果"
+    ],
+    "outputs": [
+      "事件选择事务",
+      "主线DAG与延后结果",
+      "终章/继续经营状态"
+    ],
+    "steps": [
+      "先做师徒/冒险/短缺三条贯穿链",
+      "随机事件先合法过滤再抽",
+      "主线奖励与延后结果幂等保存"
+    ],
+    "acceptance_tests": [
+      "失效参与人不强扣成本",
+      "低运气路线也可得关键材料",
+      "终章后可继续原宗门经营"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-042",
+    "title": "建立素材规范与许可证账本",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-028",
+      "REQ-023"
+    ],
+    "dependencies": [
+      "TASK-002",
+      "TASK-035",
+      "TASK-036"
+    ],
+    "design": [
+      "02-detailed-design/13-assets-performance.md#assets"
+    ],
+    "owner_role": "美术音频",
+    "assignee": "unassigned",
+    "modules": [
+      "src/assets/",
+      "public/assets/",
+      "tools/atlas/",
+      "licenses/"
+    ],
+    "inputs": [
+      "Q版动漫立绘/插画+Q版像素世界精灵方向",
+      "候选来源与许可"
+    ],
+    "outputs": [
+      "双载体统一样式指南与角色对照小样",
+      "逐文件许可账本",
+      "统一图集/音频导入"
+    ],
+    "steps": [
+      "先验证同一角色的Q版动漫立绘/像素精灵和完整动作样张",
+      "记录作者URL许可hash改动位置",
+      "检查透明边/锚点/光向/响度/循环"
+    ],
+    "acceptance_tests": [
+      "候选素材未经审核不进发布包",
+      "同动作帧尺度不漂移且立绘/像素精灵身份一致",
+      "全部资产有来源与许可文本"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-043",
+    "title": "验收端到端垂直切片",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-001",
+      "REQ-017",
+      "REQ-027"
+    ],
+    "dependencies": [
+      "TASK-015",
+      "TASK-026",
+      "TASK-033",
+      "TASK-035",
+      "TASK-036",
+      "TASK-037",
+      "TASK-038",
+      "TASK-039",
+      "TASK-040",
+      "TASK-041",
+      "TASK-042"
+    ],
+    "design": [
+      "03-execution/milestones.md#m3",
+      "03-execution/qa-matrix.md"
+    ],
+    "owner_role": "集成验证",
+    "assignee": "unassigned",
+    "modules": [
+      "tests/e2e/vertical-slice/",
+      "tests/replay/slice/",
+      "docs/validation/"
+    ],
+    "inputs": [
+      "切片内容与完整界面",
+      "固定seed及两套构筑"
+    ],
+    "outputs": [
+      "开局至首领/筑基/传承实玩记录",
+      "阻断问题清单",
+      "阶段门评审"
+    ],
+    "steps": [
+      "用真实页面完成生产/修炼/出征/选卡/返程",
+      "检查至少一次关系与传承反馈",
+      "保存重载再继续同战役"
+    ],
+    "acceptance_tests": [
+      "8技能12机缘2树原型全部可使用",
+      "两套构筑自启动且有差异",
+      "关键失败路径可恢复且无P0/P1"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-044",
+    "title": "扩充完整1.0内容目录",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M4",
+    "requirements": [
+      "REQ-008",
+      "REQ-013",
+      "REQ-014",
+      "REQ-016",
+      "REQ-021",
+      "REQ-022"
+    ],
+    "dependencies": [
+      "TASK-043"
+    ],
+    "design": [
+      "02-detailed-design/09-content-authoring.md#catalog",
+      "00-overview/baseline.md"
+    ],
+    "owner_role": "内容制作",
+    "assignee": "unassigned",
+    "modules": [
+      "src/content/definitions/",
+      "src/content/encounters/",
+      "src/content/events/",
+      "src/content/locales/zh-CN/"
+    ],
+    "inputs": [
+      "已过切片关口",
+      "完整内容计数和目录"
+    ],
+    "outputs": [
+      "24技能/36树节点/48逐卡机缘",
+      "14建筑36配方与全部敌人区域",
+      "48事件12主线正式内容"
+    ],
+    "steps": [
+      "逐批增数据并运行所有回归",
+      "补齐未命名机缘逐卡设计而非伪称现成",
+      "每个新区域加入机制测试与资源路线"
+    ],
+    "acceptance_tests": [
+      "所有1.0计数可机器验证",
+      "四门类均有自启动底盘",
+      "所有ID/资源/文案/操作引用有效"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-045",
+    "title": "验证四构筑战役与经济平衡",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M4",
+    "requirements": [
+      "REQ-007",
+      "REQ-017",
+      "REQ-021",
+      "REQ-022",
+      "REQ-027"
+    ],
+    "dependencies": [
+      "TASK-044"
+    ],
+    "design": [
+      "02-detailed-design/06-builds-offers.md#synergy",
+      "02-detailed-design/12-campaign.md#tests"
+    ],
+    "owner_role": "玩法验证",
+    "assignee": "unassigned",
+    "modules": [
+      "tools/simulate-builds/",
+      "tests/fixtures/scenarios/",
+      "docs/balance/"
+    ],
+    "inputs": [
+      "完整内容",
+      "四成熟/混搭/朴素配装"
+    ],
+    "outputs": [
+      "种子批量结果",
+      "四构筑对比",
+      "全战役低运气恢复报告"
+    ],
+    "steps": [
+      "控制境界投入与装备比较构筑",
+      "记录弃选率与第五选前联动",
+      "实玩三封印/终章/继续经营并回归参数"
+    ],
+    "acceptance_tests": [
+      "普通难度不依赖特定稀有卡",
+      "1万seed保底/空池/减员检查通过",
+      "极端短粮或主力全伤仍有可执行恢复"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-046",
+    "title": "测量性能资源与长帧预算",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M4",
+    "requirements": [
+      "REQ-003",
+      "REQ-027",
+      "REQ-024"
+    ],
+    "dependencies": [
+      "TASK-044"
+    ],
+    "design": [
+      "02-detailed-design/13-assets-performance.md#budget",
+      "02-detailed-design/13-assets-performance.md#worker"
+    ],
+    "owner_role": "性能工程",
+    "assignee": "unassigned",
+    "modules": [
+      "tests/performance/",
+      "tools/profile/",
+      "docs/performance/"
+    ],
+    "inputs": [
+      "标准设备浏览器seed",
+      "完整资源与规模夹具"
+    ],
+    "outputs": [
+      "帧时间/内存/tick耗时报告",
+      "加载/存档预算结果",
+      "必要优化或Worker决策"
+    ],
+    "steps": [
+      "固定36人128×128约200对象6v20基准",
+      "采集分位数长任务与资产传输",
+      "优化后重放校验逻辑结果不变"
+    ],
+    "acceptance_tests": [
+      "记录设备版本而非笼统60fps",
+      "低帧率不丢模拟tick",
+      "未证实瓶颈不得自动迁入Worker"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-047",
+    "title": "执行存档故障兼容与长跑",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M4",
+    "requirements": [
+      "REQ-025",
+      "REQ-026",
+      "REQ-027"
+    ],
+    "dependencies": [
+      "TASK-039",
+      "TASK-044",
+      "TASK-046"
+    ],
+    "design": [
+      "02-detailed-design/10-save-and-recovery.md#tests",
+      "03-execution/qa-matrix.md"
+    ],
+    "owner_role": "可靠性验证",
+    "assignee": "unassigned",
+    "modules": [
+      "tests/integration/saves/",
+      "tests/e2e/recovery/",
+      "tests/replay/soak/"
+    ],
+    "inputs": [
+      "所有版本fixture",
+      "完整Run/Battle快照"
+    ],
+    "outputs": [
+      "配额/断写/坏档/多标签报告",
+      "旧档迁移矩阵",
+      "50次场景切换与长跑报告"
+    ],
+    "steps": [
+      "注入保存每个关键阶段故障",
+      "恢复战斗队列/offer/Ending部分月耗",
+      "测50次切换及长期内存增长"
+    ],
+    "acceptance_tests": [
+      "坏档永不覆盖成功档",
+      "恢复不重抽/重发/重置ICD",
+      "多标签接管只保留一个writer"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-048",
+    "title": "执行真实交互与可访问回归",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M4",
+    "requirements": [
+      "REQ-023",
+      "REQ-027"
+    ],
+    "dependencies": [
+      "TASK-040",
+      "TASK-045",
+      "TASK-047"
+    ],
+    "design": [
+      "02-detailed-design/11-ui-rendering.md#tests",
+      "03-execution/qa-matrix.md"
+    ],
+    "owner_role": "交互验证",
+    "assignee": "unassigned",
+    "modules": [
+      "tests/e2e/",
+      "docs/validation/screenshots/"
+    ],
+    "inputs": [
+      "完整战役与设备矩阵",
+      "可访问设置"
+    ],
+    "outputs": [
+      "真实页面旅程报告",
+      "键盘/150%/静音/减少动态结果",
+      "问题严重度与证据"
+    ],
+    "steps": [
+      "覆盖重复点击/返回/关闭/隐藏/恢复",
+      "键盘完成核心管理与战斗指令",
+      "标注截图状态和日志来源"
+    ],
+    "acceptance_tests": [
+      "1280×720与1920×1080核心流程可用",
+      "主要状态不用只靠色或声音",
+      "测试通过与未测项目明确分开"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-049",
+    "title": "审计发布候选与许可兼容",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M5",
+    "requirements": [
+      "REQ-027",
+      "REQ-028",
+      "REQ-030",
+      "REQ-031"
+    ],
+    "dependencies": [
+      "TASK-042",
+      "TASK-045",
+      "TASK-046",
+      "TASK-047",
+      "TASK-048",
+      "TASK-051"
+    ],
+    "design": [
+      "02-detailed-design/13-assets-performance.md#release",
+      "03-execution/milestones.md#m5"
+    ],
+    "owner_role": "发布验证",
+    "assignee": "unassigned",
+    "modules": [
+      "docs/release/",
+      "licenses/",
+      "tools/verify-release/"
+    ],
+    "inputs": [
+      "同一候选commit与产物",
+      "全部测试/许可报告"
+    ],
+    "outputs": [
+      "候选审计清单",
+      "产物hash和版本清单",
+      "阻断问题与回滚预案"
+    ],
+    "steps": [
+      "在干净环境跑全部必需检查",
+      "对照同一产物审资源与许可",
+      "核验新旧存档兼容再提出可发布建议"
+    ],
+    "acceptance_tests": [
+      "P0/P1或迁移失败阻断候选",
+      "测试报告能追到commit/build/hash",
+      "未获发布授权不得上传部署"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-050",
+    "title": "交接实施证据与后续变更",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M5",
+    "requirements": [
+      "REQ-029",
+      "REQ-030"
+    ],
+    "dependencies": [
+      "TASK-049"
+    ],
+    "design": [
+      "03-execution/README.md#状态机",
+      "03-execution/change-control.md#证据模板"
+    ],
+    "owner_role": "技术负责人",
+    "assignee": "unassigned",
+    "modules": [
+      "README.md",
+      "CHANGELOG.md",
+      "docs/adr/",
+      "docs/release/"
+    ],
+    "inputs": [
+      "候选审计与已知风险",
+      "实际任务证据"
+    ],
+    "outputs": [
+      "可追溯交接包",
+      "剩余风险与后续建议",
+      "单独的发布审批材料"
+    ],
+    "steps": [
+      "将真实完成证据回填任务与需求",
+      "注明未测和未实现不粉饰完成",
+      "单列部署目标/权限/回滚所需决策"
+    ],
+    "acceptance_tests": [
+      "每完成任务都有测试证据",
+      "不存在计划值冒充实测",
+      "没有另行授权不得自动发布或扩大范围"
+    ],
+    "evidence_status": "not_run"
+  },
+  {
+    "id": "TASK-051",
+    "title": "实现中英映射切换与回退",
+    "status": "planned",
+    "authorization": "pending_development_approval",
+    "milestone": "M3",
+    "requirements": [
+      "REQ-031",
+      "REQ-023",
+      "REQ-025"
+    ],
+    "dependencies": [
+      "TASK-003",
+      "TASK-034"
+    ],
+    "design": [
+      "02-detailed-design/14-internationalization.md#keys",
+      "02-detailed-design/14-internationalization.md#resolve",
+      "02-detailed-design/14-internationalization.md#switch"
+    ],
+    "owner_role": "国际化工程",
+    "assignee": "unassigned",
+    "modules": [
+      "src/content/locales/zh-CN/",
+      "src/content/locales/en/",
+      "src/ui/i18n/",
+      "src/platform/settings/",
+      "tests/unit/i18n/",
+      "tests/e2e/locales/"
+    ],
+    "inputs": [
+      "最新中英需求与文本键表",
+      "只读投影/设置端口"
+    ],
+    "outputs": [
+      "完整中文键覆盖",
+      "en逐键回退与语言开关",
+      "参数格式/复数工具及审校清单"
+    ],
+    "steps": [
+      "登记全部玩家可见文本含错误日志tooltip",
+      "实现整句命名参数/格式化/参数一致检查",
+      "将locale设置独立保存并仅刷新显示缓存",
+      "补英文翻译制作与校对流程，不伪报已有全译"
+    ],
+    "acceptance_tests": [
+      "英文缺键/空值逐键中文回退且缺zh构建失败",
+      "切换不变领域hash/RNG/offer/指令",
+      "英文长文本及150%不溢出",
+      "参数类型/复数规则一致且自定义姓名原样"
+    ],
+    "evidence_status": "not_run"
+  }
+]
