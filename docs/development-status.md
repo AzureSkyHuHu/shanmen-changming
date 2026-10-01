@@ -1,5 +1,15 @@
 # 开发状态
 
+## 资源账本原语（2026-10-01 21:44 UTC）
+
+- 最近远端基础提交[208c5de](https://github.com/AzureSkyHuHu/shanmen-changming/commit/208c5de489e25d9bd1c3937b250ca3b94c1cf4d9)的[GitHub检查36928900525](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36928900525)已成功
+- 账本冻结源码 `b1ed2b214316cb38f315b6623411ce0192612d5a` 完整通过：112文件 / 1571项测试、1041中文键、模块边界/内容、双类型及生产构建；测试579.80秒
+- 新增纯泛型有限资源normalize/reserve/consume-part/release/commit，以及原六资源库存+三项宗门库存的原子候选适配。任一账本失败都不发布另一侧候选；原材料余额没有另建副本权威
+- 施工分期从已存规范总额推导ceil-half与余款；取消只释放真实未消耗预留，重复检查点/提交/取消按事务身份和完整操作体识别，不凭调用方剩余量或paid标记退款
+- 45项专项覆盖跨账本回滚、争抢预留、同资源容量、MAX_SAFE_INTEGER、冲突重试、消耗守恒、访问器/非普通对象/稀疏数组/未知字段拒绝。初版泛型类型问题已修复并重新完整验证
+- 此模块只验证内部算术与成对生命周期，未来World仍须证明目录成本/产出、工作、人员、效果、来源和保存预算；不等于可用建造或研究。旧inventory/production与默认v7在本提交内未改；导航复用是另一个未提交片
+- 未启用候选入口、未部署，真实浏览器和完整1.0验收仍未完成
+
 ## 当前新增阶段（2026-10-01 21:26 UTC）
 
 - CI修复提交[49016b1](https://github.com/AzureSkyHuHu/shanmen-changming/commit/49016b1c508725fc24a4324b9a393dea5a525568)的[完整GitHub检查](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36927181561)已于21:21:36 UTC成功；此前两个并行重放超时不再是当前阻塞
