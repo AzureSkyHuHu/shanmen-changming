@@ -35,6 +35,6 @@ The registered run recovery exit, necessary inventory clearance and its receipts
 
 ## Verification record
 
-Before the four review corrections, the integration owner reported both strict TypeScript projects, module boundaries and 150 selected tests passing. The review corrections and their new counterexamples are awaiting the owner's serial run. This document does not claim a post-correction full pass, current v8 gameplay activation, save-growth certification or browser acceptance.
+The integration owner validated the review corrections in an isolated staged tree: 76 files and 1194 tests passed, along with 970 locale keys, content/module boundaries, both strict TypeScript projects and the production build. That candidate-only checkpoint is commit `96fa559`. This is not current v8 gameplay activation, save-growth certification or browser acceptance.
 
 Integration verification at 2026-10-01 15:46 UTC: post-review focused run passed 66 tests and both TypeScript projects. Frozen staged tree 6c5cac8d9118dbbf25dce0f7e4bbda7eacb63522 was exported independently: full npm run check passed 76 files / 1194 tests, 970 locale keys, boundaries, content, both TypeScript projects and production build. Browser and live v8 activation remain unverified.

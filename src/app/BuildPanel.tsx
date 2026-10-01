@@ -7,10 +7,8 @@ import type { BuildCommand, BuildError, BuildLoadout, BuildProgress, BuildStateF
 import type { BuildContentContext, BuildErrorV2, BuildStateFrameV2 } from '../core/builds/v2-types';
 import { resolveBuildContentContext } from '../content/registry/build-context';
 import { canonicalStringify, cloneJson, compareStable, stableHash } from '../core/kernel/serialization';
-import { combatMessageSpecifications } from '../content/definitions/messages';
-import { combatZhCN } from '../content/locales/zh-CN/combat';
-import { combatEn } from '../content/locales/en/combat';
-import { createTranslator, translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
+import { combatContentTranslator } from '../application/combat-content-text';
+import { translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
 import './build-panel.css';
 
 type WithoutCommandId<T> = T extends BuildCommand ? Omit<T, 'commandId'> : never;
@@ -82,7 +80,6 @@ function equipmentTextKey(definition: EquipmentDefinition, field: 'nameKey' | 'd
 function cannotEditLife(props: Pick<BuildPanelProps, 'frame' | 'lifeState'>): boolean {
   return props.frame.builds.schemaVersion === 2 ? props.lifeState !== 'alive' : props.lifeState != null && props.lifeState !== 'alive';
 }
-const combatTranslate = createTranslator({ baseCatalog: combatZhCN, englishCatalog: combatEn, specifications: combatMessageSpecifications });
 export const buildText = (locale: Locale, suffix: string, parameters: TranslationParams = {}): string => translate(locale, `buildView.${suffix}` as TextKey, parameters);
 
 /** The same locale catalogs and parameter-checked translator used by combat; no Phaser dependency. */
@@ -90,7 +87,7 @@ export function buildDefinitionName(locale: Locale, definitionId: string, catalo
   const selected = context == null ? null : registeredContext(context);
   if (context != null && (!selected || selected.context.catalog !== catalog)) return buildText(locale, 'unknownDefinition');
   const definition = [...catalog.skills, ...catalog.treeNodes, ...catalog.trees, ...catalog.statuses].find(item => item.id === definitionId);
-  if (definition) return combatTranslate(locale, definition.nameKey);
+  if (definition) return combatContentTranslator(catalog)(locale, definition.nameKey);
   const equipment = (selected ? selected.context.rules.equipment : EQUIPMENT_DEFINITIONS).find(item => item.id === definitionId);
   if (equipment) {
     const key = equipmentTextKey(equipment, 'nameKey') ?? trainingItemNameKeys[equipment.id];
@@ -102,11 +99,11 @@ export function buildDefinitionName(locale: Locale, definitionId: string, catalo
 export function buildSkillTiming(skill: SkillDefinition): { cost: number; cooldown: number; cast: number } | null {
   return skill.activation === 'active' ? { cost: skill.action.spiritCostUnits, cooldown: skill.action.cooldownTicks / COMBAT_TICKS_PER_SECOND, cast: skill.action.castTicks / COMBAT_TICKS_PER_SECOND } : null;
 }
-export function buildDefinitionDescription(locale: Locale, definition: SkillDefinition | TreeNodeDefinition): string {
+export function buildDefinitionDescription(locale: Locale, definition: SkillDefinition | TreeNodeDefinition, catalog?: CombatContentCatalog): string {
   // Authored active descriptions append simulation ticks. Their concise effect-only UI keys
   // keep those implementation units out of player text; timing is shown separately in seconds.
   if (definition.kind === 'skill' && definition.activation === 'active') return buildText(locale, `skillSummary.${definition.id.slice('skill.'.length)}`);
-  return combatTranslate(locale, definition.descriptionKey, definition.descriptionParameters);
+  return combatContentTranslator(catalog)(locale, definition.descriptionKey, definition.descriptionParameters);
 }
 export function buildSupportExplanation(locale: Locale, reasons: readonly string[]): string {
   const text = reasons.join(' ');
@@ -313,7 +310,7 @@ function BuildPanelEditor(props: BuildPanelProps) {
             const next = toggleBuildTreeDraft(frame, catalog, discipleId, nativeNodeIds, node.id, props.context);
             if (next.ok) { setNotice(null); setDraft({ ...(currentDraft ?? makeDraft('tree')), nodeIds: next.nodeIds }); }
           }}><span className="build-node-mark" aria-hidden="true">{selected ? '◆' : '◇'}</span><strong>{name(node.id)}</strong><small>{t('tier', { tier: node.tier, cost: node.pointCost })}</small></button>
-          <div className="build-node-copy" id={`${prefix}-${node.id}-description`}><span className="build-state-label">{t(selected ? committed ? 'allocated' : 'draftSelected' : 'notSelected')}</span><p>{buildDefinitionDescription(locale, node)}</p><small>{node.prerequisites.length ? t('requires', { names: node.prerequisites.map(name).join('、') }) : t('noPrerequisite')}</small>{reason && <p className="build-blocker">{reason}</p>}</div>
+          <div className="build-node-copy" id={`${prefix}-${node.id}-description`}><span className="build-state-label">{t(selected ? committed ? 'allocated' : 'draftSelected' : 'notSelected')}</span><p>{buildDefinitionDescription(locale, node, catalog)}</p><small>{node.prerequisites.length ? t('requires', { names: node.prerequisites.map(name).join('、') }) : t('noPrerequisite')}</small>{reason && <p className="build-blocker">{reason}</p>}</div>
         </li>;
       })}</ol></section>)}</div>
       <p className="build-footnote">{t('removeDependents')}</p>
@@ -343,7 +340,7 @@ function BuildPanelEditor(props: BuildPanelProps) {
       const prerequisites = [...(rule?.requiredSkillIds ?? []), ...(rule?.requiredNodeIds ?? [])];
       const cost = rule?.creditCost ?? 0; const enoughCredits = !!rule && progress.availableLearningCredits >= cost;
       const canLearn = !blocked && !currentDraft && !learned && support.supported && requirements && enoughCredits;
-      return <article className="build-skill-card" key={skill.id} data-supported={support.supported} data-learned={learned}><header><h5>{name(skill.id)}</h5><span>{t(skill.activation === 'passive' ? 'passive' : skill.ultimate ? 'ultimate' : 'active')}</span></header><div className="build-skill-badges"><span>{t(learned ? 'learned' : 'notLearned')}</span>{equipped && <strong>{t('equipped')}</strong>}</div><p>{buildDefinitionDescription(locale, skill)}</p>{timing && <p className="build-skill-timing">{t('skillTiming', timing)}</p>}{prerequisites.length > 0 && <small>{t('requires', { names: prerequisites.map(name).join('、') })}</small>}{!support.supported && <p className="build-blocker">{buildSupportExplanation(locale, support.reasons)}</p>}{skill.school !== disciple.school && <p className="build-footnote">{t('foreignSkill')}</p>}{!learned && <div className="build-study"><span>{t('learningCost', { cost })}</span><button type="button" disabled={!canLearn} onClick={() => { if (canLearn) send({ kind: 'skill.learn', discipleId, skillId: skill.id, expectedRevision: frame.builds.revision }); }}>{t('learn', { cost })}</button>{support.supported && !requirements && <p className="build-blocker">{t('missingPrerequisite')}</p>}{support.supported && requirements && !enoughCredits && <p className="build-blocker">{t('insufficientCredits')}</p>}</div>}</article>;
+      return <article className="build-skill-card" key={skill.id} data-supported={support.supported} data-learned={learned}><header><h5>{name(skill.id)}</h5><span>{t(skill.activation === 'passive' ? 'passive' : skill.ultimate ? 'ultimate' : 'active')}</span></header><div className="build-skill-badges"><span>{t(learned ? 'learned' : 'notLearned')}</span>{equipped && <strong>{t('equipped')}</strong>}</div><p>{buildDefinitionDescription(locale, skill, catalog)}</p>{timing && <p className="build-skill-timing">{t('skillTiming', timing)}</p>}{prerequisites.length > 0 && <small>{t('requires', { names: prerequisites.map(name).join('、') })}</small>}{!support.supported && <p className="build-blocker">{buildSupportExplanation(locale, support.reasons)}</p>}{skill.school !== disciple.school && <p className="build-footnote">{t('foreignSkill')}</p>}{!learned && <div className="build-study"><span>{t('learningCost', { cost })}</span><button type="button" disabled={!canLearn} onClick={() => { if (canLearn) send({ kind: 'skill.learn', discipleId, skillId: skill.id, expectedRevision: frame.builds.revision }); }}>{t('learn', { cost })}</button>{support.supported && !requirements && <p className="build-blocker">{t('missingPrerequisite')}</p>}{support.supported && requirements && !enoughCredits && <p className="build-blocker">{t('insufficientCredits')}</p>}</div>}</article>;
     })}</div></details>
     <div className="build-feedback" role="status" aria-live="polite">{notice ? notice.ok ? pending ? t('submitted') : null : feedback(locale, notice.code) : null}</div>
   </section>;

@@ -4,10 +4,8 @@ import type { CombatContentCatalog, EffectPrimitive } from '../core/combat/defin
 import type { CombatControllerState } from '../core/combat/ai';
 import { queryStat, shieldUnits } from '../core/combat';
 import type { BattleArena, BattleEvent, LifeState } from '../core/combat';
-import { combatMessageSpecifications } from '../content/definitions/messages';
-import { combatZhCN } from '../content/locales/zh-CN/combat';
-import { combatEn } from '../content/locales/en/combat';
-import { createTranslator, translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
+import { combatContentTranslator } from '../application/combat-content-text';
+import { translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
 import type { BattleRenderer } from './create-battle-game';
 import { PIXEL_ART_VERSION } from './art-manifest';
 
@@ -39,16 +37,16 @@ export interface BattleRenderSnapshot {
   readonly zones: readonly BattleZoneView[]; readonly events: readonly BattleEvent[]; readonly latestEventSequence: number; readonly selectedEntityId: string | null;
   readonly paused: boolean; readonly reducedMotion: boolean;
 }
-const combatTranslate = createTranslator({ baseCatalog: combatZhCN, englishCatalog: combatEn, specifications: combatMessageSpecifications });
 export const battleText = (locale: Locale, suffix: string, parameters: TranslationParams = {}): string => translate(locale, `battleView.${suffix}` as TextKey, parameters);
 export function battleDefinitionName(locale: Locale, id: string, catalog: CombatContentCatalog): string {
   if (id === 'runtime.basic') return battleText(locale, 'basic');
   const definition = [...catalog.skills, ...catalog.statuses, ...catalog.summons, ...catalog.talents, ...catalog.treeNodes].find(item => item.id === id);
-  return definition ? combatTranslate(locale, definition.nameKey) : battleText(locale, 'basic');
+  return definition ? combatContentTranslator(catalog)(locale, definition.nameKey) : battleText(locale, 'basic');
 }
 export function battleAssetUrl(art: BattleArt, sheet = false): string { const group = art.startsWith('disciple-') ? 'characters' : 'enemies'; return `${import.meta.env.BASE_URL}assets/${group}/${art}${sheet ? '-sheet' : ''}-${PIXEL_ART_VERSION}.png`; }
 const ENEMY_ART: readonly BattleArt[] = ['moss-boar', 'ruin-guardian', 'ember-wisp'];
 export function buildBattleProjection(controller: CombatControllerState, catalog: CombatContentCatalog, locale: Locale, presentation: BattleEntityPresentations = {}): readonly BattleUnitView[] {
+  const combatTranslate = combatContentTranslator(catalog);
   const battle = controller.battle; let allyIndex = 0; let enemyIndex = 0;
   return Object.values(battle.entities).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map(entity => {
     const ally = entity.team === controller.config.playerTeam;

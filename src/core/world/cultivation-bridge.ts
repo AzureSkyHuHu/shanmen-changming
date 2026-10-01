@@ -2,7 +2,7 @@ import { liveProductionAt } from '../economy/automatic-production';
 import type { ProductionReceiptContext } from '../economy/automatic-types';
 import { appendWorldEvents, worldEventCursor, worldEventsSince } from './history-access';
 import { applyCultivationCommand, previewBreakthrough, stepCultivationMonths, synchronizeCultivationAges } from '../cultivation/cultivation';
-import type { BreakthroughPreparation, BreakthroughPreview, CultivationCommand, CultivationCommandResult, CultivationError, CultivationFrame } from '../cultivation/types';
+import type { BreakthroughPreparation, BreakthroughPreview, CultivationCommand, CultivationCommandResult, CultivationError, CultivationFrame, Cultivator } from '../cultivation/types';
 import { cancelProduction } from '../economy/production';
 import { CALENDAR_TICKS_PER_MONTH, setPauseReason } from '../kernel/clock';
 import { assertNonNegativeInteger, checkedAdd } from '../kernel/numeric';
@@ -14,7 +14,7 @@ export function withCultivationPause<T extends CultivationWorld>(world: T): T {
   const pending = hasCultivationDecision(world);
   return world.clock.pauseReasons.includes('cultivation') === pending ? world : { ...world, clock: setPauseReason(world.clock, 'cultivation', pending) };
 }
-export function isCultivationWorkerAvailable(world: CultivationWorld, discipleId: string): boolean {
+export function isCultivationWorkerAvailable(world: { cultivation: { disciples: Cultivator[] } }, discipleId: string): boolean {
   const profile = world.cultivation.disciples.find((d) => d.discipleId === discipleId);
   return !!profile && profile.activityOwner === null && profile.lifeState === 'alive' && profile.trainingMode === 'duty' && profile.activeAttemptId === null && profile.teaching === null
     && !world.cultivation.disciples.some((teacher) => teacher.teaching?.studentId === discipleId);

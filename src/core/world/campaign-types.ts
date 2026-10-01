@@ -14,7 +14,7 @@ export type CampaignPlayerRequest =
 /** Preview token is derived by core; Session additionally protects the proposal with its own epoch. */
 export type PlayerCampaignCommand = CampaignPlayerRequest & { commandId: string; expectedBasisStamp: string };
 export type WorldCampaignError = CampaignErrorV2 | 'INVALID_COMMAND' | 'BLOCKED_BY_DECISION' | 'ACTIVE_EXPEDITION'
-  | 'BUILD_REJECTED' | 'CULTIVATION_REJECTED' | 'ESTATE_UNAVAILABLE' | 'ITEM_UNAVAILABLE' | 'PREVIEW_STALE'
+  | 'BUILD_REJECTED' | 'CULTIVATION_REJECTED' | 'INVENTORY_FULL' | 'ESTATE_UNAVAILABLE' | 'ITEM_UNAVAILABLE' | 'PREVIEW_STALE'
   | 'SAVE_CAPACITY_EXCEEDED' | 'SAVE_OBLIGATION_UNBOUNDED';
 export interface WorldCampaignResult {
   kind: CampaignPlayerRequest['kind']; claimId: string | null; discipleIds: string[]; itemInstanceIds: string[];

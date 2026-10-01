@@ -33,12 +33,12 @@ export function previewWorldAutomaticWork(world: AutomaticWorld) {
     activationReviewRequired: world.automaticProduction.activationReviewRequired, autoStartAllowance: allowance, incoming, budget };
 }
 /** Exactly one due decision, after player commands and cultivation expiry, before common production. */
-export function tickWorldAutomaticWork(world: AutomaticWorld): AutomaticWorld {
+export function tickWorldAutomaticWork<W extends AutomaticWorld>(world: W): W {
   if (!world.sectEconomy.enabled || world.automaticProduction.activationReviewRequired || world.clock.mode !== 'management'
     || world.clock.pauseReasons.length > 0 || world.clock.simulationTick < world.sectEconomy.nextDecisionTick) return world;
   const budget = assessAutomaticWorkBudget(worldAutomaticBudgetInput(world, MAX_AUTO_STARTS_PER_DECISION));
   const decision = planAutomaticWork(world.sectEconomy, automaticWorkContext(world, Math.min(WORLD_AUTO_START_ALLOWANCE, budget.autoStartAllowance)));
-  let next: AutomaticWorld = { ...world, sectEconomy: decision.state };
+  let next: W = { ...world, sectEconomy: decision.state };
   for (const intent of decision.intents) {
     const admitted = startAutomaticProduction(next, intent);
     if (!admitted.ok) continue;

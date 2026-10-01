@@ -5,19 +5,16 @@ import { canonicalStringify } from '../core/kernel/serialization';
 import type { ResourceLine } from '../core/economy/types';
 import { STARTER_ROUTE_ID } from '../core/expeditions/encounter-catalog';
 import type { ExpeditionDepartureRequest } from '../core/expeditions/world-types';
-import { combatMessageSpecifications } from '../content/definitions/messages';
-import { combatZhCN } from '../content/locales/zh-CN/combat';
-import { combatEn } from '../content/locales/en/combat';
+import { combatContentTranslator } from '../application/combat-content-text';
 import { ApplicationSession, type DeepReadonly, type DepartureProposal, type OfferProjection, type SessionProjection } from '../application/session';
 import { commandFeedbackKey, expeditionMessages } from '../application/status-messages';
-import { createTranslator, translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
+import { translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
 import { BattlePanel } from './BattlePanel';
 import type { BattleEntityPresentations } from '../phaser/PhaserBattle';
 import './expedition.css';
 
 type Projection = DeepReadonly<SessionProjection>;
 type Translator = (key: TextKey, parameters?: TranslationParams) => string;
-const contentText = createTranslator({ baseCatalog: combatZhCN, englishCatalog: combatEn, specifications: combatMessageSpecifications });
 export interface ExpeditionPanelProps { session: ApplicationSession; world: Projection; controller: CombatControllerState | null; locale: Locale; readOnly: boolean; onReturnSect: () => void }
 const resources = (lines: readonly ResourceLine[], t: Translator) => lines.length ? lines.map((line) => t('production.line', { amount: line.quantity, name: t(`resource.${line.resourceId}`) })).join(' · ') : t('expedition.ui.none');
 const discipleName = (world: Projection, id: string, t: Translator) => { const nameKey = world.disciples.find((disciple) => disciple.id === id)?.nameKey; return nameKey ? t(nameKey as TextKey) : t('expedition.ui.none'); };
@@ -55,6 +52,7 @@ export function expeditionBattlePresentations(world: Projection, locale: Locale)
 
 function OfferChoice({ session, offer, world, locale, locked }: { session: ApplicationSession; offer: DeepReadonly<OfferProjection>; world: Projection; locale: Locale; locked: boolean }) {
   const catalog = session.getRunContent().combat;
+  const contentText = combatContentTranslator(catalog);
   const prefix = useId();
   const t: Translator = (key, parameters) => translate(locale, key, parameters);
   const [cardId, setCardId] = useState<string | null>(null);
@@ -86,6 +84,7 @@ function OfferChoice({ session, offer, world, locale, locked }: { session: Appli
 export function ExpeditionPanel({ session, world, controller, locale, readOnly, onReturnSect }: ExpeditionPanelProps) {
   const content = session.getRunContent();
   const catalog = content.combat;
+  const contentText = combatContentTranslator(catalog);
   const encounters = content.encounters;
   const prefix = useId(); const expedition = world.expedition;
   const t: Translator = (key, parameters) => translate(locale, key, parameters);

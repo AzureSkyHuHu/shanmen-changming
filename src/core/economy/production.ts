@@ -1,5 +1,6 @@
 import { acknowledgeAutomaticCancellation, classifyAutomaticHandle, isAutomaticJobId, isAutomaticTransaction, liveProductionAt,
   recordAutomaticNotice, retireAutomaticProduction } from './automatic-production';
+import type { AutomaticWorld as ProductionWorld } from './automatic-production';
 import type { ProductionReceiptContext, ProductionWork } from './automatic-types';
 import { archiveTerminalProduction, lookupProduction } from '../world/history-access';
 import { BLOCKED_PATH_RETRY_TICKS, cardinalDistance, emptyNavigation, findCardinalPath, isWalkable, MAX_PATH_REQUESTS_PER_TICK, MOVEMENT_TICKS_PER_CELL, sameCell } from '../agents/navigation';
@@ -14,9 +15,9 @@ import { commitReservation, releaseReservation, reserveResources } from './inven
 import { getRecipe } from './recipes';
 import type { ProductionBlockedReason, ProductionTransaction } from './types';
 
-export type ProductionResult = { ok: true; world: WorldState; transactionId: string; eventIds: string[] } | { ok: false; rejection: CommandRejection };
+export type ProductionResult<W extends ProductionWorld = WorldState> = { ok: true; world: W; transactionId: string; eventIds: string[] } | { ok: false; rejection: CommandRejection };
 
-export function startProduction(world: WorldState, commandId: string, recipeId: string, workerId: string): ProductionResult {
+export function startProduction<W extends ProductionWorld>(world: W, commandId: string, recipeId: string, workerId: string): ProductionResult<W> {
   const recipe = getRecipe(recipeId);
   if (!recipe) return { ok: false, rejection: { code: 'UNKNOWN_RECIPE' } };
   const worker = world.disciples.find((disciple) => disciple.id === workerId);
@@ -35,7 +36,7 @@ export function startProduction(world: WorldState, commandId: string, recipeId: 
     startedTick: world.clock.simulationTick, completedTick: null, resultEventId: null, blockedReason: null,
     phase: 'WaitingForStation', worksiteId: null, storageId: null, navigation: emptyNavigation(),
   };
-  const next: WorldState = {
+  const next: W = {
     ...world, sequences: reservation.sequences, inventory: reserved.inventory,
     reservations: { ...world.reservations, [reservation.id]: reserved.reservation },
     transactions: { ...world.transactions, [transaction.id]: order },
@@ -46,17 +47,17 @@ export function startProduction(world: WorldState, commandId: string, recipeId: 
   return { ok: true, world: emitted.world, transactionId: transaction.id, eventIds: [emitted.event.eventId] };
 }
 
-function updateOrder(world: WorldState, transaction: ProductionWork, traveling = false, position?: GridPosition): WorldState {
+function updateOrder<W extends ProductionWorld>(world: W, transaction: ProductionWork, traveling = false, position?: GridPosition): W {
   const next = isAutomaticTransaction(transaction)
     ? { ...world, automaticProduction: { ...world.automaticProduction, live: { ...world.automaticProduction.live,
       [transaction.transactionId]: { transaction, reservation: world.automaticProduction.live[transaction.transactionId]!.reservation } } } }
     : { ...world, transactions: { ...world.transactions, [transaction.transactionId]: transaction } };
   return { ...next, disciples: world.disciples.map((disciple) => disciple.id === transaction.workerId ? { ...disciple, traveling, ...(position ? { position: { ...position } } : {}) } : disciple) };
 }
-function releaseStation(world: WorldState, id: string): WorldState {
+function releaseStation<W extends ProductionWorld>(world: W, id: string): W {
   return { ...world, buildings: world.buildings.map((building) => building.stationTransactionId === id ? { ...building, stationTransactionId: null } : building) };
 }
-function block(world: WorldState, transaction: ProductionWork, reason: ProductionBlockedReason): WorldState {
+function block<W extends ProductionWorld>(world: W, transaction: ProductionWork, reason: ProductionBlockedReason): W {
   const next = transaction.blockedReason !== reason
     ? isAutomaticTransaction(transaction)
       ? recordAutomaticNotice(world, { cycle: transaction.origin.cycle, workerId: transaction.workerId, recipeId: transaction.recipeId, kind: 'blocked', reason })
@@ -66,7 +67,7 @@ function block(world: WorldState, transaction: ProductionWork, reason: Productio
 }
 function running(transaction: ProductionWork): ProductionWork { return { ...transaction, state: 'Running', blockedReason: null }; }
 
-function endProduction(world: WorldState, transaction: ProductionWork, state: 'Committed' | 'Cancelled', kind: DomainEvent['kind'], receiptContext?: ProductionReceiptContext): ProductionResult {
+function endProduction<W extends ProductionWorld>(world: W, transaction: ProductionWork, state: 'Committed' | 'Cancelled', kind: DomainEvent['kind'], receiptContext?: ProductionReceiptContext): ProductionResult<W> {
   if (isAutomaticTransaction(transaction)) {
     const released = { ...releaseStation(world, transaction.transactionId),
       activeProductionTransactionIds: world.activeProductionTransactionIds.filter((id) => id !== transaction.transactionId),
@@ -87,7 +88,7 @@ function endProduction(world: WorldState, transaction: ProductionWork, state: 'C
   };
 }
 
-export function cancelProduction(world: WorldState, transactionId: string, receiptContext?: ProductionReceiptContext): ProductionResult {
+export function cancelProduction<W extends ProductionWorld>(world: W, transactionId: string, receiptContext?: ProductionReceiptContext): ProductionResult<W> {
   if (isAutomaticJobId(transactionId)) {
     const handle = classifyAutomaticHandle(world, transactionId);
     if (handle.kind === 'retired') return { ok: false, rejection: { code: 'AUTO_JOB_RETIRED' } };
@@ -113,7 +114,7 @@ export function cancelProduction(world: WorldState, transactionId: string, recei
 }
 
 /** Only storage arrival may commit. Calling this function cannot skip work or travel. */
-export function completeProduction(world: WorldState, transactionId: string): ProductionResult {
+export function completeProduction<W extends ProductionWorld>(world: W, transactionId: string): ProductionResult<W> {
   const transaction = liveProductionAt(world, transactionId)?.transaction ?? lookupProduction(world, transactionId);
   if (!transaction) return { ok: false, rejection: { code: 'UNKNOWN_TRANSACTION' } };
   if (transaction.state === 'Committed') return { ok: true, world, transactionId, eventIds: transaction.resultEventId ? [transaction.resultEventId] : [] };
@@ -135,7 +136,7 @@ export function completeProduction(world: WorldState, transactionId: string): Pr
 
 interface PathBudget { remaining: number }
 /** Returns at a full movement boundary; arrival never awards work in the same tick. */
-function travel(world: WorldState, transaction: ProductionWork, target: GridPosition, budget: PathBudget): WorldState {
+function travel<W extends ProductionWorld>(world: W, transaction: ProductionWork, target: GridPosition, budget: PathBudget): W {
   const worker = world.disciples.find((disciple) => disciple.id === transaction.workerId)!;
   let navigation = transaction.navigation;
   const targetChanged = navigation.target === null || !sameCell(navigation.target, target);
@@ -164,12 +165,12 @@ function travel(world: WorldState, transaction: ProductionWork, target: GridPosi
   const arrived = sameCell(position, target);
   return updateOrder(world, { ...running(transaction), phase: arrived ? transaction.phase === 'TravellingToWork' ? 'Working' : 'AwaitingDelivery' : transaction.phase, navigation: arrived ? emptyNavigation() : { ...navigation, path, movementTicks: 0 } }, !arrived, position);
 }
-function candidates(world: WorldState, blueprintId: string, position: GridPosition): WorldBuilding[] {
+function candidates(world: ProductionWorld, blueprintId: string, position: GridPosition): WorldBuilding[] {
   return world.buildings.filter((building) => building.blueprintId === blueprintId && building.operational).sort((left, right) => cardinalDistance(position, left) - cardinalDistance(position, right) || compareStable(left.id, right.id));
 }
 
 /** Serialized phases own reservations and seats. Ordinary transit cells can be shared; work seats cannot. */
-export function tickProduction(world: WorldState): WorldState {
+export function tickProduction<W extends ProductionWorld>(world: W): W {
   if (world.clock.mode !== 'management' || isPaused(world.clock)) return world;
   let next = world;
   const budget = { remaining: MAX_PATH_REQUESTS_PER_TICK };

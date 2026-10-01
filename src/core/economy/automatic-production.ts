@@ -12,13 +12,14 @@ import { checkedAdd } from '../kernel/numeric';
 import { cloneJson } from '../kernel/serialization';
 import { AUTO_WORK_DECISION_TICKS } from '../sect-economy/types';
 import { lookupCommandReceipt } from '../world/history-access';
-import type { WorldState } from '../world/types';
+import type { WorldState, WorldStateBase } from '../world/types';
 import type { AutomaticJobId, AutomaticLiveJob, AutomaticProductionNotice, AutomaticProductionState, AutomaticTerminalPin,
   AutomaticTransaction, ProductionOrigin, ProductionReceiptContext, ProductionWork } from './automatic-types';
+import type { Cultivator } from '../cultivation/types';
 import type { Reservation } from './types';
 
-/** Temporary intersection also keeps this unreferenced module testable before the v7 World switch. */
-export type AutomaticWorld = WorldState & { automaticProduction: AutomaticProductionState };
+/** Shared production port. Versioned build/campaign/cultivation metadata is never read here. */
+export type AutomaticWorld = WorldStateBase & { cultivation: { disciples: Cultivator[] } };
 export const AUTOMATIC_JOURNAL_LIMIT = 64;
 export function createAutomaticProductionState(activationReviewRequired = false): AutomaticProductionState {
   return { schemaVersion: 1, nextCycle: 1, activationReviewRequired, live: {}, journal: [], pins: {} };
@@ -56,7 +57,7 @@ export function liveProductionAt(world: AutomaticWorld, id: string): LiveProduct
 export function lookupLiveProduction(world: AutomaticWorld, id: string): LiveProductionRecord | undefined {
   const record = liveProductionAt(world, id); return record ? cloneJson(record) : undefined;
 }
-export function recordAutomaticNotice(world: AutomaticWorld, notice: Omit<AutomaticProductionNotice, 'eventId' | 'tick'>): AutomaticWorld {
+export function recordAutomaticNotice<W extends AutomaticWorld>(world: W, notice: Omit<AutomaticProductionNotice, 'eventId' | 'tick'>): W {
   const allocated = allocateId(world.sequences, 'event');
   return { ...world, sequences: allocated.sequences, automaticProduction: { ...world.automaticProduction,
     journal: [...world.automaticProduction.journal, { ...notice, eventId: allocated.id, tick: world.clock.simulationTick }].slice(-AUTOMATIC_JOURNAL_LIMIT) } };
@@ -70,7 +71,7 @@ export function pendingAutomaticTargets(world: AutomaticWorld): Set<AutomaticJob
   return targets;
 }
 /** Call only after a due batch/queue change, never scan perpetual pins on every working tick. */
-export function cleanupAutomaticPendingPins(world: AutomaticWorld): AutomaticWorld {
+export function cleanupAutomaticPendingPins<W extends AutomaticWorld>(world: W): W {
   const targets = pendingAutomaticTargets(world);
   let pins = world.automaticProduction.pins;
   for (const [id, pin] of Object.entries(pins)) if (pin.retention === 'pending-command' && !targets.has(id as AutomaticJobId)) {
@@ -79,14 +80,14 @@ export function cleanupAutomaticPendingPins(world: AutomaticWorld): AutomaticWor
   }
   return pins === world.automaticProduction.pins ? world : { ...world, automaticProduction: { ...world.automaticProduction, pins } };
 }
-function cancellationEvent(world: AutomaticWorld, id: AutomaticJobId, pin: AutomaticTerminalPin): { world: AutomaticWorld; eventId: string } {
+function cancellationEvent<W extends AutomaticWorld>(world: W, id: AutomaticJobId, pin: AutomaticTerminalPin): { world: W; eventId: string } {
   const emitted = appendEvent(world, { kind: 'production.cancelled', rootActionId: pin.rootActionId, parentEventId: null,
     payload: { transactionId: id, recipeId: pin.recipeId, workerId: pin.workerId, settledTick: pin.completedTick } });
-  return { world: emitted.world as AutomaticWorld, eventId: emitted.event.eventId };
+  return { world: emitted.world, eventId: emitted.event.eventId };
 }
 /** Metadata retirement only. Production already settled inventory and released live worker/seat ownership. */
-export function retireAutomaticProduction(world: AutomaticWorld, transaction: AutomaticTransaction, state: 'Committed' | 'Cancelled',
-  receiptContext?: ProductionReceiptContext): { world: AutomaticWorld; eventIds: string[] } {
+export function retireAutomaticProduction<W extends AutomaticWorld>(world: W, transaction: AutomaticTransaction, state: 'Committed' | 'Cancelled',
+  receiptContext?: ProductionReceiptContext): { world: W; eventIds: string[] } {
   const id = transaction.transactionId;
   const pair = world.automaticProduction.live[id];
   if (!pair || pair.transaction.origin.cycle !== transaction.origin.cycle
@@ -96,7 +97,7 @@ export function retireAutomaticProduction(world: AutomaticWorld, transaction: Au
     rootActionId: transaction.rootActionId, completedTick: world.clock.simulationTick, resultEventId: null,
     retention: receiptContext ? 'exact-receipt' : 'pending-command' };
   const live = { ...world.automaticProduction.live }; delete live[id];
-  let next: AutomaticWorld = { ...world, automaticProduction: { ...world.automaticProduction, live } };
+  let next: W = { ...world, automaticProduction: { ...world.automaticProduction, live } };
   let eventIds: string[] = [];
   if (receiptContext) {
     const emitted = cancellationEvent(next, id, pin); next = emitted.world;
@@ -109,7 +110,7 @@ export function retireAutomaticProduction(world: AutomaticWorld, transaction: Au
   return { world: next, eventIds };
 }
 /** A prior temporary cancelled fact can acquire its first durable acknowledgment; no resources are touched. */
-export function acknowledgeAutomaticCancellation(world: AutomaticWorld, id: AutomaticJobId): { world: AutomaticWorld; eventIds: string[] } | null {
+export function acknowledgeAutomaticCancellation<W extends AutomaticWorld>(world: W, id: AutomaticJobId): { world: W; eventIds: string[] } | null {
   const pin = world.automaticProduction.pins[id];
   if (!pin || pin.state !== 'Cancelled') return null;
   if (pin.retention === 'exact-receipt') return { world, eventIds: [pin.resultEventId!] };
@@ -133,10 +134,10 @@ export function automaticWorkContext(world: AutomaticWorld, autoStartAllowance: 
         ? [building.blueprintId as AutomaticWorkContext['operationalWorkstations'][number]] : []),
     storageAvailable: world.buildings.some((building) => building.blueprintId === 'storage' && building.operational), autoStartAllowance };
 }
-export type AutomaticAdmission = { ok: true; world: AutomaticWorld; transactionId: AutomaticJobId }
+export type AutomaticAdmission<W extends AutomaticWorld = WorldState> = { ok: true; world: W; transactionId: AutomaticJobId }
   | { ok: false; reason: 'PLAN_CHANGED' | 'LIVE_LIMIT' | 'RESOURCE_CHANGED' };
 /** Internal authority only. This is deliberately absent from Command and kernel exports. */
-export function startAutomaticProduction(world: AutomaticWorld, intent: AutomaticProductionIntent): AutomaticAdmission {
+export function startAutomaticProduction<W extends AutomaticWorld>(world: W, intent: AutomaticProductionIntent): AutomaticAdmission<W> {
   if (world.activeProductionTransactionIds.length >= MAX_DISCIPLES) return { ok: false, reason: 'LIVE_LIMIT' };
   if (world.automaticProduction.activationReviewRequired) return { ok: false, reason: 'PLAN_CHANGED' };
   // Re-evaluate the authored worker's complete priority list against current stock,
@@ -157,7 +158,7 @@ export function startAutomaticProduction(world: AutomaticWorld, intent: Automati
     state: 'Running', activeTicks: 0, requiredTicks: recipe.workTicks, startedTick: world.clock.simulationTick,
     completedTick: null, resultEventId: null, blockedReason: null, phase: 'WaitingForStation', worksiteId: null, storageId: null,
     navigation: emptyNavigation() };
-  const next: AutomaticWorld = { ...world, sequences: reservation.sequences, inventory: reserved.inventory,
+  const next: W = { ...world, sequences: reservation.sequences, inventory: reserved.inventory,
     automaticProduction: { ...world.automaticProduction, nextCycle, live: { ...world.automaticProduction.live,
       [transactionId]: { transaction, reservation: reserved.reservation } } },
     activeProductionTransactionIds: [...world.activeProductionTransactionIds, transactionId],
