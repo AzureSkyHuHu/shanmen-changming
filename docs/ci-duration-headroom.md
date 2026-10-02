@@ -13,3 +13,9 @@ No tests, assertions, individual test timeouts, validation steps, serial executi
 deployment gates, workflow permissions, pinned dependencies or artifact checks are
 removed or relaxed. The deployment job remains unchanged. Long silent work still
 requires diagnosis; this is not permission to ignore stalled execution.
+
+## 2026-10-02 21:07 UTC follow-on headroom
+
+Run37059900215 at73ee8dfb578edd822934f7b21f32f2fa32d47816 passed167 files/3348 tests in1299.18s, then both builds and deployment. Subsequent serial capacity fixtures measured102.60s; new teaching/discharge/gate combined fixtures393.56s (later gate corrections separately20/20 pass110.78s). Those measured additions bring the expected serial duration close to or beyond30 minutes before runner variance and subsequent owner/codec fixtures.
+
+The validation job ceiling is40 minutes for these added real-reducer/save-continuation regressions. No test removal, assertion change, parallel execution, workflow permission change or deployment gate relaxation is part of this job-level change; deploy remains15 minutes. Some newly introduced long full-envelope correctness cases have their own explicit30s limits, documented in their stage reports; existing test limits are unchanged. Performance remains separately measured and is an activation blocker, not excused by this CI ceiling. More than20 minutes without verifiable progress still requires inspection; live job logs may not exist until GitHub finalizes a job.
