@@ -164,7 +164,7 @@ describe('one bounded versioned platform codec', () => {
     }
   });
 
-  it.each([0, -1, 9, 999, 7.5, '8', null])('rejects unregistered source version %s rather than guessing', (version) => {
+  it.each([0, -1, 10, 999, 7.5, '8', null])('rejects unregistered source version %s rather than guessing', (version) => {
     expect(parseVersionedSave(JSON.stringify({ saveVersion: version }))).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
   });
 

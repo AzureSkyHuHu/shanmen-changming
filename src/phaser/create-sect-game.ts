@@ -1,6 +1,6 @@
-import { disciplePresentation } from '../application/character-presentation';
 import Phaser from 'phaser';
-import type { ApplicationSession, DeepReadonly, SessionProjection } from '../application/session';
+import { asSectRendererSource, sectPlacementCellAt, sectRenderEntityKey, sectVisualWorkProgress, subscribeSectRenderer,
+  type LegacySectRendererSession, type SectRenderExpansion, type SectRendererSnapshot, type SectRendererSource } from './sect-renderer-contract';
 import { translate, type Locale, type TextKey } from '../i18n';
 import { BUILDING_ART, CHARACTER_ART, CHARACTER_FRAME, SCENERY_ART } from './art-manifest';
 
@@ -19,6 +19,13 @@ interface EntityView {
   lastY: number;
   direction: number;
 }
+interface ExpansionView {
+  container: Phaser.GameObjects.Container;
+  art: Phaser.GameObjects.Graphics;
+  label: Phaser.GameObjects.Text;
+  hit: Phaser.GameObjects.Rectangle;
+  signature: string;
+}
 /** Cosmetic coordinate hash. Never reads or advances the simulation's random streams. */
 const grain = (x: number, y: number, salt = 0) => ((Math.imul(x + 89, 374761393) ^ Math.imul(y + salt + 17, 668265263)) >>> 0) % 997;
 
@@ -27,14 +34,17 @@ class SectScene extends Phaser.Scene {
   private stop: (() => void) | null = null;
   private terrain: Phaser.GameObjects.Graphics | null = null;
   private decorations: Phaser.GameObjects.Container | null = null;
+  private placementArt: Phaser.GameObjects.Graphics | null = null;
+  private placementSignature = '';
   private mapSignature = '';
   private entityViews = new Map<string, EntityView>();
+  private expansionViews = new Map<string, ExpansionView>();
   private ready = false;
   private zoom = DEFAULT_ZOOM;
   private cameraTarget = { x: SIZE.width / 2, y: SIZE.height / 2 };
   private previousSelection = '';
 
-  constructor(private readonly session: ApplicationSession, private locale: Locale, private readonly initialZoom = DEFAULT_ZOOM) { super('sect-world'); this.zoom = initialZoom; }
+  constructor(private readonly source: SectRendererSource, private locale: Locale, private readonly initialZoom = DEFAULT_ZOOM) { super('sect-world'); this.zoom = initialZoom; }
 
   preload(): void {
     for (const asset of CHARACTER_ART) this.load.spritesheet(asset.key, asset.sheet, { frameWidth: CHARACTER_FRAME.width, frameHeight: CHARACTER_FRAME.height });
@@ -46,8 +56,24 @@ class SectScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, SIZE.width, SIZE.height).setRoundPixels(true).setZoom(this.zoom).centerOn(this.cameraTarget.x, this.cameraTarget.y);
     this.terrain = this.add.graphics().setDepth(-1000);
     this.decorations = this.add.container(0, 0).setDepth(-500);
-    this.stop = this.session.subscribe(() => this.sync());
-    const dispose = () => { this.stop?.(); this.stop = null; this.ready = false; this.entityViews.clear(); };
+    this.placementArt = this.add.graphics().setDepth(10000);
+    const placementClick = (pointer: Phaser.Input.Pointer) => {
+      const cell = sectPlacementCellAt(this.source.getSnapshot(), pointer.worldX, pointer.worldY, ORIGIN, TILE);
+      if (cell) this.source.onPlacementCell?.(cell);
+    };
+    this.input.on('pointerdown', placementClick);
+    this.stop = subscribeSectRenderer(this.source, () => this.sync());
+    const dispose = () => {
+      this.stop?.(); this.stop = null; this.ready = false;
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, dispose);
+      this.events.off(Phaser.Scenes.Events.DESTROY, dispose);
+      for (const view of this.entityViews.values()) view.container.destroy();
+      for (const view of this.expansionViews.values()) view.container.destroy();
+      this.entityViews.clear(); this.expansionViews.clear();
+      this.input.off('pointerdown', placementClick);
+      this.placementArt?.destroy(); this.placementArt = null;
+      this.mapSignature = ''; this.previousSelection = ''; this.placementSignature = '';
+    };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, dispose);
     this.events.once(Phaser.Scenes.Events.DESTROY, dispose);
     this.sync();
@@ -62,7 +88,7 @@ class SectScene extends Phaser.Scene {
     this.setZoom(this.initialZoom);
   }
 
-  private drawMap(projection: DeepReadonly<SessionProjection>): void {
+  private drawMap(projection: SectRendererSnapshot): void {
     const g = this.terrain!;
     g.clear();
     this.decorations!.removeAll(true);
@@ -136,12 +162,12 @@ class SectScene extends Phaser.Scene {
     const sprite = this.add.sprite(0, kind === 'disciple' ? 3 : 9, texture, 0).setOrigin(0.5, kind === 'disciple' ? CHARACTER_FRAME.originY : 0.83).setScale(kind === 'disciple' ? CHARACTER_FRAME.worldScale : 0.86);
     const label = this.add.text(0, kind === 'disciple' ? 20 : 30, '', { fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif', fontSize: '13px', color: '#f4edce', backgroundColor: '#304d46e8', padding: { x: 7, y: 4 } }).setOrigin(0.5, 0.5);
     const hit = this.add.rectangle(0, kind === 'disciple' ? -34 : -43, kind === 'disciple' ? 51 : 106, kind === 'disciple' ? 79 : 111, 0xffffff, 0).setInteractive({ useHandCursor: true });
-    hit.on('pointerdown', () => this.session.select({ kind, id }));
+    hit.on('pointerdown', () => { if (!this.source.getSnapshot().placement) this.source.select({ kind, id }); });
     const container = this.add.container(0, 0, [art, sprite, label, hit]);
     const view: EntityView = { container, art, sprite, label, signature: '', hovered: false, lastX: -1, lastY: -1, direction: 0 };
     hit.on('pointerover', () => { view.hovered = true; label.setVisible(true); });
     hit.on('pointerout', () => { view.hovered = false; this.sync(); });
-    this.entityViews.set(id, view);
+    this.entityViews.set(sectRenderEntityKey({ kind, id }), view);
     return view;
   }
 
@@ -159,14 +185,148 @@ class SectScene extends Phaser.Scene {
     }
   }
 
+  private createExpansionView(object: SectRenderExpansion): ExpansionView {
+    const art = this.add.graphics();
+    const label = this.add.text(0, 0, '', { fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif', fontSize: '13px',
+      color: '#f4edce', backgroundColor: '#304d46e8', padding: { x: 7, y: 4 } }).setOrigin(0.5, 0.5);
+    const hit = this.add.rectangle(0, 0, TILE * 2, TILE * 2, 0xffffff, 0).setInteractive({ useHandCursor: true });
+    hit.on('pointerdown', () => { if (!this.source.getSnapshot().placement) this.source.select({ kind: object.kind, id: object.id }); });
+    const container = this.add.container(0, 0, [art, label, hit]);
+    const view: ExpansionView = { container, art, label, hit, signature: '' };
+    this.expansionViews.set(sectRenderEntityKey(object), view);
+    return view;
+  }
+
+  private drawExpansion(view: ExpansionView, object: SectRenderExpansion, selected: boolean,
+    center: { x: number; y: number }, width: number, height: number): void {
+    const art = view.art; art.clear();
+    const planned = object.kind === 'blueprint' && object.status === 'planned';
+    const constructing = object.kind === 'blueprint' && object.status === 'started';
+    const color = planned ? 0xcee9db : constructing ? 0xe1ba70 : object.definitionId === 'library.v9' ? 0x96c9b3 : 0xdcb19b;
+    // Actual footprint cells are shown, never baked into or used to rewrite base-terrain walkability.
+    for (const cell of object.footprint.cells) {
+      const x = (cell.x - center.x) * TILE, y = (cell.y - center.y) * TILE;
+      art.fillStyle(planned ? 0x86b9ad : constructing ? 0x96734b : 0x607362, planned ? 0.2 : 0.48).fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
+      if (planned) {
+        art.lineStyle(2, color, 0.9);
+        for (let offset = 4; offset < TILE - 4; offset += 13) {
+          art.lineBetween(x + offset, y + 3, x + Math.min(offset + 7, TILE - 4), y + 3);
+          art.lineBetween(x + 3, y + offset, x + 3, y + Math.min(offset + 7, TILE - 4));
+          art.lineBetween(x + offset, y + TILE - 3, x + Math.min(offset + 7, TILE - 4), y + TILE - 3);
+          art.lineBetween(x + TILE - 3, y + offset, x + TILE - 3, y + Math.min(offset + 7, TILE - 4));
+        }
+      } else art.lineStyle(1, color, 0.55).strokeRect(x + 2, y + 2, TILE - 4, TILE - 4);
+    }
+    const left = -width / 2 + 12, right = width / 2 - 12, top = -height / 2 + 15, bottom = height / 2 - 13;
+    if (constructing) {
+      // An open timber scaffold, distinct from both a soft blueprint and a completed building.
+      art.lineStyle(6, 0x695843, 1).strokeRect(left, top + 4, right - left, bottom - top - 4);
+      art.lineStyle(3, 0xd2b486, 1).lineBetween(left, top + 6, right, bottom).lineBetween(right, top + 6, left, bottom);
+      art.lineStyle(4, 0xa08358, 1).lineBetween(left - 6, top + 25, right + 6, top + 25).lineBetween(left - 6, bottom - 20, right + 6, bottom - 20);
+      art.fillStyle(0xceb68c).fillRect(left + 9, bottom - 9, 31, 6).fillRect(left + 14, bottom - 17, 31, 6);
+    } else if (object.kind === 'sect-building') {
+      const library = object.definitionId === 'library.v9';
+      const alpha = object.operational ? 1 : 0.48;
+      art.fillStyle(0x2c4c43, 0.25).fillEllipse(2, bottom + 4, width - 4, 30);
+      art.fillStyle(library ? 0xc2b394 : 0xbea285, alpha).fillRect(left + 5, top + 28, right - left - 10, bottom - top - 28);
+      art.fillStyle(0x695643, alpha).fillRect(left + 7, top + 26, 6, bottom - top - 25).fillRect(right - 13, top + 26, 6, bottom - top - 25);
+      art.fillStyle(library ? 0x47776c : 0x955e50, alpha).fillTriangle(left - 7, top + 31, 0, top - 5, right + 7, top + 31);
+      art.fillStyle(library ? 0x6e9a83 : 0xb48362, alpha).fillRect(left - 7, top + 28, right - left + 14, 7);
+      art.lineStyle(2, 0xd5bc87, alpha).lineBetween(left - 8, top + 28, right + 8, top + 28);
+      if (library) {
+        // Authored bookcase and open-book crest identify the library without an asset alias.
+        art.fillStyle(0x544f40, alpha).fillRect(left + 21, top + 43, right - left - 42, bottom - top - 47);
+        const bookColors = [0xb5c5a1, 0xb38e7e, 0x8ca7a6, 0xd1bc83];
+        for (let row = 0; row < 2; row++) for (let book = 0; book < 5; book++) {
+          art.fillStyle(bookColors[(book + row) % bookColors.length]!, alpha).fillRect(left + 25 + book * 9, top + 47 + row * 19, 6, 14);
+        }
+        art.lineStyle(3, 0x8b7154, alpha).lineBetween(left + 20, top + 63, right - 20, top + 63);
+        art.fillStyle(0xe6d4a7, alpha).fillTriangle(-17, top + 9, 0, top + 13, -17, top + 23).fillTriangle(17, top + 9, 0, top + 13, 17, top + 23);
+        art.lineStyle(2, 0xefe0ba, alpha).lineBetween(0, top + 12, 0, top + 24);
+      } else {
+        // Alchemy is a roofed brazier/cauldron, not a recolored legacy workshop sprite.
+        art.fillStyle(0x58665e, alpha).fillEllipse(0, bottom - 22, 47, 33).fillRect(-18, bottom - 20, 36, 20);
+        art.fillStyle(0x93a590, alpha).fillEllipse(0, bottom - 35, 46, 13);
+        art.lineStyle(4, 0xc0b089, alpha).strokeEllipse(0, bottom - 34, 37, 7);
+        art.lineStyle(5, 0x566459, alpha).lineBetween(-17, bottom - 6, -23, bottom + 2).lineBetween(17, bottom - 6, 23, bottom + 2);
+        art.fillStyle(0xcfaa72, alpha).fillTriangle(-6, bottom - 12, 6, bottom - 12, 1, bottom - 24);
+        art.fillStyle(0x8eaca2, alpha).fillRect(right - 22, top + 43, 10, 17).fillRect(left + 13, top + 50, 9, 12);
+        if (object.level === 2) art.lineStyle(2, 0xe4d6a7, alpha).strokeCircle(-8, top + 19, 3).strokeCircle(8, top + 19, 3);
+      }
+      // Inoperable maintenance is a static slash as well as reduced opacity.
+      if (!object.operational) art.lineStyle(3, 0xd6b090, 1).strokeCircle(right - 4, bottom - 8, 10).lineBetween(right - 11, bottom - 1, right + 3, bottom - 15);
+    }
+    // Mark the exact authoritative entrance cell and the direction toward its footprint.
+    const entrance = object.footprint.entrance;
+    const ex = (entrance.x + 0.5 - center.x) * TILE, ey = (entrance.y + 0.5 - center.y) * TILE;
+    art.fillStyle(0x314f48, 0.8).fillRect(ex - 11, ey - 11, 22, 22);
+    art.lineStyle(2, color, 1).strokeRect(ex - 11, ey - 11, 22, 22);
+    const dx = Math.abs(ex) > Math.abs(ey) ? (ex < 0 ? 1 : -1) : 0;
+    const dy = dx === 0 ? (ey < 0 ? 1 : -1) : 0;
+    art.lineStyle(3, color, 1).lineBetween(ex - dx * 6, ey - dy * 6, ex + dx * 5, ey + dy * 5);
+    art.fillStyle(color, 1).fillTriangle(ex + dx * 9, ey + dy * 9,
+      ex - dy * 5, ey + dx * 5, ex + dy * 5, ey - dx * 5);
+    if (selected) art.lineStyle(3, 0xf5dfa3, 1).strokeRect(-width / 2 - 3, -height / 2 - 3, width + 6, height + 6);
+    const progress = object.kind === 'blueprint' ? sectVisualWorkProgress(object.work) : null;
+    if (progress !== null) {
+      art.fillStyle(0x29483e, 1).fillRect(-31, bottom + 7, 62, 7);
+      art.fillStyle(object.kind === 'blueprint' && object.work?.blocked ? 0xdca87c : 0xe5d79d, 1).fillRect(-30, bottom + 8, Math.round(progress * 60), 5);
+    }
+    view.label.setText(translate(this.locale, object.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy'));
+    view.label.setPosition(0, height / 2 + 18);
+    view.hit.setSize(width, height);
+  }
+
+  private syncExpansion(projection: SectRendererSnapshot): void {
+    const present = new Set<string>();
+    for (const object of projection.expansion) {
+      if (object.footprint.cells.length === 0) continue;
+      const key = sectRenderEntityKey(object); present.add(key);
+      const view = this.expansionViews.get(key) ?? this.createExpansionView(object);
+      const xs = object.footprint.cells.map(cell => cell.x), ys = object.footprint.cells.map(cell => cell.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+      const center = { x: (minX + maxX + 1) / 2, y: (minY + maxY + 1) / 2 };
+      const width = (maxX - minX + 1) * TILE, height = (maxY - minY + 1) * TILE;
+      const selected = projection.selection?.kind === object.kind && projection.selection.id === object.id;
+      const signature = JSON.stringify([object, selected, this.locale]);
+      if (view.signature !== signature) { this.drawExpansion(view, object, selected, center, width, height); view.signature = signature; }
+      view.container.setPosition(ORIGIN.x + center.x * TILE, ORIGIN.y + center.y * TILE).setDepth((maxY + 0.5) * TILE);
+    }
+    for (const [key, view] of this.expansionViews) if (!present.has(key)) { view.container.destroy(); this.expansionViews.delete(key); }
+  }
+
+  private syncPlacement(projection: SectRendererSnapshot): void {
+    const signature = JSON.stringify(projection.placement);
+    if (signature === this.placementSignature) return;
+    this.placementSignature = signature;
+    const art = this.placementArt!; art.clear();
+    const preview = projection.placement; if (!preview) return;
+    const color = preview.allowed ? 0xc3efc4 : 0xebac8f;
+    const cells = preview.footprint?.cells ?? [preview.anchor];
+    for (const cell of cells) {
+      const x = ORIGIN.x + cell.x * TILE, y = ORIGIN.y + cell.y * TILE;
+      art.fillStyle(color, 0.16).fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
+      art.lineStyle(3, color, 0.95).strokeRect(x + 3, y + 3, TILE - 6, TILE - 6);
+      // Shape, not color alone, distinguishes an invalid advisory footprint.
+      if (!preview.allowed) art.lineStyle(2, color, 0.9).lineBetween(x + 17, y + 17, x + 47, y + 47).lineBetween(x + 47, y + 17, x + 17, y + 47);
+    }
+    if (preview.footprint) {
+      const entrance = preview.footprint.entrance;
+      const x = ORIGIN.x + (entrance.x + 0.5) * TILE, y = ORIGIN.y + (entrance.y + 0.5) * TILE;
+      art.lineStyle(3, color, 1).strokeCircle(x, y, 15);
+      art.lineBetween(x - 8, y, x + 8, y).lineBetween(x, y - 8, x, y + 8);
+    }
+  }
+
   private sync(): void {
-    const projection = this.session.getSnapshot();
+    const projection = this.source.getSnapshot();
     const signature = `${projection.map.seed}:${projection.map.navVersion}:${projection.map.width}:${projection.map.height}`;
     if (this.mapSignature !== signature) { this.drawMap(projection); this.mapSignature = signature; }
     const present = new Set<string>();
     for (const building of projection.buildings) {
-      present.add(building.id);
-      const view = this.entityViews.get(building.id) ?? this.createView(building.id, 'building', `building-${building.blueprintId}`);
+      const key = sectRenderEntityKey({ kind: 'building', id: building.id });
+      present.add(key);
+      const view = this.entityViews.get(key) ?? this.createView(building.id, 'building', `building-${building.blueprintId}`);
       const selected = projection.selection?.kind === 'building' && projection.selection.id === building.id;
       const next = `${selected}:${building.operational}:${this.locale}`;
       if (view.signature !== next) {
@@ -178,17 +338,19 @@ class SectScene extends Phaser.Scene {
       view.label.setVisible(true);
       view.container.setPosition(ORIGIN.x + building.x * TILE + TILE / 2, ORIGIN.y + building.y * TILE + TILE / 2).setDepth(building.y * TILE);
     }
-    projection.disciples.forEach((disciple, index) => {
-      present.add(disciple.id);
-      const presentation = disciplePresentation(disciple, index);
-      const view = this.entityViews.get(disciple.id) ?? this.createView(disciple.id, 'disciple', presentation.id);
-      if (view.sprite.texture.key !== presentation.id) view.sprite.setTexture(presentation.id);
-      const transaction = projection.transactions.find((entry) => entry.transactionId === disciple.assignmentTransactionId);
+    this.syncExpansion(projection);
+    this.syncPlacement(projection);
+    projection.disciples.forEach((disciple) => {
+      const key = sectRenderEntityKey({ kind: 'disciple', id: disciple.id });
+      present.add(key);
+      const view = this.entityViews.get(key) ?? this.createView(disciple.id, 'disciple', disciple.presentationId);
+      if (view.sprite.texture.key !== disciple.presentationId) view.sprite.setTexture(disciple.presentationId);
+      const work = disciple.work;
       const selected = projection.selection?.kind === 'disciple' && projection.selection.id === disciple.id;
-      const progress = transaction ? transaction.activeTicks / transaction.requiredTicks : null;
-      const next = `${selected}:${progress}:${transaction?.state}:${disciple.lifeState}:${this.locale}`;
+      const progress = sectVisualWorkProgress(work);
+      const next = `${selected}:${progress}:${work?.blocked}:${disciple.lifeState}:${this.locale}`;
       if (view.signature !== next) {
-        this.drawMarker(view, selected, progress, transaction?.state === 'Blocked', false);
+        this.drawMarker(view, selected, progress, work?.blocked === true, false);
         const name = translate(this.locale, disciple.nameKey as TextKey);
         const lifecycleLabel = disciple.lifeState === 'dead' ? translate(this.locale, 'disciple.dead')
           : disciple.lifeState === 'pendingDeath' ? translate(this.locale, 'cultivation.ui.pendingDeath') : null;
@@ -208,7 +370,7 @@ class SectScene extends Phaser.Scene {
       if (disciple.lifeState !== 'alive') {
         view.sprite.setFrame(0).setFlipX(false);
       } else if (!projection.paused) {
-        const walking = disciple.traveling && transaction?.state !== 'Blocked' && disciple.lifeState === 'alive';
+        const walking = disciple.traveling && work?.blocked !== true && disciple.lifeState === 'alive';
         const pose = walking ? Math.floor(projection.clock.simulationTick / 2) % CHARACTER_FRAME.poses : 0;
         view.sprite.setFrame(view.direction * CHARACTER_FRAME.poses + pose);
       }
@@ -218,9 +380,9 @@ class SectScene extends Phaser.Scene {
       view.container.setPosition(ORIGIN.x + disciple.position.x * TILE + TILE / 2, ORIGIN.y + disciple.position.y * TILE + TILE / 2).setDepth(disciple.position.y * TILE + 1);
     });
     for (const [id, view] of this.entityViews) if (!present.has(id)) { view.container.destroy(); this.entityViews.delete(id); }
-    const selection = projection.selection ? `${projection.selection.kind}:${projection.selection.id}` : '';
+    const selection = projection.selection ? sectRenderEntityKey(projection.selection) : '';
     if (this.zoom > 1.25 && selection && selection !== this.previousSelection) {
-      const view = projection.selection ? this.entityViews.get(projection.selection.id) : undefined;
+      const view = this.entityViews.get(selection) ?? this.expansionViews.get(selection);
       if (view) { this.cameraTarget = { x: view.container.x, y: view.container.y - 45 }; this.cameras.main.centerOn(this.cameraTarget.x, this.cameraTarget.y); }
     }
     this.previousSelection = selection;
@@ -228,13 +390,15 @@ class SectScene extends Phaser.Scene {
 }
 
 export interface SectRenderer { setLocale(locale: Locale): void; setZoom(zoom: number): void; resetView(): void; destroy(): void }
-export function mountSectWorld(parent: HTMLElement, session: ApplicationSession, locale: Locale): SectRenderer {
-  const scene = new SectScene(session, locale, parent.clientWidth < 620 ? 1.8 : DEFAULT_ZOOM);
+export function mountSectWorld(parent: HTMLElement, source: SectRendererSource | LegacySectRendererSession, locale: Locale): SectRenderer {
+  const scene = new SectScene(asSectRendererSource(source), locale, parent.clientWidth < 620 ? 1.8 : DEFAULT_ZOOM);
   const game = new Phaser.Game({
     type: Phaser.AUTO, parent, width: SIZE.width, height: SIZE.height,
     scene: [scene], backgroundColor: '#91aca0', pixelArt: true, roundPixels: true,
     banner: false, autoFocus: false, audio: { noAudio: true },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   });
-  return { setLocale: (next) => scene.setLocale(next), setZoom: (zoom) => scene.setZoom(zoom), resetView: () => scene.resetView(), destroy: () => game.destroy(true) };
+  let destroyed = false;
+  return { setLocale: (next) => { if (!destroyed) scene.setLocale(next); }, setZoom: (zoom) => { if (!destroyed) scene.setZoom(zoom); },
+    resetView: () => { if (!destroyed) scene.resetView(); }, destroy: () => { if (!destroyed) { destroyed = true; game.destroy(true); } } };
 }

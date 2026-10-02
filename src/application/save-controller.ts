@@ -1,7 +1,7 @@
 import { createWorld } from '../core/kernel';
 import { measureWorldSaveBytes } from '../core/save-budget';
-import { createVersionedSaveEnvelope, serializeVersionedSave, type VersionedWorldState } from '../platform/save-codec';
-import { exportWorldSave, MAX_SAVE_FILE_BYTES, parseSaveFile, type SaveFile } from '../platform/files/save-files';
+import { createVersionedSaveEnvelope, serializeVersionedSave, isLegacySaveData, parseLegacySaveFile, type LegacyVersionedWorldState } from '../platform/save-codec';
+import { exportWorldSave, MAX_SAVE_FILE_BYTES, type SaveFile } from '../platform/files/save-files';
 import {
   CAMPAIGN_SLOT_IDS, openSaveRepository, PersistenceError,
   type CampaignSlotId, type IndexedDbSaveRepository, type RepositoryOptions, type SlotManifest, type WriterLease,
@@ -11,7 +11,7 @@ import { persistenceMessage } from './status-messages';
 import { ApplicationSession, deepFreeze, type DeepReadonly } from './session';
 
 export interface ImportFileSource { readonly name: string; readonly size: number; text(): Promise<string> }
-export type NewWorldFactory = (seed: string) => VersionedWorldState;
+export type NewWorldFactory = (seed: string) => LegacyVersionedWorldState;
 export interface ImportTarget { slotId: CampaignSlotId; revision: number; occupied: boolean }
 export interface SaveImportStatus {
   selectionId: number;
@@ -68,7 +68,8 @@ export class SaveController {
 
   constructor(private readonly session: ApplicationSession, private readonly newWorldFactory: NewWorldFactory = createWorld, repositoryOptions: RepositoryOptions = {}) {
     // Own the selected storage destination; later caller mutation cannot redirect this controller.
-    this.repositoryOptions = { ...repositoryOptions };
+    if (repositoryOptions.routePolicy === 'management-v9') throw new PersistenceError('INVALID_ARGUMENT', 'Legacy controller cannot select management-v9');
+    this.repositoryOptions = { ...repositoryOptions, routePolicy: repositoryOptions.routePolicy ?? 'legacy-v7-v8' };
   }
   readonly getSnapshot = (): DeepReadonly<SaveStatus> => this.status;
   readonly subscribe = (listener: () => void): (() => void) => {
@@ -191,7 +192,7 @@ export class SaveController {
       }
       if (this.status.mode === 'memory') {
         const text = serializeVersionedSave(createVersionedSaveEnvelope(world, metadata));
-        const checked = parseSaveFile(text);
+        const checked = parseLegacySaveFile(text, this.repositoryOptions.routePolicy as 'legacy-v7-v8' | 'v7' | 'v8');
         if (!checked.ok) throw new PersistenceError('INVALID_SAVE', 'Memory save failed validation; previous save preserved', { saveErrorCode: checked.error.code });
         this.memory.set(slotId, text);
         const revision = (this.status.slots.find((entry) => entry.slotId === slotId)?.slot?.revision ?? 0) + 1;
@@ -231,7 +232,7 @@ export class SaveController {
       if (this.status.mode === 'memory') {
         const text = this.memory.get(slotId);
         if (!text) throw new PersistenceError('SLOT_EMPTY', 'Memory slot is empty');
-        const parsed = parseSaveFile(text);
+        const parsed = parseLegacySaveFile(text, this.repositoryOptions.routePolicy as 'legacy-v7-v8' | 'v7' | 'v8');
         if (!parsed.ok) throw new PersistenceError('INVALID_SAVE', 'Memory save is invalid');
         this.session.replaceWorld(parsed.world);
         // v1–v4 SaveDialog persisted its UI-only choice hold. Domain decisions use separate reasons.
@@ -243,6 +244,7 @@ export class SaveController {
       const repository = this.repository;
       if (!repository) throw new PersistenceError('STORAGE_UNAVAILABLE', 'Repository is not open');
       let loaded = await repository.loadSlot(slotId);
+      if (!isLegacySaveData(loaded)) throw new PersistenceError('INVALID_SAVE', 'Legacy controller cannot load v9', { saveErrorCode: 'UNSUPPORTED_SAVE_VERSION' });
       let acquired: WriterLease | null = null;
       let readOnly = loaded.recovered;
       let notice: TextKey = loaded.recovered ? 'save.recoveredReadOnly' : 'migration' in loaded && loaded.migration ? 'save.migratedPaused' : 'save.loadedPaused';
@@ -251,6 +253,7 @@ export class SaveController {
           acquired = await repository.acquireLease(slotId, this.ownerId, { takeover });
           // Re-read after acquiring ownership so a completed competing save cannot be overwritten.
           loaded = await repository.loadSlot(slotId);
+          if (!isLegacySaveData(loaded)) throw new PersistenceError('INVALID_SAVE', 'Legacy controller cannot load v9', { saveErrorCode: 'UNSUPPORTED_SAVE_VERSION' });
           if (loaded.recovered) { readOnly = true; notice = 'save.recoveredReadOnly'; }
           else notice = 'migration' in loaded && loaded.migration ? 'save.migratedPaused' : 'save.loadedPaused';
         } catch (error) {
@@ -258,6 +261,7 @@ export class SaveController {
           else { if (acquired) await repository.releaseLease(acquired).catch(() => {}); throw error; }
         }
       }
+      if (!isLegacySaveData(loaded)) throw new PersistenceError('INVALID_SAVE', 'Legacy controller cannot load v9', { saveErrorCode: 'UNSUPPORTED_SAVE_VERSION' });
       const old = this.lease;
       this.lease = readOnly ? null : acquired;
       if (readOnly && acquired) await repository.releaseLease(acquired).catch(() => {});
@@ -287,7 +291,7 @@ export class SaveController {
     try {
       const text = await file.text();
       if (!current()) return false;
-      const parsed = parseSaveFile(text);
+      const parsed = parseLegacySaveFile(text, this.repositoryOptions.routePolicy as 'legacy-v7-v8' | 'v7' | 'v8');
       if (!parsed.ok) {
         const notice: TextKey = parsed.error.code === 'TOO_LARGE' ? 'save.import.tooLarge' : parsed.error.code.startsWith('UNSUPPORTED_') ? 'save.error.version' : 'save.error.invalid';
         this.update({ import: { ...emptyImport(selectionId), phase: 'error', filename, notice } });

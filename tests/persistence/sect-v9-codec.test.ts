@@ -369,8 +369,8 @@ describe('funded death, pause and near-cap boundaries', () => {
   });
 });
 
-describe('legacy platform and browser admission remain closed to v9', () => {
-  it('keeps genuine v7 and v8 byte/routing behavior and refuses actual v9 in every existing route', () => {
+describe('versioned platform routing leaves legacy core codecs unchanged', () => {
+  it('keeps genuine v7 and v8 bytes while recognizing v9 only through its dedicated codec', () => {
     const v7 = serializeSave(createSaveEnvelope(createWorld('codec-legacy-seven'), metadata));
     const v8 = serializeSaveV8(createSaveEnvelopeV8(createWorldV8('codec-legacy-eight'), metadata));
     expect(parseVersionedSave(v7)).toEqual(parseSave(v7)); expect(parseVersionedSave(v8)).toEqual(parseSaveV8(v8));
@@ -378,8 +378,10 @@ describe('legacy platform and browser admission remain closed to v9', () => {
     expect(parseVersionedSave(historical)).toEqual(parseSave(historical));
     for (const legacy of [v7, v8, historical]) expect(parseSaveV9(legacy)).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
     const world = createUnregisteredWorldV9(); const envelope = createSaveEnvelopeV9(world, metadata); const text = serializeSaveV9(envelope);
-    for (const parse of [parseSave, parseSaveV8, parseVersionedSave, parseSaveFile]) expect(parse(text)).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
-    expect(() => createVersionedSaveEnvelope(world as unknown as ReturnType<typeof createWorld>, metadata)).toThrow();
-    expect(() => serializeVersionedSave(envelope as unknown as ReturnType<typeof createSaveEnvelope>)).toThrow();
+    for (const parse of [parseSave, parseSaveV8]) expect(parse(text)).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
+    expect(parseVersionedSave(text)).toEqual(parseSaveV9(text));
+    expect(parseSaveFile(text)).toEqual(parseSaveV9(text));
+    expect(createVersionedSaveEnvelope(world, metadata)).toEqual(envelope);
+    expect(serializeVersionedSave(envelope)).toBe(text);
   });
 });

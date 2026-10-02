@@ -1,4 +1,5 @@
-import { createVersionedSaveEnvelope, parseVersionedSave, serializeVersionedSave, type SaveMetadata, type VersionedWorldState } from '../save-codec';
+import { SaveCodecErrorV9 } from '../../core/kernel/save-v9';
+import { createVersionedSaveEnvelope, parseSaveForRoute, serializeVersionedSave, type SaveMetadata, type VersionedWorldState } from '../save-codec';
 import { describeSaveFile, parseSaveFile, type SaveFile } from '../files/save-files';
 import {
   AUTO_GENERATIONS, CAMPAIGN_SLOT_IDS, DATABASE_NAME, DATABASE_VERSION, DEFAULT_LEASE_DURATION_MS,
@@ -9,7 +10,7 @@ import {
 } from './types';
 
 const STORES = ['slots', 'snapshots', 'leases'];
-const UNSUPPORTED_VERSIONS = new Set(['UNSUPPORTED_SAVE_VERSION', 'UNSUPPORTED_SIMULATION_VERSION', 'UNSUPPORTED_CONTENT_VERSION']);
+const UNSUPPORTED_VERSIONS = new Set(['UNSUPPORTED_SAVE_VERSION', 'UNSUPPORTED_SIMULATION_VERSION', 'UNSUPPORTED_CONTENT_VERSION', 'UNSUPPORTED_SCOPE']);
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const isPositiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
 const isSlot = (value: unknown): value is CampaignSlotId => CAMPAIGN_SLOT_IDS.includes(value as CampaignSlotId);
@@ -105,14 +106,19 @@ export class IndexedDbSaveRepository {
   private readonly now: () => number;
   private readonly faultInjector: RepositoryOptions['faultInjector'];
   private closed = false;
+  private readonly routePolicy: NonNullable<RepositoryOptions['routePolicy']>;
 
   private constructor(private readonly database: IDBDatabase, options: RepositoryOptions) {
+    this.routePolicy = options.routePolicy ?? 'legacy-v7-v8';
     this.now = options.now ?? Date.now;
     this.faultInjector = options.faultInjector;
     database.onversionchange = () => this.close();
   }
 
   static async open(options: RepositoryOptions = {}): Promise<IndexedDbSaveRepository> {
+    if (options.routePolicy !== undefined && !['legacy-v7-v8', 'v7', 'v8', 'management-v9'].includes(options.routePolicy)) {
+      throw new PersistenceError('INVALID_ARGUMENT', 'Unknown save route policy');
+    }
     let factory: IDBFactory | undefined;
     try { factory = options.indexedDB ?? globalThis.indexedDB; }
     catch (error) { throw normalizeError(error); }
@@ -167,11 +173,15 @@ export class IndexedDbSaveRepository {
     return now;
   }
 
-  private async transaction<T>(mode: IDBTransactionMode, body: (transaction: IDBTransaction) => Promise<T>): Promise<T> {
+  private async transaction<T>(mode: IDBTransactionMode, body: (transaction: IDBTransaction) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw new PersistenceError('TRANSACTION_FAILED', 'Storage operation was cancelled before commit');
     if (this.closed) throw new PersistenceError('STORAGE_UNAVAILABLE', 'Storage connection is closed; reopen it');
     let transaction: IDBTransaction;
     try { transaction = this.database.transaction(STORES, mode, mode === 'readwrite' ? { durability: 'strict' } : undefined); }
     catch (error) { throw normalizeError(error); }
+    const abort = () => { try { transaction.abort(); } catch { /* Already committed or aborted. */ } };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     const done = completion(transaction);
     // Attach rejection handling immediately, even while an individual request is pending.
     void done.catch(() => undefined);
@@ -184,7 +194,7 @@ export class IndexedDbSaveRepository {
       try { transaction.abort(); } catch { /* Already aborted or completed. */ }
       await done.catch(() => undefined);
       throw normalizeError(error);
-    }
+    } finally { signal?.removeEventListener('abort', abort); }
   }
 
   async listSlots(): Promise<Array<{ slotId: CampaignSlotId; slot: SlotManifest | null }>> {
@@ -249,22 +259,22 @@ export class IndexedDbSaveRepository {
   async saveWorld(slotId: CampaignSlotId, world: VersionedWorldState, metadata: SaveMetadata, options: WriteOptions): Promise<SaveCommit> {
     let text: string;
     try { text = serializeVersionedSave(createVersionedSaveEnvelope(world, metadata)); }
-    catch (cause) { throw new PersistenceError('INVALID_SAVE', 'Cannot snapshot an invalid world or metadata', { cause }); }
+    catch (cause) { throw new PersistenceError('INVALID_SAVE', 'Cannot snapshot an invalid world or metadata', { cause, ...(cause instanceof SaveCodecErrorV9 ? { saveErrorCode: cause.code } : {}) }); }
     return this.saveText(slotId, text, options);
   }
 
-  private async saveText(slotId: CampaignSlotId, text: string, options: WriteOptions): Promise<SaveCommit> {
+  async saveText(slotId: CampaignSlotId, text: string, options: WriteOptions): Promise<SaveCommit> {
     assertSlot(slotId); assertRevision(options.expectedRevision);
     const kind = options.kind ?? 'auto';
     if (!isKind(kind)) throw new PersistenceError('INVALID_ARGUMENT', 'Unknown snapshot kind');
-    const parsed = parseSaveFile(text);
+    const parsed = parseSaveFile(text, this.routePolicy);
     if (!parsed.ok) throw new PersistenceError('INVALID_SAVE', 'Snapshot failed validation', { saveErrorCode: parsed.error.code });
     return this.transaction('readwrite', async (transaction) => {
       await this.requireLease(transaction, slotId, options.lease);
       const prior = readManifest(await request<unknown>(transaction.objectStore('slots').get(slotId)), slotId);
       this.requireRevision(prior, options.expectedRevision);
       return this.writeInTransaction(transaction, slotId, prior, text, parsed.envelope.savedAt, kind, options.lease, false);
-    });
+    }, options.signal);
   }
 
   private requireRevision(prior: SlotManifest | null, expectedRevision: number): void {
@@ -273,7 +283,7 @@ export class IndexedDbSaveRepository {
 
   /** Import defaults to an empty slot. Explicit overwrite is also revision/lease fenced. */
   async importSave(text: string, options: ImportOptions): Promise<ImportedSave> {
-    const parsed = parseSaveFile(text);
+    const parsed = parseSaveFile(text, this.routePolicy);
     if (!parsed.ok) throw new PersistenceError('INVALID_SAVE', 'Import failed validation; all slots were preserved', { saveErrorCode: parsed.error.code });
     if (options.mode === 'overwrite') {
       assertSlot(options.slotId); assertRevision(options.expectedRevision);
@@ -284,7 +294,7 @@ export class IndexedDbSaveRepository {
         this.requireRevision(prior, options.expectedRevision);
         const commit = await this.writeInTransaction(transaction, options.slotId, prior, text, parsed.envelope.savedAt, 'manual', options.lease, true);
         return { ...commit, lease: options.lease };
-      });
+      }, options.signal);
     }
     assertOwner(options.ownerId);
     if (options.slotId !== undefined) assertSlot(options.slotId);
@@ -302,7 +312,7 @@ export class IndexedDbSaveRepository {
       const lease = await this.acquireInTransaction(transaction, selected, options.ownerId, duration, false);
       const commit = await this.writeInTransaction(transaction, selected, null, text, parsed.envelope.savedAt, 'manual', lease, false);
       return { ...commit, lease };
-    });
+    }, options.signal);
   }
 
   private async writeInTransaction(transaction: IDBTransaction, slotId: CampaignSlotId, prior: SlotManifest | null,
@@ -316,9 +326,11 @@ export class IndexedDbSaveRepository {
           throw new PersistenceError('NEWER_SAVE_PROTECTED', 'Unrecognized snapshot record version was preserved');
         }
         const record = readSnapshot(value, prior, id);
-        const result = record ? parseVersionedSave(record.text) : null;
-        if (result && !result.ok && UNSUPPORTED_VERSIONS.has(result.error.code)) {
-          throw new PersistenceError('NEWER_SAVE_PROTECTED', 'Unsupported stored save was preserved; export it before using another build', { saveErrorCode: result.error.code });
+        // Unsupported authority is protected even when other record metadata is damaged.
+        const inspected = isRecord(value) && typeof value.text === 'string' ? parseSaveForRoute(value.text, this.routePolicy) : null;
+        const result = record ? inspected : null;
+        if (inspected && !inspected.ok && UNSUPPORTED_VERSIONS.has(inspected.error.code)) {
+          throw new PersistenceError('NEWER_SAVE_PROTECTED', 'Unsupported stored save was preserved; export it before using another build', { saveErrorCode: inspected.error.code });
         }
         if (!overwrite && id === prior.currentSnapshotId && (!result || !result.ok)) {
           throw new PersistenceError('CURRENT_SNAPSHOT_INVALID', 'Current snapshot is corrupt; export a recovered generation into an empty slot');
@@ -335,7 +347,7 @@ export class IndexedDbSaveRepository {
     this.faultInjector?.('after-snapshot', transaction);
     const stored: unknown = await request(snapshots.get(id));
     if (!isRecord(stored) || stored.recordVersion !== 1 || stored.id !== id || stored.slotId !== slotId
-      || stored.revision !== revision || stored.kind !== kind || stored.text !== text || !parseSaveFile(stored.text).ok) {
+      || stored.revision !== revision || stored.kind !== kind || stored.text !== text || !parseSaveFile(stored.text, this.routePolicy).ok) {
       throw new PersistenceError('INVALID_SAVE', 'Stored snapshot read-back failed validation');
     }
     const base = overwrite ? null : prior;
@@ -369,7 +381,7 @@ export class IndexedDbSaveRepository {
         const value: unknown = await request(transaction.objectStore('snapshots').get(id));
         const snapshot = readSnapshot(value, slot, id);
         if (!snapshot) { issues.push({ snapshotId: id, code: value === undefined ? 'MISSING_SNAPSHOT' : 'INVALID_SNAPSHOT_RECORD' }); continue; }
-        const parsed = parseSaveFile(snapshot.text);
+        const parsed = parseSaveFile(snapshot.text, this.routePolicy);
         if (!parsed.ok) { issues.push({ snapshotId: id, code: parsed.error.code }); continue; }
         const { ok: _ok, ...data } = parsed;
         return { slot, snapshot, ...data, recovered: id !== slot.currentSnapshotId, issues };

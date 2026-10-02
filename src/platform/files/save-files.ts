@@ -1,6 +1,6 @@
 import {
   createVersionedSaveEnvelope, parseVersionedSave, serializeVersionedSave,
-  type SaveMetadata, type VersionedParseSaveResult, type VersionedSaveEnvelope, type VersionedWorldState,
+  parseSaveForRoute, type SaveRoutePolicy, type SaveMetadata, type VersionedParseSaveResult, type VersionedSaveEnvelope, type VersionedWorldState,
 } from '../save-codec';
 
 /** File-size limit is UTF-8 bytes, shared by every platform read/write path. */
@@ -11,8 +11,8 @@ export interface SaveFile {
   text: string;
 }
 
-/** Validate without changing source bytes. Legacy migrations stop at v7; v8 stays v8. */
-export function parseSaveFile(text: string): VersionedParseSaveResult { return parseVersionedSave(text); }
+/** Validate without changing source bytes. Legacy migrations stop at v7; v8/v9 retain their exact identities. */
+export function parseSaveFile(text: string, route?: SaveRoutePolicy): VersionedParseSaveResult { return route ? parseSaveForRoute(text, route) : parseVersionedSave(text); }
 
 /** A serializable download description; the UI owns creating/revoking any Blob URL. */
 export function describeSaveFile(text: string, envelope: VersionedSaveEnvelope): SaveFile {

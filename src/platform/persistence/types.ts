@@ -1,5 +1,5 @@
-import type { SaveErrorCode } from '../../core/kernel/save';
-import type { VersionedSaveData } from '../save-codec';
+import type { SaveErrorCodeV9 as SaveErrorCode } from '../../core/kernel/save-v9';
+import type { SaveRoutePolicy, VersionedSaveData } from '../save-codec';
 
 export const CAMPAIGN_SLOT_IDS = ['campaign-1', 'campaign-2', 'campaign-3'] as const;
 export type CampaignSlotId = (typeof CAMPAIGN_SLOT_IDS)[number];
@@ -7,6 +7,7 @@ export type SnapshotKind = 'auto' | 'manual' | 'checkpoint';
 export const AUTO_GENERATIONS = 3;
 export const DATABASE_VERSION = 1;
 export const DATABASE_NAME = 'shanmen-changming-saves';
+export const MANAGEMENT_V9_DATABASE_NAME = 'shanmen-changming-v9-management-saves';
 export const DEFAULT_LEASE_DURATION_MS = 15_000;
 
 export interface SlotManifest {
@@ -62,10 +63,12 @@ export type LoadedSave = SaveCommit & VersionedSaveData & {
 export interface WriteOptions {
   expectedRevision: number;
   lease: WriterLease;
+  signal?: AbortSignal;
   kind?: SnapshotKind;
 }
 export interface NewSlotImportOptions {
   mode?: 'new-slot';
+  signal?: AbortSignal;
   ownerId: string;
   /** Omit to select the first empty slot atomically. Never overwrites an occupied slot. */
   slotId?: CampaignSlotId;
@@ -76,6 +79,7 @@ export interface OverwriteImportOptions {
   slotId: CampaignSlotId;
   expectedRevision: number;
   lease: WriterLease;
+  signal?: AbortSignal;
 }
 export type ImportOptions = NewSlotImportOptions | OverwriteImportOptions;
 export interface ImportedSave extends SaveCommit { lease: WriterLease }
@@ -83,6 +87,8 @@ export type WriteStage = 'before-snapshot' | 'after-snapshot' | 'before-pointer'
 export interface RepositoryOptions {
   indexedDB?: IDBFactory;
   databaseName?: string;
+  /** Fixed codec policy, never a caller-supplied trusted validator. */
+  routePolicy?: SaveRoutePolicy;
   /** Platform clock only; never used to advance the simulation. */
   now?: () => number;
   /** Synchronous fault-injection seam for transaction tests; never await external work here. */

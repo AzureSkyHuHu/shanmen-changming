@@ -22,7 +22,7 @@ import { V9_CULTIVATION_CLOCK_LIMIT } from '../../src/core/world/v9-cultivation-
 import { measureProgressionRecord } from '../../src/core/save-budget/progression-bounds';
 import { deriveV9BuildObligationFacts, inspectV9KnownRecordHeadroom } from '../../src/core/world/v9-record-headroom';
 import type { WorldStateV9 } from '../../src/core/world/v9-types';
-import { parseVersionedSave } from '../../src/platform/save-codec';
+import { parseSaveForRoute, parseVersionedSave } from '../../src/platform/save-codec';
 
 function sect(world: WorldStateV9, payload: SectCommandV9): WorldStateV9 {
   const result = dispatchUnregisteredCommandV9(world, { kind: 'sect.command', commandId: payload.command.commandId, issuedTick: world.clock.simulationTick, sequence: 0, payload });
@@ -215,15 +215,20 @@ describe('read-only unregistered v9 management capacity query', () => {
     expect(result.deficits.some(deficit => deficit.dimension === 'cultivationClockStructuralNodes')).toBe(spare === 3);
     expect(result.measuredEnvelopeBytes).toBe(measureWorldSaveBytes(source, { saveVersion: 9 }));
   });
-  it('keeps v7/v8 codecs unchanged and v9 entirely unregistered despite a fitting query', () => {
+  it('keeps legacy routes isolated and rejects invalid v9 bytes despite a fitting query', () => {
     const legacy = createWorld('old-codec'); const candidate = createWorldV8('candidate-codec');
     const metadata = { buildId: 'test', savedAt: '2026-10-02' };
     const seven = serializeSave(createSaveEnvelope(legacy, metadata)); const eight = serializeSaveV8(createSaveEnvelopeV8(candidate, metadata));
     expect(parseVersionedSave(seven).ok).toBe(true); expect(parseVersionedSave(eight).ok).toBe(true);
     const world = createUnregisteredWorldV9('unregistered-fit'); expect(assessManagementCapacityV9(world).fits).toBe(true);
     expect(resolveContentIdentity(world.contentIdentity, { allowCandidate: true })).toBeNull();
-    expect(parseVersionedSave(canonicalStringify({ saveVersion: 9, simulationVersion: world.simulationVersion, contentVersion: world.contentVersion,
-      seed: world.seed, ...metadata, checksum: '00000000', payload: world }))).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
+    const invalidV9 = canonicalStringify({ saveVersion: 9, simulationVersion: world.simulationVersion, contentVersion: world.contentVersion,
+      seed: world.seed, ...metadata, checksum: '00000000', payload: world });
+    // Global routing recognizes v9, but capacity fit never bypasses its codec.
+    expect(parseVersionedSave(invalidV9)).toMatchObject({ ok: false, error: { code: 'CHECKSUM_MISMATCH' } });
+    for (const route of ['v7', 'v8', 'legacy-v7-v8'] as const) {
+      expect(parseSaveForRoute(invalidV9, route)).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_SAVE_VERSION' } });
+    }
     for (const old of [legacy, candidate]) expect(assessManagementCapacityV9(old as unknown as WorldStateV9).supported).toBe(false);
     expect(serializeSave(createSaveEnvelope(legacy, metadata))).toBe(seven); expect(serializeSaveV8(createSaveEnvelopeV8(candidate, metadata))).toBe(eight);
   });

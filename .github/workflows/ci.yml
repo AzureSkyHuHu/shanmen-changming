@@ -39,10 +39,12 @@ jobs:
         env:
           VITE_BASE_PATH: /shanmen-changming/
           VITE_ENABLE_V8_CANDIDATE: '1'
+          VITE_ENABLE_V9_MANAGEMENT: '1'
         run: |
           npm run build
           test -f dist/index.html
           test -f dist/candidate.html
+          test -f dist/management.html
           # These optional originals remain local, outside Git and the Pages artifact.
           test ! -e dist/assets/portraits/disciples-atlas-v1.png
           test ! -e dist/assets/campaign/jade-mountain-route-v1.png

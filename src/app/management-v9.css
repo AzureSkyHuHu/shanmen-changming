@@ -1,0 +1,60 @@
+/* Candidate-only layout: inherited jade, paper and brass, no new asset dependency. */
+.management-v9 { max-width: 112rem; margin: 0 auto; padding: clamp(1rem, 2.5vw, 2.5rem); color: var(--paper); font-size: 1rem; line-height: 1.6; }
+.management-v9 *, .management-v9-save-dialog * { box-sizing: border-box; min-width: 0; }
+.management-v9 h1 { font-size: clamp(1.6em, 3vw, 2.1em); }
+.management-v9 h2, .management-v9-save-dialog h2 { font-size: 1.25em; }
+.management-v9 h3, .management-v9-save-dialog h3 { font-size: 1.08em; font-weight: 600; }
+.management-v9 p, .management-v9-save-dialog p { overflow-wrap: anywhere; }
+.management-v9 button, .management-v9 select, .management-v9 input, .management-v9-save-dialog button, .management-v9-save-dialog select, .management-v9-save-dialog input { font-size: 1em; font-family: inherit; min-height: 2.75rem; max-width: 100%; }
+.management-v9 button, .management-v9-save-dialog button { white-space: normal; overflow-wrap: anywhere; }
+.management-v9 input, .management-v9-save-dialog input { color: #f6efd9; background: #203d33; border: 1px solid #a8b58d; border-radius: .25rem; padding: .45rem .6rem; }
+.management-v9 input:focus-visible, .management-v9-save-dialog input:focus-visible { outline: 2px solid #ffe3a0; outline-offset: 3px; }
+.management-v9 button:disabled, .management-v9-save-dialog button:disabled { opacity: .58; }
+.management-v9-header, .management-v9-header-controls, .management-v9-clock, .management-v9-dialog-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
+.management-v9-header { border-bottom: 1px solid #cabb8050; padding-bottom: 1rem; }
+.management-v9-eyebrow { color: #d8c491; letter-spacing: .06em; }
+.management-v9-header-controls label { display: grid; gap: .3rem; }
+.management-v9-scope, .management-v9-save-summary { background: #2f4738; border: 1px solid #d4c59050; padding: .8rem 1rem; margin: 1rem 0; border-radius: .45rem; }
+.management-v9-save-summary { display: flex; flex-wrap: wrap; gap: .45rem 1.5rem; color: #e6d7ae; }
+.management-v9-clock { justify-content: flex-start; margin: 1rem 0; }
+.management-v9-resources { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .55rem; margin: 1rem 0; }
+.management-v9-resources article { border: 1px solid #d4c59040; border-radius: .4rem; background: #294439; padding: .8rem; }
+.management-v9-resources h2 { font-family: inherit; font-size: 1em; }
+.management-v9-resources strong { font-size: 1.7em; color: #f0db9f; }
+.management-v9-resources p { font-size: .9em; }
+.management-v9-map-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 1fr); gap: 1rem; align-items: start; }
+.management-v9-world { overflow: hidden; border: 1px solid #bfd0a0; border-radius: .55rem; }
+.management-v9 .world-canvas { min-height: 24rem; height: min(60vh, 42rem); }
+.management-v9 .map-controls button { min-height: 2.75rem; width: 2.75rem; }
+.management-v9-panel { background: radial-gradient(ellipse at 0 0, #f0e9ce, #e4ddbd 85%); color: #2b473c; border: 1px solid #b3a87c; padding: 1.2rem; border-radius: .55rem; margin-bottom: 1rem; box-shadow: 0 .4rem 1.5rem #071d1a22; }
+.management-v9-panel > h2 { padding-bottom: .55rem; margin-bottom: .6rem; border-bottom: 1px solid #768b6650; }
+.management-v9-panel select, .management-v9-panel input { color: #263e33; background: #f9f3dd; border-color: #8d9c78; }
+.management-v9-help { color: #516649; margin: .6rem 0; }
+.management-v9-notice { color: #f0c09a; margin: .6rem 0; }
+.management-v9-panel .management-v9-notice { color: #81402f; }
+.management-v9-success { padding: .6rem; background: #d5dfbd; border-left: .2rem solid #5a7f46; margin: .8rem 0; }
+.management-v9-field { display: grid; gap: .35rem; margin: .8rem 0; }
+.management-v9-coordinates { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
+.management-v9-coordinates label { display: grid; gap: .35rem; }
+.management-v9-coordinates input { width: 100%; }
+.management-v9-actions, .management-v9-selection-list { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: .8rem; }
+.management-v9-review { padding: 1rem; margin: 1rem 0; border: 1px solid #b69b60; border-left: .25rem solid #aa8648; border-radius: .3rem; background: #244238; color: #f0e5c6; }
+.management-v9-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.management-v9-recipe-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.management-v9-card { padding: .9rem; border: 1px solid #8d9a6e55; border-radius: .35rem; margin: .75rem 0; }
+.management-v9-recipe-list .management-v9-card { margin: 0; }
+.management-v9-card button { margin-top: .5rem; }
+.management-v9-subheading { margin-top: 1.2rem; }
+.management-v9 progress { height: .6rem; margin: .6rem 0; }
+.management-v9-feedback { padding: .9rem; margin: 1rem 0; border-left: .2rem solid #d7bb7e; background: #233c33; min-height: 3rem; }
+.management-v9-save-dialog { width: min(52rem, calc(100vw - 2rem)); max-width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); overflow: auto; border: 1px solid #c8b27e; border-radius: .6rem; padding: clamp(1rem, 3vw, 2rem); background: #203d31; color: var(--paper); font-size: 1rem; }
+.management-v9-save-dialog::backdrop { background: #071a15dd; }
+.management-v9-save-dialog .management-v9-help { color: #c0cba9; }
+.management-v9-save-dialog .management-v9-card { border-color: #a1af7755; }
+.management-v9-save-slots { display: grid; gap: .75rem; }
+.management-v9-import { margin-top: 1.3rem; padding-top: 1rem; border-top: 1px solid #d4c59050; }
+.management-v9-checkbox { display: flex; align-items: flex-start; gap: .75rem; margin: 1rem 0; }
+.management-v9-checkbox input { min-width: 1.3rem; width: 1.3rem; margin-top: .25rem; min-height: 1.3rem; }
+@media (max-width: 72rem) { .management-v9-map-layout { grid-template-columns: 1fr; }.management-v9-recipe-list { grid-template-columns: 1fr; } }
+@media (max-width: 48rem) { .management-v9-panels { grid-template-columns: 1fr; }.management-v9 .world-canvas { min-height: 21rem; height: 60vw; }.management-v9-actions > button { flex: 1 1 10rem; }.management-v9-selection-list > button { flex: 1 1 10rem; } }
+@media (prefers-reduced-motion: reduce) { .management-v9 *, .management-v9 *::before, .management-v9 *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
