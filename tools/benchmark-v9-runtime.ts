@@ -7,6 +7,7 @@ import { SAVE_FILE_LIMIT_BYTES } from '../src/core/save-budget/admission';
 import { createUnregisteredWorldV9 } from '../src/core/world/create-world-v9';
 import { assessManagementCapacityV9 } from '../src/core/world/management-capacity-v9';
 import { advanceCapacityLimitedTicksV9 } from '../src/core/world/runtime-capacity-v9';
+import { advanceIdleCapacityLimitedTicksV9 } from '../src/core/world/runtime-idle-v9';
 import type { WorldStateV9 } from '../src/core/world/v9-types';
 import { fixtureApply, fixtureCareStart, fixtureCommand, fixtureSectCommand, fixtureUntil, fundedRuntimeFixture,
   medicineRuntimeFixture, recordChecked } from '../tests/sect-expansion/fixtures/v9-runtime';
@@ -70,25 +71,30 @@ export async function runBenchmarkV9(samples = 20): Promise<unknown> {
     for (const steps of [1, 20]) {
       const baseline = advanceUnregisteredTicksV9(scenario.world, steps); const gated = advanceCapacityLimitedTicksV9(scenario.world, steps);
       if (scenario.expectedEquivalent && canonicalStringify(baseline.world) !== canonicalStringify(gated.world)) throw new Error(`Boundary equivalence failed: ${scenario.name}/${steps}`);
-      for (const mode of ['record-only-baseline', 'capacity-gated-strict'] as const) {
-        const timings: number[] = []; let fullQueries = 0; let actualTicks = 0; let stop: string | null = null;
-        const invoke = () => mode === 'record-only-baseline' ? advanceUnregisteredTicksV9(scenario.world, steps) : advanceCapacityLimitedTicksV9(scenario.world, steps);
+      const expected = canonicalStringify({ world: gated.world, stopped: gated.stopped, commandResults: gated.commandResults });
+      for (const mode of ['record-only-baseline', 'capacity-gated-strict', 'capacity-gated-owned-idle'] as const) {
+        const timings: number[] = []; let fullQueries = 0; let fastQueries = 0; let actualTicks = 0; let stop: string | null = null;
+        const invoke = () => mode === 'record-only-baseline' ? advanceUnregisteredTicksV9(scenario.world, steps)
+          : mode === 'capacity-gated-strict' ? advanceCapacityLimitedTicksV9(scenario.world, steps) : advanceIdleCapacityLimitedTicksV9(scenario.world, steps);
         for (let warmup = 0; warmup < 2; warmup++) invoke();
         for (let index = 0; index < samples; index++) {
           const start = performance.now(); const result = invoke(); timings.push(performance.now() - start);
           fullQueries = 'metrics' in result ? result.metrics.fullQueries : 0;
+          fastQueries = 'metrics' in result && 'fastQueries' in result.metrics && typeof result.metrics.fastQueries === 'number' ? result.metrics.fastQueries : 0;
           actualTicks = result.world.clock.simulationTick - scenario.world.clock.simulationTick; stop = result.stopped?.kind ?? null;
+          if (mode === 'capacity-gated-owned-idle' && canonicalStringify({ world: result.world, stopped: result.stopped, commandResults: result.commandResults }) !== expected) {
+            throw new Error(`Owned idle/strict equivalence failed: ${scenario.name}/${steps}/${index}`);
+          }
         }
         rows.push({ scenario: scenario.name, fixture: scenario.fixture, mode, requestedTicks: steps, actualTicks, samples,
-          milliseconds: { p50: percentile(timings, .5), p95: percentile(timings, .95), max: Math.max(...timings) }, fullQueriesPerCall: fullQueries, stop });
+          milliseconds: { p50: percentile(timings, .5), p95: percentile(timings, .95), max: Math.max(...timings) }, fullQueriesPerCall: fullQueries, fastQueriesPerCall: fastQueries, stop });
       }
     }
     if (canonicalStringify(scenario.world) !== unchanged || Object.isFrozen(scenario.world)) throw new Error(`Caller input changed: ${scenario.name}`);
   }
-  // Keep the imported authentic preparation visible as the measured protocol's
-  // fixed normal tick; no synthetic fast path is included in this comparison.
+  // The normal preparation remains the unchanged strict differential oracle.
   if (typeof prepareNormalTickCandidateV9 !== 'function') throw new Error('Missing normal preparation');
   return { protocol: 'fresh-management-v9-unregistered.3', runtime: 'explicitly limited: no active/new teaching',
     fixtureSetupMillisecondsExcluded: fixtureMs, warmupsPerRow: 2, samplesPerRow: samples, timer: 'node:perf_hooks.performance.now',
-    interpretation: 'Serial local measurements; setup/query checks excluded. No 20Hz promise. FullQueries counts only whole management-capacity assessments.', rows };
+    interpretation: 'Serial local measurements; setup/equality/query checks excluded. No 20Hz promise. FullQueries counts whole management-capacity assessments; FastQueries counts exact owned scalar ticks. Active work falls back to strict.', rows };
 }
