@@ -65,7 +65,7 @@ export interface ProgressionNumericAssessment {
 /** V3 breakthrough success/death samples are both drawInteger(1, 10000).
  * Retain this potential across unrelated event-stream consumers and re-assess
  * every complete candidate. Newly introduced RNG consumers need their own bound. */
-export function assessProgressionNumeric(world: WorldStateV8, records: ProgressionReservationAssessment): ProgressionNumericAssessment {
+export function assessProgressionNumeric(world: Pick<WorldStateV8, 'randomStreams'>, records: ProgressionReservationAssessment): ProgressionNumericAssessment {
   const drawBound = integerRejectionDrawBound(10_000); const samples = records.totals.counterReserve.eventsSamples;
   const diagnostics = [...records.numeric.diagnostics];
   let rawEventDrawsRequired = 0;

@@ -16,6 +16,9 @@ import type { WorldStateV8 } from '../world/v8-types';
 import { assessBuildHistoryObligations, type BuildHistoryObligationFacts } from './build-obligations';
 import { canonicalUtf8ByteLength } from './canonical-bytes';
 
+/** Structural build-2/cultivation-3 record port; no World identity or save admission. */
+export type ProgressionRecordSource = Pick<WorldStateV8, 'automaticProduction' | 'builds' | 'clock' | 'cultivation' | 'disciples' | 'events' | 'expedition' | 'history' | 'legacy' | 'randomStreams' | 'sequences' | 'transactions'>;
+
 const MAX = Number.MAX_SAFE_INTEGER;
 const DIGITS = String(MAX).length;
 // Allocating MAX itself cannot complete its increment. MAX-1 has the same width.
@@ -145,7 +148,7 @@ function cultivationReceipt(owner: ProgressionReservation, label: string, comman
     archive(owner, `${label}:World.receipt+escaped-nested-fingerprint`, outer, 'commandReceipts');
   }
 }
-function cultivationEvent(owner: ProgressionReservation, world: WorldStateV8, label: string, kind: CultivationEvent['kind'], discipleId: string,
+function cultivationEvent(owner: ProgressionReservation, world: ProgressionRecordSource, label: string, kind: CultivationEvent['kind'], discipleId: string,
   relatedId: string, existing?: CultivationEvent, rootActionId = ACTION): void {
   const event: CultivationEvent = { eventId: EVENT, kind, month: MAX, rootActionId, discipleId, relatedId };
   if (!existing) {
@@ -174,7 +177,7 @@ function sortedIds(values: readonly string[]): string { return canonicalStringif
  * source/knowledge/relic/item/heir changes must re-admit this derivation. Teaching
  * knowledge and permanent grants are also included in eventual archive summaries.
  */
-export function deriveProgressionReservations(input: { world: WorldStateV8; buildFacts: BuildHistoryObligationFacts }): ProgressionReservationAssessment {
+export function deriveProgressionReservations(input: { world: ProgressionRecordSource; buildFacts: BuildHistoryObligationFacts }): ProgressionReservationAssessment {
   const result: ProgressionReservationAssessment = { supported: false, owners: [], totals: amounts(), unknowns: [],
     coverage: ['build retirement/history/receipt/source-removal and remaining item ownership chains',
       'cultivation expiry/death/archive, active teaching and accepted breakthrough terminal records',
@@ -476,8 +479,8 @@ function maximumRealm(current: Realm, target: Realm | null | undefined): Realm {
 /** Additional release ownership check. Capacity and all cross-domain validation
  * are still the caller's responsibility. A missing plan, unlocked build or
  * vanished owner is never by itself evidence that terminal work was committed. */
-export function verifyProgressionReservationDischarges(before: { world: WorldStateV8; assessment: ProgressionReservationAssessment },
-  after: { world: WorldStateV8; assessment: ProgressionReservationAssessment }): { supported: boolean; discharged: string[]; unknowns: string[] } {
+export function verifyProgressionReservationDischarges(before: { world: ProgressionRecordSource; assessment: ProgressionReservationAssessment },
+  after: { world: ProgressionRecordSource; assessment: ProgressionReservationAssessment }): { supported: boolean; discharged: string[]; unknowns: string[] } {
   const discharged: string[] = []; const unknowns: string[] = [];
   if (!before.assessment.supported || !after.assessment.supported) return { supported: false, discharged, unknowns: ['Cannot discharge an unsupported progression envelope'] };
   const world = after.world;

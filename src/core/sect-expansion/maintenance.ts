@@ -86,7 +86,7 @@ export function applySectMaintenanceResearchCommand(frame: SectMaintenanceFrame,
 }
 /** Automatic payments have no client command/receipt. Each immutable payment is its exact
  * ledger receipt. At most one attempt per expired building, no accrued debt and no failed IDs. */
-function tickMaintenanceOnly(frame: SectMaintenanceFrame, context: SectMaintenanceContext): SectMaintenanceFrame {
+export function tickValidatedSectMaintenancePayment(frame: SectMaintenanceFrame, context: SectMaintenanceContext): SectMaintenanceFrame {
   if (context.mode !== 'management' || context.paused || context.expeditionActive) return frame;
   let next = frame;
   for (const building of frame.construction.buildings.slice().sort((a, b) => compareStable(a.buildingId, b.buildingId))) {
@@ -130,7 +130,7 @@ export function tickSectMaintenance(frame: SectMaintenanceFrame, context: SectMa
     externalClaims: [...context.externalClaims, ...sectProductionClaims(frame), ...sectResearchClaims(frame)] }, budget, frame);
   if (!construction.ok) return rejected(frame, construction.code);
   try {
-    const maintained = tickMaintenanceOnly({ ...frame, construction: construction.frame }, context);
+    const maintained = tickValidatedSectMaintenancePayment({ ...frame, construction: construction.frame }, context);
     const production = tickValidatedSectProduction(maintained, { ...context, externalActiveJobs: context.externalActiveJobs + researchActive,
       externalClaims: [...context.externalClaims, ...sectResearchClaims(maintained)] }, budget, maintained, maintained);
     const afterProduction = { ...maintained, construction: production.construction, production: production.production };

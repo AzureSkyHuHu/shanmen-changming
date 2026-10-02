@@ -7,7 +7,7 @@ const same = (left: unknown, right: unknown) => canonicalStringify(left) === can
 /** Bind the explicit old exceptions to unchanged retained legacy prefixes and
  * their build migration allocation boundary. A new death cannot become old merely
  * by enlarging a saved count or recomputing the outer save checksum. */
-export function validateWorldLifecycleMigration(world: WorldStateV8): string[] {
+export function validateWorldLifecycleMigration(world: Pick<WorldStateV8, 'legacy' | 'builds' | 'cultivation'>): string[] {
   try {
     const metadata = world.legacy.migrationLifecycle; const boundary = world.builds.migration;
     if (!boundary) return metadata === null ? [] : ['Fresh World cannot claim legacy lifecycle exceptions'];

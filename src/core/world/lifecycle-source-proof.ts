@@ -5,7 +5,8 @@ import type { PendingDeath } from '../cultivation/types';
 import { validateWorldLifecycleMigration } from './lifecycle-migration';
 /** Legacy exceptions are explicit and bound to old retained prefixes. Every new
  * permanent death must instead have its actual lifecycle or mapped run source. */
-export function validateWorldLifecycleSources(world: WorldStateV8): string[] {
+export type LifecycleSource = Pick<WorldStateV8, 'legacy' | 'builds' | 'cultivation' | 'disciples' | 'expedition' | 'campaign'>;
+export function validateWorldLifecycleSources(world: LifecycleSource): string[] {
   const legacyErrors = validateWorldLifecycleMigration(world); if (legacyErrors.length) return legacyErrors;
   try {
     const metadata = world.legacy.migrationLifecycle;

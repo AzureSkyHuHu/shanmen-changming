@@ -1,3 +1,9 @@
+import { canonicalUtf8ByteLength } from '../save-budget';
+import { ownSectFields } from '../sect-expansion/layout';
+import { isManagementV9Identity, MANAGEMENT_V9_CONTENT_VERSION } from '../../content/sect-v9/world-content';
+import { inspectV9LifecycleRecords, type V9LifecycleRecordEvidence } from '../world/v9-lifecycle-records';
+import { inspectV9SectOwnerClosure } from '../world/v9-sect-bridge';
+import type { WorldStateV9 } from '../world/v9-types';
 import { inspectWorldEconomyRecords, closeLegacyWorldEconomyReservations } from './world-economy-records';
 import type { CommandV8 } from './contracts-v8';
 import { isCommandV8 } from './command-shape-v8';
@@ -55,7 +61,18 @@ export function validateLegacyWorldStateV6(value: unknown): string[] { return va
 export function validateLegacyWorldStateV7(value: unknown): string[] { return validateWorldSchema(value, 7); }
 /** Additive v8 boundary; not selected by current save/create APIs until admission is ready. */
 export function validateWorldStateV8(value: unknown): string[] { return validateWorldSchema(value, 8); }
-function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8): string[] {
+/** Internal record inspection only. This is intentionally absent from kernel public exports,
+ * save parsers and application admission; it proves no whole-save or exit capacity. */
+export function inspectUnregisteredWorldV9Records(value: WorldStateV9): string[] {
+  try {
+    canonicalUtf8ByteLength(value);
+    if (!ownSectFields(value, ['seed', 'simulationVersion', 'contentVersion', 'clock', 'randomStreams', 'sequences', 'map', 'disciples', 'buildings',
+      'sectEconomy', 'history', 'automaticProduction', 'inventory', 'reservations', 'transactions', 'activeProductionTransactionIds', 'commandReceipts',
+      'pendingCommands', 'events', 'unlocks', 'diagnostics', 'cultivation', 'builds', 'expedition', 'contentIdentity', 'campaign', 'legacy', 'runtimeProtocol', 'sectExpansion'])) return ['Invalid internal v9 root fields'];
+    return validateWorldSchema(value, 9);
+  } catch (error) { return [error instanceof Error ? error.message : 'Invalid internal v9 records']; }
+}
+function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9): string[] {
   const legacy = version === 1;
   const current = version === 7;
   const hasHistory = version >= 6;
@@ -68,8 +85,10 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   const errors: string[] = [];
   const fail = (message: string): string[] => [message];
   if (!object(value)) return fail('World must be an object');
-  if (!text(value.seed) || value.simulationVersion !== (hasCampaign ? '0.8.0' : legacy ? '0.1.1' : version === 2 ? '0.2.0' : current ? '0.7.0' : version === 6 ? '0.6.0' : version === 5 ? '0.5.0' : version === 4 ? '0.4.0' : '0.3.0')) return fail('Unsupported world identity/version');
-  if (hasCampaign) { try { getWorldContent(value as unknown as WorldStateV8); } catch { return fail('Unsupported World content identity'); } }
+  if (version !== 9 && (Object.hasOwn(value, 'sectExpansion') || Object.hasOwn(value, 'runtimeProtocol'))) return fail('Legacy World contains reserved v9 fields');
+  if (!text(value.seed) || value.simulationVersion !== (version === 9 ? '0.9.0' : hasCampaign ? '0.8.0' : legacy ? '0.1.1' : version === 2 ? '0.2.0' : current ? '0.7.0' : version === 6 ? '0.6.0' : version === 5 ? '0.5.0' : version === 4 ? '0.4.0' : '0.3.0')) return fail('Unsupported world identity/version');
+  if (version === 9) { if (value.contentVersion !== MANAGEMENT_V9_CONTENT_VERSION || !isManagementV9Identity(value.contentIdentity)) return fail('Unsupported internal v9 content identity'); }
+  else if (hasCampaign) { try { getWorldContent(value as unknown as WorldStateV8); } catch { return fail('Unsupported World content identity'); } }
   else if (value.contentVersion !== LEGACY_V7_CONTENT.worldContentVersion) return fail('Unsupported world content version');
   const clock = value.clock;
   if (!object(clock) || !isNonNegativeInteger(clock.simulationTick) || !isNonNegativeInteger(clock.calendarTick) || !isNonNegativeInteger(clock.encounterTick) || clock.calendarTick + clock.encounterTick !== clock.simulationTick || !['management', 'combat'].includes(clock.mode as string) || ![1, 3].includes(clock.speed as number) || !list(clock.pauseReasons) || !unique(clock.pauseReasons) || !clock.pauseReasons.every((reason) => PAUSE_REASONS.includes(reason as typeof PAUSE_REASONS[number]) && (hasAutomatic || reason !== 'save-capacity') && (hasCultivation || reason !== 'cultivation') && (hasProgression || reason !== 'expedition'))) return fail('Invalid clock');
@@ -119,6 +138,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     return object(entry) && entry.resourceId === id && isNonNegativeInteger(entry.owned) && isNonNegativeInteger(entry.reserved) && isNonNegativeInteger(entry.capacity) && entry.reserved <= entry.owned && entry.owned <= entry.capacity;
   })) return fail('Invalid inventory');
   if (!object(value.reservations) || !object(value.transactions) || !object(value.commandReceipts) || !list(value.pendingCommands) || !value.pendingCommands.every((command) => isVersionCommand(command) && (hasAutomatic || (command.kind !== 'inventory.discard' && (command.kind !== 'production.cancel' || !isAutomaticJobId(command.payload.transactionId)))) && (hasCultivation || command.kind !== 'cultivation.command') && (hasProgression || (command.kind !== 'build.command' && command.kind !== 'expedition.command')) && (hasEconomy || (command.kind !== 'sect-economy.command' && (command.kind !== 'production.start' || LEGACY_RECIPE_IDS.has(command.payload.recipeId)))))) return fail('Invalid ledgers or command queue');
+  if (version === 9 && value.pendingCommands.length !== 0) return fail('The internal v9 queue is not registered');
   if (!legacy && (!list(value.activeProductionTransactionIds) || !unique(value.activeProductionTransactionIds) || !value.activeProductionTransactionIds.every(text) || value.activeProductionTransactionIds.length > MAX_DISCIPLES)) return fail('Invalid active production index');
   let cultivation: CultivationState | CultivationStateV3 | null = null;
   if (hasCultivation) {
@@ -138,6 +158,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     const needsDecision = cultivation.pendingDeaths.length > 0 || cultivation.attempts.some((a) => a.phase === 'DecisionReady');
     if (clock.pauseReasons.includes('cultivation') !== needsDecision) return fail('Cultivation decision pause ownership mismatch');
   } else if (Object.hasOwn(value, 'cultivation')) return fail('Legacy world contains an unexpected cultivation schema');
+  let v9Lifecycle: V9LifecycleRecordEvidence | null = null;
   let campaignPaymentIds: string[] = [];
   let campaignActionRootIds: string[] = [];
   let archive: HistoryArchive | null = null;
@@ -146,7 +167,10 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     if (!object(value.builds) || !object(value.expedition)) return fail('Missing build/expedition authority');
     let progressionErrors: string[];
     try {
-      if (hasCampaign) {
+      if (version === 9) {
+        v9Lifecycle = inspectV9LifecycleRecords({ ...value, history: archive } as unknown as WorldStateV9);
+        progressionErrors = [];
+      } else if (hasCampaign) {
         const inspection = inspectWorldProgressionV8({ ...value, history: archive } as unknown as WorldStateV8);
         progressionErrors = inspection.errors; campaignPaymentIds = inspection.paymentInstanceIds; campaignActionRootIds = inspection.actionRootIds;
       } else progressionErrors = validateWorldProgression(version === 4 ? projectLegacyWorldV4Controller(value) : value as unknown as WorldState);
@@ -180,7 +204,9 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     map, clock, sequences, inventory, cultivation, automatic, archive, archivedIdentities, campaignPaymentIds });
   if (!economyInspection.ok) return economyInspection.errors;
   const economyRecords = economyInspection.records;
-  const economyClosureErrors = closeLegacyWorldEconomyReservations(economyRecords);
+  const economyClosureErrors = version === 9
+    ? inspectV9SectOwnerClosure(value as unknown as WorldStateV9, economyRecords, v9Lifecycle!)
+    : closeLegacyWorldEconomyReservations(economyRecords);
   if (economyClosureErrors.length) return economyClosureErrors;
   const { transactionIds, manualRootActions, settlementEventIds, liveReceipts, liveEvents } = economyRecords;
   const originatingCommands = new Map(economyRecords.originatingCommands);
@@ -204,6 +230,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   const justifiedDiscardEvents = new Set<string>();
   for (const event of events()) {
     if (!object(event) || idNumber(event.eventId, 'event') === null || ![...['production.started', 'production.committed', 'production.cancelled', 'production.blocked'], ...(hasAutomatic ? ['inventory.discarded'] : []), ...(hasCampaign ? ['campaign.committed'] : []), ...(hasCultivation ? CULTIVATION_EVENT_KINDS : [])].includes(event.kind as string) || !isNonNegativeInteger(event.tick) || event.tick > clock.simulationTick || idNumber(event.rootActionId, 'action') === null || !(event.parentEventId === null || text(event.parentEventId)) || !object(event.payload)) return fail('Invalid event');
+    if (version === 9 && event.kind === 'campaign.committed') return fail('Internal v9 campaign events are closed');
     if (event.kind !== 'campaign.committed') nonCampaignRoots.add(event.rootActionId as string);
     if (hasAutomatic && isAutomaticJobId(event.payload.transactionId)) {
       const jobId = event.payload.transactionId;
@@ -257,6 +284,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
     }
     let sourceCommand: unknown;
     try { sourceCommand = JSON.parse(receipt.fingerprint); } catch { return fail('Malformed command fingerprint'); }
+    if (version === 9 && object(sourceCommand) && ['campaign.command', 'expedition.command'].includes(String(sourceCommand.kind))) return fail('Internal v9 campaign/departure receipts are closed');
     if (!hasCampaign && object(sourceCommand) && sourceCommand.kind === 'campaign.command') return fail('Legacy receipt contains unsupported campaign content');
     const isCultivation = hasCultivation && object(sourceCommand) && sourceCommand.kind === 'cultivation.command';
     if (result.status === 'accepted') {

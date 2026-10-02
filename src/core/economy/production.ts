@@ -126,7 +126,7 @@ export function completeProduction<W extends ProductionWorld>(world: W, transact
 
 /** Fixed legacy binding. v7/v8 keep their original catalog, point positions and
  * authoritative settlement; none of these callbacks are save or command data. */
-function legacyProductionContext<W extends ProductionWorld>(): ProductionContext<W, ProductionWork> {
+export function createLegacyProductionContext<W extends ProductionWorld>(): ProductionContext<W, ProductionWork> {
   const site = (building: WorldBuilding): ProductionSite => ({ id: building.id,
     position: { x: building.x, y: building.y }, ownerTransactionId: building.stationTransactionId });
   return {
@@ -151,5 +151,5 @@ function legacyProductionContext<W extends ProductionWorld>(): ProductionContext
 /** Serialized phases own reservations and seats. Ordinary transit cells can be shared; work seats cannot.
  * A versioned tick orchestrator may share one budget across modules; legacy callers retain four requests per tick. */
 export function tickProduction<W extends ProductionWorld>(world: W, sharedPathBudget?: WorkPathBudget): W {
-  return runProductionPhases(world, legacyProductionContext<W>(), sharedPathBudget);
+  return runProductionPhases(world, createLegacyProductionContext<W>(), sharedPathBudget);
 }

@@ -1,3 +1,4 @@
+import { historicalDeathsOfV9LifecycleEvidence, type V9LifecycleRecordEvidence } from '../world/v9-lifecycle-records';
 import { CALENDAR_TICKS_PER_MONTH } from '../kernel/clock';
 import { validateWorldStateV8 } from '../kernel/validation';
 import { canonicalUtf8ByteLength } from '../save-budget';
@@ -46,6 +47,12 @@ class SectHistoricalIdentitySource {
     admittedHistoricalSources.add(source);
     return source;
   }
+  static fromV9Lifecycle(evidence: V9LifecycleRecordEvidence): SectHistoricalIdentitySource {
+    const facts = historicalDeathsOfV9LifecycleEvidence(evidence);
+    const source = new SectHistoricalIdentitySource(new Map(facts.map(fact => [fact.discipleId,
+      { tick: fact.tick, calendarMinimum: fact.calendarMinimum, calendarMaximum: fact.calendarMaximum }])));
+    admittedHistoricalSources.add(source); return source;
+  }
   static permits(source: SectHistoricalIdentitySource | undefined, workerId: string,
     terminal: { readonly tick: number; readonly calendarTick: number } | null): boolean {
     if (!source || typeof source !== 'object' || !admittedHistoricalSources.has(source) || !(#deaths in source) || terminal === null) return false;
@@ -67,3 +74,6 @@ export const captureSectHistoricalIdentitiesV8 = (world: WorldStateV8): SectHist
 /** Internal record leaf. This does not authenticate a frame, close owners or authorize work. */
 export const isArchivedSectWorkerReference = (source: SectHistoricalIdentitySource | undefined, workerId: string,
   terminal: { readonly tick: number; readonly calendarTick: number } | null): boolean => SectHistoricalIdentitySource.permits(source, workerId, terminal);
+
+/** Only the version-owned lifecycle stage can mint this historical-only source. */
+export const captureSectHistoricalIdentitiesV9 = (evidence: V9LifecycleRecordEvidence): SectHistoricalIdentitySource => SectHistoricalIdentitySource.fromV9Lifecycle(evidence);
