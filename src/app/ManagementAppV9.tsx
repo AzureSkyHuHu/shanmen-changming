@@ -13,6 +13,7 @@ import { SectManagementPanelV9 } from './SectManagementPanelV9';
 import { ManagementSavePanelV9, ManagementSaveSummaryV9 } from './ManagementSavePanelV9';
 import './app.css';
 import './management-v9.css';
+import './management-v9-navigation.css';
 
 /** Explicit service injection keeps this candidate out of old entry/save/World factories. */
 export interface ManagementAppV9Props { session: ApplicationSessionV9; saves: ManagementSaveControllerV9; initialLocale?: Locale }
@@ -26,6 +27,8 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
   const [request, setRequest] = useState<SectPlacementRequest>({ definitionId: 'library.v9', anchor: { x: 2, y: 2 }, rotation: 0 });
   const [review, setReview] = useState<PlacementReview | null>(null);
   const holdScope = useRef<ManagementUiHoldScopeV9 | null>(null);
+  const shell = useRef<HTMLElement | null>(null);
+  const commandBar = useRef<HTMLDivElement | null>(null);
   const pointer = useRef<(cell: { x: number; y: number }) => void>(() => {});
   const source = useMemo(() => createManagementV9RendererSource(session, { onPlacementCell: cell => pointer.current(cell) }), [session]);
   const t = (key: TextKey, parameters?: TranslationParams) => translate(locale, key, parameters);
@@ -37,6 +40,16 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
     return () => { if (holdScope.current === scope) holdScope.current = null; scope.dispose(); };
   }, [session]);
   useEffect(() => { void saves.start(); return () => saves.stop(); }, [saves]);
+  // Anchor/focus clearance follows actual wrapped text, including language and zoom changes.
+  // Measuring this presentation area never changes simulation state or announces clock ticks.
+  useEffect(() => {
+    const root = shell.current; const bar = commandBar.current; if (!root || !bar) return;
+    const measure = () => root.style.setProperty('--management-v9-toolbar-height', `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(bar); window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
   // One owned frame loop. Browser visibility/focus only controls Session's explicit holds.
   useEffect(() => {
     let disposed = false; let frame = 0;
@@ -86,31 +99,45 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
     if (review) cancelPlacement();
     const result = session.select(selection); if (!result.ok) setFeedback(managementResultV9(result));
   };
-  return <main className="management-v9" lang={locale}>
+  return <main className="management-v9" lang={locale} ref={shell}>
     <header className="management-v9-header">
       <div><p className="management-v9-eyebrow">{t('managementV9.candidate')}</p><h1>{t('app.title')}</h1><p>{t('managementV9.subtitle')}</p></div>
       <div className="management-v9-header-controls">
         <label>{t('settings.language.label')}<select value={locale} onChange={event => { const next = event.currentTarget.value === 'en' ? 'en' : 'zh-CN'; setLocale(next); writeLocalePreference(next); }}>
           <option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option>
         </select></label>
-        <button className="secondary" disabled={saveStatus.busy || !!review} onClick={() => { const current = session.getSnapshot(); if (current.sessionEpoch !== snapshot.sessionEpoch || current.holds.storageBusy || current.closed) { setFeedback({ key: 'managementV9.stale' }); return; } const result = holdScope.current?.setOverlayPaused(true); if (!result) return; if (!result.ok) { setFeedback(managementResultV9(result)); return; } setSaveOpen(true); }}>{t('save.open')}</button>
       </div>
     </header>
     <p className="management-v9-scope">{t('managementV9.scope')}</p>
-    <ManagementSaveSummaryV9 status={saveStatus} t={t} />
+    <ManagementSaveSummaryV9 status={saveStatus} locale={locale} t={t} />
+    <div className="management-v9-command-bar" ref={commandBar} role="region" aria-label={t('managementV9.controls')}>
+      <div className="management-v9-command-row">
+        <button className="secondary" aria-pressed={snapshot.frame.clock.pauseReasons.includes('player') || snapshot.holds.player} disabled={readOnly || saveStatus.busy || !!review || saveOpen || !!snapshot.stopped || snapshot.closed} onClick={() => {
+          const current = session.getSnapshot(); if (current.sessionEpoch !== snapshot.sessionEpoch || current.holds.storageBusy || getReadOnly() || current.stopped || current.closed) { setFeedback({ key: 'managementV9.stale' }); return; }
+          setFeedback(managementResultV9(session.togglePlayerPause()));
+        }}>{t(snapshot.frame.clock.pauseReasons.includes('player') || snapshot.holds.player ? 'managementV9.resume' : 'managementV9.pause')}</button>
+        {snapshot.frame.clock.speed !== 1 && <button disabled={!!blocked} onClick={() => { if (!managementBlockedV9(session.getSnapshot(), getReadOnly())) setFeedback(managementResultV9(session.setSpeed(1))); }}>{t('managementV9.setNormalSpeed')}</button>}
+        <button className="secondary" disabled={saveStatus.busy || !!review} onClick={() => { const current = session.getSnapshot(); if (current.sessionEpoch !== snapshot.sessionEpoch || current.holds.storageBusy || current.closed) { setFeedback({ key: 'managementV9.stale' }); return; } const result = holdScope.current?.setOverlayPaused(true); if (!result) return; if (!result.ok) { setFeedback(managementResultV9(result)); return; } setSaveOpen(true); }}>{t('save.open')}</button>
+        <span className="management-v9-run-state">{t(snapshot.paused ? 'managementV9.clockPaused' : 'managementV9.clockRunning')}</span>
+      </div>
+      <p className="management-v9-feedback" role="status" aria-live="polite" aria-atomic="true">{feedback ? t(feedback.key, feedback.parameters) : t('managementV9.feedbackReady')}</p>
+    </div>
+    <nav className="management-v9-section-nav" aria-label={t('managementV9.navigation')}>
+      <a href="#management-v9-overview">{t('managementV9.overview')}</a>
+      <a href="#management-v9-roster">{t('managementV9.people')}</a>
+      <a href="#management-v9-production">{t('managementV9.production')}</a>
+      <a href="#management-v9-jobs">{t('managementV9.jobs')}</a>
+      <a href="#management-v9-research">{t('managementV9.research')}</a>
+      <a href="#management-v9-care">{t('managementV9.care')}</a>
+      <a href="#management-v9-maintenance">{t('managementV9.maintenance')}</a>
+    </nav>
     <div className="management-v9-clock">
       <span>{t('live.calendar', { year: snapshot.frame.calendar.year, month: snapshot.frame.calendar.month })}</span>
       <span>{t('live.tick', { tick: snapshot.frame.clock.simulationTick })}</span>
       <span>{t('managementV9.speed', { speed: snapshot.frame.clock.speed })}</span>
-      <button className="secondary" aria-pressed={snapshot.frame.clock.pauseReasons.includes('player') || snapshot.holds.player} disabled={readOnly || saveStatus.busy || !!review || saveOpen || !!snapshot.stopped || snapshot.closed} onClick={() => {
-        const current = session.getSnapshot(); if (current.sessionEpoch !== snapshot.sessionEpoch || current.holds.storageBusy || getReadOnly() || current.stopped || current.closed) { setFeedback({ key: 'managementV9.stale' }); return; }
-        setFeedback(managementResultV9(session.togglePlayerPause()));
-      }}>{t(snapshot.frame.clock.pauseReasons.includes('player') || snapshot.holds.player ? 'managementV9.resume' : 'managementV9.pause')}</button>
-      {snapshot.frame.clock.speed !== 1 && <button disabled={!!blocked} onClick={() => { if (!managementBlockedV9(session.getSnapshot(), getReadOnly())) setFeedback(managementResultV9(session.setSpeed(1))); }}>{t('managementV9.setNormalSpeed')}</button>}
-      <span role="status">{t(snapshot.paused ? 'managementV9.clockPaused' : 'managementV9.clockRunning')}</span>
     </div>
     {(snapshot.stopped || snapshot.runtimeFailure) && <p className="management-v9-notice" role="alert">{t('managementV9.stopped')}</p>}
-    <section className="management-v9-resources" aria-label={t('live.resources')}>
+    <section id="management-v9-overview" className="management-v9-resources management-v9-anchor" tabIndex={-1} aria-label={t('live.resources')}>
       {[...snapshot.frame.resources.map(row => ({ ...row, name: t(`resource.${row.resourceId}`), ledger: 'base' })), ...snapshot.expansion.stock.map(row => ({ ...row, name: managementContentTextV9(SECT_V9_CANDIDATE.resources.find(item => item.resourceId === row.resourceId)!.nameKey, t), ledger: 'sect' }))].map(row => <article key={`${row.ledger}:${row.resourceId}`}>
         <h2>{row.name}</h2><strong>{row.owned}</strong><p>{t('live.available', { available: row.available, reserved: row.reserved })}</p><p>{t('live.capacity', { capacity: row.capacity })}</p>
       </article>)}
@@ -137,14 +164,13 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
         </div>
       </section>
     </div>
-    <section className="management-v9-panel" aria-labelledby="management-v9-selection"><h2 id="management-v9-selection">{t('managementV9.selection')}</h2>
+    <section id="management-v9-roster" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby="management-v9-selection"><h2 id="management-v9-selection">{t('managementV9.selection')}</h2>
       <div className="management-v9-selection-list">{snapshot.frame.disciples.map(actor => <button key={actor.id} className="secondary" aria-pressed={snapshot.selection?.kind === 'disciple' && snapshot.selection.id === actor.id} disabled={saveStatus.busy} onClick={() => choose({ kind: 'disciple', id: actor.id })}>{managementContentTextV9(actor.nameKey, t)} · {t('live.position', actor.position)}</button>)}
         {snapshot.frame.buildings.map(building => <button className="secondary" key={building.id} aria-pressed={snapshot.selection?.kind === 'building' && snapshot.selection.id === building.id} disabled={saveStatus.busy} onClick={() => choose({ kind: 'building', id: building.id })}>{managementContentTextV9(building.nameKey, t)}</button>)}
         {snapshot.expansion.blueprints.map(blueprint => <button className="secondary" key={blueprint.blueprintId} aria-pressed={snapshot.selection?.kind === 'blueprint' && snapshot.selection.id === blueprint.blueprintId} disabled={saveStatus.busy} onClick={() => choose({ kind: 'blueprint', id: blueprint.blueprintId })}>{t('managementV9.blueprintLabel', { name: t(blueprint.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy') })}</button>)}
         {snapshot.expansion.buildings.map(building => <button className="secondary" key={building.buildingId} aria-pressed={snapshot.selection?.kind === 'sect-building' && snapshot.selection.id === building.buildingId} disabled={saveStatus.busy} onClick={() => choose({ kind: 'sect-building', id: building.buildingId })}>{t(building.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')}</button>)}
       </div>
     </section>
-    <p className="management-v9-feedback" role="status" aria-live="polite">{feedback ? t(feedback.key, feedback.parameters) : t('managementV9.loopHint')}</p>
     <SectManagementPanelV9 session={session} snapshot={snapshot} readOnly={readOnly} getReadOnly={getReadOnly} t={t} onFeedback={setFeedback} />
     {saveOpen && <ManagementSavePanelV9 controller={saves} session={session} locale={locale} onClose={() => { if (saves.getSnapshot().busy) return; setSaveOpen(false); holdScope.current?.setOverlayPaused(false); }} />}
   </main>;

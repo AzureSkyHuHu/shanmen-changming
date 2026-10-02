@@ -1,0 +1,67 @@
+/* Candidate-only long-page navigation. No controls are reordered or hidden. */
+.management-v9-command-bar {
+  position: sticky;
+  top: .5rem;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto minmax(16rem, 1fr);
+  align-items: center;
+  gap: .5rem 1rem;
+  padding: .6rem .75rem;
+  margin: .75rem 0;
+  border: 1px solid #bca877;
+  border-radius: .5rem;
+  background: #203d33;
+  box-shadow: 0 .35rem 1rem #081e1a55;
+}
+.management-v9-command-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.management-v9-run-state { color: #e6d7ae; }
+.management-v9-command-bar .management-v9-feedback {
+  margin: 0;
+  padding: .3rem .7rem;
+  min-block-size: 3.3em;
+  display: flex;
+  align-items: center;
+  background: #203d33;
+}
+.management-v9-section-nav { display: flex; flex-wrap: wrap; gap: .35rem .65rem; margin: .6rem 0; }
+.management-v9-section-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  padding: .35rem .7rem;
+  border: 1px solid #d4c59050;
+  border-radius: .3rem;
+  color: #eee7d1;
+  background: #294439;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+  overflow-wrap: anywhere;
+}
+.management-v9-section-nav a:hover { background: #355747; }
+.management-v9-anchor, .management-v9 :is(button, input, select, a) {
+  scroll-margin-block-start: calc(var(--management-v9-toolbar-height, 10rem) + 1.25rem);
+}
+.management-v9-anchor:focus-visible { outline: 2px solid #ffe3a0; outline-offset: .25rem; }
+.management-v9-clock { gap: .4rem 1rem; margin: .6rem 0; }
+/* The short headings and complete ledger remain readable at natural text height. */
+.management-v9-resources { grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); gap: .5rem; margin: .6rem 0 1rem; }
+.management-v9-resources article { padding: .5rem .65rem; }
+.management-v9-resources h2, .management-v9-resources p { margin: 0; }
+.management-v9-resources strong { line-height: 1.35; }
+.management-v9-resources p { line-height: 1.4; }
+/* Each column is also a contiguous DOM group: production, then tasks and support. */
+.management-v9-panel-column { display: flex; flex-direction: column; gap: 1rem; }
+.management-v9-panel-column > .management-v9-panel { margin: 0; }
+.management-v9-care-reason { display: block; min-block-size: 1.65em; color: #81402f; margin-block: .35rem; }
+@media (max-width: 64rem) {
+  .management-v9-command-bar { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 48rem) {
+  .management-v9-section-nav a { flex: 1 1 8rem; }
+}
+/* Keep the complete text reachable in exceptionally short landscape viewports. */
+@media (max-height: 20rem) {
+  .management-v9-command-bar { position: static; }
+  .management-v9-anchor, .management-v9 :is(button, input, select, a) { scroll-margin-block-start: 1rem; }
+}

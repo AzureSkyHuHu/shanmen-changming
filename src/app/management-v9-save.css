@@ -1,0 +1,31 @@
+/* Keep the native dialog's return control and one feedback region in view. */
+dialog.management-v9-save-dialog {
+  --management-save-inset: clamp(1rem, 3vw, 2rem);
+  padding: 0;
+  overflow: hidden;
+}
+dialog.management-v9-save-dialog[open] { display: flex; flex-direction: column; }
+.management-v9-save-dialog .management-v9-save-heading {
+  flex: 0 0 auto;
+  padding: 1rem var(--management-save-inset);
+  border-bottom: 1px solid #d4c59050;
+  background: #203d31;
+}
+.management-v9-save-heading h2 { flex: 1 1 12rem; }
+.management-v9-save-heading > button { flex: 0 0 auto; }
+.management-v9-save-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: .5rem var(--management-save-inset) 1rem;
+}
+.management-v9-save-feedback {
+  flex: 0 0 auto;
+  padding: .75rem var(--management-save-inset);
+  border-top: 1px solid #d4c59050;
+  color: #f0c09a;
+  background: #203d31;
+}
+.management-v9-save-dialog .management-v9-save-load-hint { margin-bottom: 0; }

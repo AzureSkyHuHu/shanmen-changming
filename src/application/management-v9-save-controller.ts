@@ -389,7 +389,7 @@ export class ManagementSaveControllerV9 {
         this.lease = result.lease; transferred = true; this.boundRevision = result.slot.revision;
         this.saved(); this.importCandidate = null;
         this.update({ boundSlot: target.slotId, readOnly: false, dirty: false, lastSavedAt: result.slot.savedAt, slots: this.rows(result.slot),
-          import: { ...preview, phase: 'success', notice: 'save.import.success' } });
+          import: { ...preview, phase: 'success', notice: 'managementV9.importLoadedPaused' } });
         if (old && (old.slotId !== result.lease.slotId || old.epoch !== result.lease.epoch)) void repository.releaseLease(old).catch(() => {});
       } finally {
         if (acquired && !transferred && !priorBoundLease) await repository.releaseLease(acquired).catch(() => {});
