@@ -1,21 +1,23 @@
-import { applyCultivationCommandV3, previewBreakthroughV3 } from '../cultivation/v3';
-import type { BreakthroughPreparation, CultivationCommand, CultivationCommandResult, CultivationError, CultivationFrame } from '../cultivation/v3';
-import { REALMS } from '../cultivation/types';
-import { applyBuildAuthorityCommandV2 } from '../builds/v2';
-import type { MilestoneRuleId } from '../builds/types';
-import { liveProductionAt } from '../economy/automatic-production';
-import type { ProductionReceiptContext } from '../economy/automatic-types';
-import { cancelProduction } from '../economy/production';
-import { setPauseReason } from '../kernel/clock';
-import { copy } from '../expeditions/shared';
-import { appendWorldEvents, worldEventCursor, worldEventsSince } from './history-access';
-import { isCultivationWorkerAvailable } from './cultivation-bridge';
-import { getWorldBuildContentContext, getWorldContent } from './content-access';
-import { permanentTeachingLesson } from './teaching-provenance';
-import { cultivationFrameOf, prepareCultivationClockAdvance, prepareCultivationWorldEvents, projectCultivationDisciples } from './cultivation-preparation';
-import type { WorldStateV8 } from './v8-types';
+/** Frozen before cultivation preparation extraction (2026-10-02).
+ * Independent compatibility oracle: do not replace with the new preparation port. */
+import { applyCultivationCommandV3, previewBreakthroughV3, stepCultivationMonthsV3, synchronizeCultivationAgesV3 } from '../../../src/core/cultivation/v3';
+import type { BreakthroughPreparation, CultivationCommand, CultivationCommandResult, CultivationError, CultivationFrame } from '../../../src/core/cultivation/v3';
+import { REALMS } from '../../../src/core/cultivation/types';
+import { applyBuildAuthorityCommandV2 } from '../../../src/core/builds/v2';
+import type { MilestoneRuleId } from '../../../src/core/builds/types';
+import { liveProductionAt } from '../../../src/core/economy/automatic-production';
+import type { ProductionReceiptContext } from '../../../src/core/economy/automatic-types';
+import { cancelProduction } from '../../../src/core/economy/production';
+import { CALENDAR_TICKS_PER_MONTH, setPauseReason } from '../../../src/core/kernel/clock';
+import { checkedAdd } from '../../../src/core/kernel/numeric';
+import { copy } from '../../../src/core/expeditions/shared';
+import { appendWorldEvents, worldEventCursor, worldEventsSince } from '../../../src/core/world/history-access';
+import { isCultivationWorkerAvailable } from '../../../src/core/world/cultivation-bridge';
+import { getWorldBuildContentContext, getWorldContent } from '../../../src/core/world/content-access';
+import { permanentTeachingLesson } from '../../../src/core/world/teaching-provenance';
+import type { WorldStateV8 } from '../../../src/core/world/v8-types';
 
-export const cultivationFrameV8 = (world: WorldStateV8): CultivationFrame => cultivationFrameOf(world);
+export const cultivationFrameV8 = (world: WorldStateV8): CultivationFrame => ({ cultivation: world.cultivation, inventory: world.inventory, randomStreams: world.randomStreams, sequences: world.sequences });
 export const hasCultivationDecisionV8 = (world: WorldStateV8): boolean => world.cultivation.pendingDeaths.length > 0 || world.cultivation.attempts.some(attempt => attempt.phase === 'DecisionReady');
 export function withCultivationPauseV8(world: WorldStateV8): WorldStateV8 {
   return { ...world, clock: setPauseReason(world.clock, 'cultivation', hasCultivationDecisionV8(world)) };
@@ -47,12 +49,15 @@ export function reconcileWorldProgressionV8(world: WorldStateV8): WorldStateV8 {
   }
   return next;
 }
-/** v8 owns this publication order and its legacy-production cancellation set.
- * Other World versions must compose their own complete owner cleanup; this is
- * not a generic publication hook or permission to run work after a new pause. */
-function publishCultivationFrameV8(world: WorldStateV8, frame: CultivationFrame, receiptContext?: ProductionReceiptContext): WorldStateV8 {
-  let next = appendWorldEvents({ ...world, ...frame }, prepareCultivationWorldEvents(world, frame));
-  next = { ...next, disciples: projectCultivationDisciples(next.disciples, next.cultivation) };
+function publish(world: WorldStateV8, frame: CultivationFrame, receiptContext?: ProductionReceiptContext): WorldStateV8 {
+  let next = appendWorldEvents({ ...world, ...frame }, frame.cultivation.events.slice(world.cultivation.events.length).map(event => ({
+    eventId: event.eventId, kind: event.kind, tick: world.clock.simulationTick, rootActionId: event.rootActionId, parentEventId: null,
+    payload: { discipleId: event.discipleId, relatedId: event.relatedId, month: event.month } } )));
+  next = { ...next, disciples: next.disciples.map(actor => {
+    const profile = next.cultivation.disciples.find(member => member.discipleId === actor.id)!;
+    return { ...actor, lifeState: profile.lifeState, ageMonths: profile.ageMonths,
+      canWork: profile.lifeState !== 'alive' ? false : profile.ageMonths !== actor.ageMonths ? profile.ageMonths >= 16 * 12 : actor.canWork };
+  }) };
   for (const id of [...next.activeProductionTransactionIds]) {
     const job = liveProductionAt(next, id)?.transaction; if (!job) throw new TypeError('Missing production obligation');
     if (!isCultivationWorkerAvailable(next, job.workerId)) {
@@ -75,10 +80,25 @@ export function dispatchWorldCultivationV8(world: WorldStateV8, command: Cultiva
     }
   }
   const transition = applyCultivationCommandV3(cultivationFrameV8(world), command); if (!transition.ok) return { ok: false, code: transition.code };
-  const next = publishCultivationFrameV8(world, transition.frame, receiptContext);
+  const next = publish(world, transition.frame, receiptContext);
   return { ok: true, world: next, result: transition.result, eventIds: worldEventsSince(next, worldEventCursor(world)).map(event => event.eventId) };
 }
 export function advanceWorldCultivationV8(world: WorldStateV8): WorldStateV8 {
-  const frame = prepareCultivationClockAdvance(world);
-  return frame === null ? world : publishCultivationFrameV8(world, frame);
+  if (world.clock.mode !== 'management') return world;
+  const ages: Record<string, number> = {}; let changed = false;
+  for (const actor of world.disciples) {
+    const profile = world.cultivation.disciples.find(member => member.discipleId === actor.id); if (!profile) throw new TypeError('Missing cultivation identity');
+    if (profile.lifeState !== 'alive') continue;
+    ages[actor.id] = Math.floor(checkedAdd(world.clock.calendarTick, -actor.birthCalendarTick) / CALENDAR_TICKS_PER_MONTH);
+    if (ages[actor.id] !== profile.ageMonths) changed = true;
+  }
+  const month = Math.floor(world.clock.calendarTick / CALENDAR_TICKS_PER_MONTH);
+  if (month !== world.cultivation.calendarMonth) {
+    if (month !== world.cultivation.calendarMonth + 1) throw new TypeError('Cultivation calendar skipped a month');
+    const step = stepCultivationMonthsV3(cultivationFrameV8(world), 1, { ages });
+    if (step.processedMonths !== 1) throw new TypeError(`Cultivation month failed: ${step.stopped}`); return publish(world, step.frame);
+  }
+  if (!changed) return world;
+  const synced = synchronizeCultivationAgesV3(cultivationFrameV8(world), ages);
+  if (!synced.ok) throw new TypeError(`Cultivation birthday failed: ${synced.code}`); return publish(world, synced.frame);
 }
