@@ -13,25 +13,28 @@ import { captureSectHistoricalIdentitiesV9 } from '../sect-expansion/history-ide
 import { ownSectFields } from '../sect-expansion/layout';
 import { tickValidatedSectMaintenancePayment } from '../sect-expansion/maintenance';
 import type { SectMaintenanceFrame } from '../sect-expansion/maintenance-types';
-import { validateSectMaintenanceOwnerClosure, validateWorldSectMaintenanceRecords } from '../sect-expansion/maintenance-validation';
+import { validateWorldSectMaintenanceRecords } from '../sect-expansion/maintenance-validation';
 import { applyValidatedSectProductionCommand, sectProductionClaims, tickValidatedSectProduction } from '../sect-expansion/production-runtime';
 import { applyValidatedSectResearchCommand, tickValidatedSectResearch } from '../sect-expansion/research-runtime';
 import { sectAllLocalClaims, sectClaimsConflict, sectResearchClaims } from '../sect-expansion/research-validation';
-import type { SectExpansionOwnedRecords } from '../sect-expansion/world-records-types';
+import type { SectCareFrameV9, SectExpansionOwnedRecordsV9 } from '../sect-expansion/care-types';
+import { applyValidatedCareCommandV9, sectCareClaims, tickValidatedCareV9, v9CarePatientEligible } from '../sect-expansion/care-runtime';
+import { validateCareOwnerClosureV9, validateCareRecordsV9 } from '../sect-expansion/care-validation';
 import { lookupEvent, lookupCommandReceipt } from './history-access';
 import { isCultivationWorkerAvailable } from './cultivation-bridge';
 import type { SectCommandV9 } from '../kernel/contracts-v9';
 import type { V9LifecycleRecordEvidence } from './v9-lifecycle-records';
 import type { WorldStateV9 } from './v9-types';
 
-/** Single owner union; future care adds a discriminant and its real records here. */
-export type V9WorkOwner = { kind: 'legacy-production' | 'construction' | 'sect-production' | 'research'; id: string; workerId: string };
+/** Single explicit v9 work-owner union, including non-worker patient care. */
+export type V9WorkOwner = { kind: 'legacy-production' | 'construction' | 'sect-production' | 'research' | 'care'; id: string; workerId: string };
 export function v9WorkOwners(world: WorldStateV9): V9WorkOwner[] {
   return [
     ...world.activeProductionTransactionIds.map(id => ({ kind: 'legacy-production' as const, id, workerId: liveProductionAt(world, id)!.transaction.workerId })),
     ...world.sectExpansion.construction.jobs.filter(job => job.terminal === null).map(job => ({ kind: 'construction' as const, id: job.jobId, workerId: job.workerId })),
     ...world.sectExpansion.production.jobs.filter(job => job.terminal === null).map(job => ({ kind: 'sect-production' as const, id: job.transactionId, workerId: job.workerId })),
     ...world.sectExpansion.research.jobs.filter(job => job.terminal === null).map(job => ({ kind: 'research' as const, id: job.jobId, workerId: job.workerId })),
+    ...world.sectExpansion.care.jobs.filter(job => job.terminal === null).map(job => ({ kind: 'care' as const, id: job.jobId, workerId: job.patientId })),
   ];
 }
 export function v9WorkerAvailable(world: WorldStateV9, workerId: string): boolean {
@@ -61,7 +64,7 @@ export function v9SectContext(world: WorldStateV9): ConstructionContext {
 }
 /** Borrow real authority only for a synchronous internal stage. No second current map,
  * people, base ledger or clock is persisted. An active sect owner owns its own travel. */
-export function projectV9SectFrame(world: WorldStateV9): SectMaintenanceFrame {
+export function projectV9SectFrame(world: WorldStateV9): SectCareFrameV9 {
   const records = world.sectExpansion;
   const owners = v9WorkOwners(world);
   const people = world.disciples.map((actor): ConstructionPerson => {
@@ -78,20 +81,20 @@ export function projectV9SectFrame(world: WorldStateV9): SectMaintenanceFrame {
     lastSimulationTick: world.clock.simulationTick, lastCalendarTick: world.clock.calendarTick,
     legacyStations: world.buildings.map(site => ({ id: site.id, blueprintId: site.blueprintId, x: site.x, y: site.y, operational: site.operational })),
     ledger: { inventory: world.inventory, stock: records.stock, reservations: records.reservations } },
-    production: records.production, research: records.research, maintenance: records.maintenance };
+    production: records.production, research: records.research, maintenance: records.maintenance, care: records.care };
 }
-export function ownedV9SectRecords(frame: SectMaintenanceFrame): SectExpansionOwnedRecords {
+export function ownedV9SectRecords(frame: SectCareFrameV9): SectExpansionOwnedRecordsV9 {
   const { schemaVersion, catalogIdentity, revision, nextId, blueprints, jobs, buildings, receipts } = frame.construction;
   return { schemaVersion: 1, construction: { schemaVersion, catalogIdentity, revision, nextId, blueprints, jobs, buildings, receipts },
     stock: frame.construction.ledger.stock, reservations: frame.construction.ledger.reservations,
-    production: frame.production, research: frame.research, maintenance: frame.maintenance };
+    production: frame.production, research: frame.research, maintenance: frame.maintenance, care: frame.care };
 }
-export function composeV9SectFrame(world: WorldStateV9, frame: SectMaintenanceFrame): WorldStateV9 {
+export function composeV9SectFrame(world: WorldStateV9, frame: SectCareFrameV9): WorldStateV9 {
   const records = ownedV9SectRecords(frame);
   return { ...world, map: frame.construction.map, inventory: frame.construction.ledger.inventory, sectExpansion: records,
     disciples: world.disciples.map(actor => {
       const person = frame.construction.people.find(person => person.id === actor.id)!;
-      if (actor.assignmentTransactionId !== null) return actor;
+      if (actor.assignmentTransactionId !== null || records.care.jobs.some(job => job.patientId === actor.id && !job.terminal)) return actor;
       const jobs = [...records.construction.jobs, ...records.production.jobs, ...records.research.jobs];
       const job = jobs.find(job => job.workerId === actor.id && job.terminal === null);
       return { ...actor, position: { ...person.position }, traveling: !!job && job.navigation.path.length > 0 && (('state' in job ? job.blockedReason === null : job.blocked === null)) };
@@ -99,11 +102,17 @@ export function composeV9SectFrame(world: WorldStateV9, frame: SectMaintenanceFr
 }
 export function inspectV9SectOwnerClosure(world: WorldStateV9, economy: WorldEconomyRecords, lifecycle: V9LifecycleRecordEvidence): string[] {
   const records = world.sectExpansion;
-  if (!ownSectFields(records, ['schemaVersion', 'construction', 'stock', 'reservations', 'production', 'research', 'maintenance']) || records.schemaVersion !== 1
+  if (!ownSectFields(records, ['schemaVersion', 'construction', 'stock', 'reservations', 'production', 'research', 'maintenance', 'care']) || records.schemaVersion !== 1
     || !ownSectFields(records.construction, ['schemaVersion', 'catalogIdentity', 'revision', 'nextId', 'blueprints', 'jobs', 'buildings', 'receipts'])) return ['Invalid v9 owned records'];
   const frame = projectV9SectFrame(world);
-  const issues = validateWorldSectMaintenanceRecords(frame, captureSectHistoricalIdentitiesV9(lifecycle));
+  const identities = captureSectHistoricalIdentitiesV9(lifecycle);
+  // Keep the original record-only view and ALL shared reservations. The old exact
+  // four-owner root remains strict; only this version authenticates the fifth owner.
+  const maintenanceView: SectMaintenanceFrame = { schemaVersion: 1, construction: frame.construction, production: frame.production, research: frame.research, maintenance: frame.maintenance };
+  const issues = validateWorldSectMaintenanceRecords(maintenanceView, identities);
   if (issues.length) return issues.map(issue => `${issue.code}:${issue.path}`);
+  const careIssues = validateCareRecordsV9(world, maintenanceView, identities);
+  if (careIssues.length) return careIssues.map(issue => `${issue.code}:${issue.path}`);
   // This protocol has never run combat: every persisted paired clock is on the
   // same genesis timeline, including records with no completed-building anchor yet.
   const paired: readonly (readonly [number, number])[] = [
@@ -121,7 +130,7 @@ export function inspectV9SectOwnerClosure(world: WorldStateV9, economy: WorldEco
     ...records.maintenance.payments.map(payment => [payment.paidTick, payment.paidCalendarTick] as const),
   ];
   if (paired.some(([tick, calendar]) => tick !== calendar)) return ['V9 management historical clocks differ'];
-  const local = validateSectMaintenanceOwnerClosure(frame); if (local.length) return local.map(issue => `${issue.code}:${issue.path}`);
+  const local = validateCareOwnerClosureV9(world, maintenanceView); if (local.length) return local.map(issue => `${issue.code}:${issue.path}`);
   const old = closeWorldEconomyOwnerLinks(economy); if (!old.ok) return old.errors;
   for (const id of RESOURCE_IDS) {
     const sect = records.reservations.reduce((sum, claim) => sum + (claim.base.remainingReservation.find(line => line.resourceId === id)?.quantity ?? 0), 0);
@@ -133,19 +142,21 @@ export function inspectV9SectOwnerClosure(world: WorldStateV9, economy: WorldEco
       + (claim.sect.settlement?.kind === 'committed' ? claim.sect.settlement.outputs.find(line => line.resourceId === id)?.quantity ?? 0 : 0), 0);
     if (!Number.isSafeInteger(owned) || records.stock[id].owned !== owned) return ['V9 zero-genesis stock provenance differs'];
   }
-  const owners = v9WorkOwners(world); const localClaims = sectAllLocalClaims(frame);
+  const owners = v9WorkOwners(world); const localClaims = [...sectAllLocalClaims(frame), ...sectCareClaims(world)];
   if (owners.length > 36 || new Set(owners.map(owner => owner.workerId)).size !== owners.length
     || sectClaimsConflict([...v9SectContext(world).externalClaims, ...localClaims])) return ['V9 work claims conflict'];
   for (const owner of owners) {
+    if (owner.kind === 'care') { if (!v9CarePatientEligible(world, owner.workerId, owner.id)) return ['V9 live patient unavailable']; continue; }
     const actor = world.disciples.find(actor => actor.id === owner.workerId);
     if (!actor || !actor.canWork || !isCultivationWorkerAvailable(world, owner.workerId)
       || world.builds.disciples.find(member => member.discipleId === owner.workerId)?.lock) return ['V9 live worker unavailable'];
   }
   const commandIds = new Set<string>();
-  const domainReceipts = [...records.construction.receipts, ...records.production.receipts, ...records.research.receipts];
+  const domainReceipts = [...records.construction.receipts, ...records.production.receipts, ...records.research.receipts, ...records.care.receipts];
   for (const receipt of domainReceipts) {
     if (commandIds.has(receipt.command.commandId) || lookupCommandReceipt(world, receipt.command.commandId)) return ['V9 command identity has multiple owners'];
     commandIds.add(receipt.command.commandId);
+    if (receipt.command.kind.startsWith('care.')) continue; // Its exact system cancellation source is authenticated by the care leaf.
     if (receipt.command.commandId.startsWith('system/v9/')) {
       const command = receipt.command;
       const job = command.kind === 'construction.cancel' ? records.construction.jobs.find(job => job.blueprintId === command.blueprintId)
@@ -167,7 +178,10 @@ export function inspectV9SectOwnerClosure(world: WorldStateV9, economy: WorldEco
 
 /** Internal stages return candidates only. The version root authenticates source and result. */
 export function applyV9SectStage(world: WorldStateV9, command: SectCommandV9): { world: WorldStateV9; relatedId: string | null; repeated: boolean } | { code: string } {
-  const frame = projectV9SectFrame(world); const context = v9SectContext(world);
+  const frame = projectV9SectFrame(world); const baseContext = v9SectContext(world);
+  if (command.domain === 'care') return applyValidatedCareCommandV9(world, frame, baseContext, command.command);
+  const context = { ...baseContext, externalActiveJobs: baseContext.externalActiveJobs + world.sectExpansion.care.jobs.filter(job => !job.terminal).length,
+    externalClaims: [...baseContext.externalClaims, ...sectCareClaims(world)] };
   if (command.domain === 'construction') {
     const result = applyValidatedConstructionCommand(frame.construction, { ...context,
       externalActiveJobs: context.externalActiveJobs + frame.production.jobs.filter(job => !job.terminal).length + frame.research.jobs.filter(job => !job.terminal).length,
@@ -184,7 +198,9 @@ export function applyV9SectStage(world: WorldStateV9, command: SectCommandV9): {
 }
 export function tickV9SectStages(world: WorldStateV9, budget: WorkPathBudget): WorldStateV9 {
   if (isPaused(world.clock)) return world;
-  const frame = projectV9SectFrame(world); const context = v9SectContext(world);
+  const frame = projectV9SectFrame(world); const baseContext = v9SectContext(world);
+  const context = { ...baseContext, externalActiveJobs: baseContext.externalActiveJobs + world.sectExpansion.care.jobs.filter(job => !job.terminal).length,
+    externalClaims: [...baseContext.externalClaims, ...sectCareClaims(world)] };
   const researchActive = frame.research.jobs.filter(job => !job.terminal).length;
   const construction = tickValidatedConstruction(frame.construction, { ...context,
     externalActiveJobs: context.externalActiveJobs + researchActive + frame.production.jobs.filter(job => !job.terminal).length,
@@ -195,14 +211,15 @@ export function tickV9SectStages(world: WorldStateV9, budget: WorkPathBudget): W
     externalClaims: [...context.externalClaims, ...sectResearchClaims(maintained)] }, budget, maintained, maintained);
   const afterProduction = { ...maintained, construction: production.construction, production: production.production };
   const research = tickValidatedSectResearch(afterProduction, context, budget, afterProduction);
-  return composeV9SectFrame(world, { ...afterProduction, construction: research.construction, research: research.research });
+  const composed = composeV9SectFrame(world, { ...afterProduction, construction: research.construction, research: research.research, care: frame.care });
+  return tickValidatedCareV9(composed, projectV9SectFrame(composed), v9SectContext(composed), budget);
 }
 /** Old recipe/state machines remain unchanged; only their actual movement/site view is bound
  * to v9's authoritative footprint and exclusive expansion claims. One budget is shared. */
 export function tickV9LegacyProduction(world: WorldStateV9, budget = createWorkPathBudget(world.clock.simulationTick)): WorldStateV9 {
   const stages = createLegacyProductionContext<WorldStateV9>();
   const free = (candidate: WorldStateV9, id: string, position: { x: number; y: number }): boolean =>
-    !sectAllLocalClaims(projectV9SectFrame(candidate)).some(claim => claim.kind === 'seat' && claim.key === id || claim.kind === 'entrance' && claim.key === `${position.x},${position.y}`);
+    ![...sectAllLocalClaims(projectV9SectFrame(candidate)), ...sectCareClaims(candidate)].some(claim => claim.kind === 'seat' && claim.key === id || claim.kind === 'entrance' && claim.key === `${position.x},${position.y}`);
   return runProductionPhases(world, { ...stages,
     view: candidate => ({ ...stages.view(candidate), map: constructionEffectiveMap(projectV9SectFrame(candidate).construction) }),
     workSites: (candidate, recipe) => stages.workSites(candidate, recipe).filter(site => free(candidate, site.id, site.position)),

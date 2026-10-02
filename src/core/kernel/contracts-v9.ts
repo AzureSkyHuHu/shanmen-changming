@@ -1,3 +1,4 @@
+import type { SectCareCommand } from '../sect-expansion/care-types';
 import type { ConstructionCommand } from '../sect-expansion/construction-types';
 import type { SectProductionCommand } from '../sect-expansion/production-types';
 import type { SectResearchCommand } from '../sect-expansion/research-types';
@@ -6,7 +7,8 @@ import type { CommandV8 } from './contracts-v8';
 
 export type SectCommandV9 = { domain: 'construction'; command: ConstructionCommand }
   | { domain: 'production'; command: SectProductionCommand }
-  | { domain: 'research'; command: SectResearchCommand };
+  | { domain: 'research'; command: SectResearchCommand }
+  | { domain: 'care'; command: SectCareCommand };
 /** No queue/codec registration. Departures and campaign commands explicitly reject. */
 export type CommandV9 = CommandV8 | { kind: 'sect.command'; payload: SectCommandV9;
   commandId: string; sequence: number; issuedTick: number };

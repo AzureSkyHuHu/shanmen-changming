@@ -24,7 +24,7 @@ export const EMPTY_V9_EXPEDITION = Object.freeze({ schemaVersion: 2 as const, ru
  * history only; it is neither a whole-World validator nor a save/capacity certificate. */
 export function inspectV9LifecycleRecords(world: WorldStateV9): V9LifecycleRecordEvidence {
   canonicalUtf8ByteLength(world); // reject accessors before any domain reads
-  if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.1'
+  if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.2'
     || world.contentVersion !== MANAGEMENT_V9_CONTENT_VERSION || !isManagementV9Identity(world.contentIdentity)
     || world.clock.mode !== 'management' || world.clock.encounterTick !== 0 || world.clock.calendarTick !== world.clock.simulationTick
     || !same(world.expedition, EMPTY_V9_EXPEDITION)

@@ -1,3 +1,4 @@
+import { SECT_CARE_LIMITS } from '../sect-expansion/care-types';
 import { managementV9BuildContext } from '../../content/sect-v9/world-content';
 import { MAX_CULTIVATION_HISTORY } from '../cultivation/rules';
 import { REALMS } from '../cultivation/types';
@@ -10,6 +11,11 @@ import type { WorldStateV9 } from './v9-types';
 /** Known finite record/counter obligations only. Deliberately NOT whole-save bytes,
  * reader-union admission, perpetual time/cancellation growth or an exit certificate. */
 export function inspectV9KnownRecordHeadroom(world: WorldStateV9): string[] {
+  const care = world.sectExpansion.care; const activeCare = care.jobs.filter(job => !job.terminal).length;
+  // Starts preallocate their only job/reservation IDs. Completion adds a fixed effect in
+  // that existing job; forced cancellation adds at most one already-reserved receipt.
+  if (care.jobs.length > SECT_CARE_LIMITS.records || care.receipts.length + activeCare > SECT_CARE_LIMITS.receipts
+    || care.revision > Number.MAX_SAFE_INTEGER - activeCare) return ['Care terminal record/revision headroom exhausted'];
   const profiles = new Map(world.cultivation.disciples.map(profile => [profile.discipleId, profile]));
   const awardIds = new Set<string>();
   for (const profile of profiles.values()) for (const realm of REALMS.slice(1, REALMS.indexOf(profile.realm) + 1)) {
@@ -46,7 +52,7 @@ export function inspectV9KnownRecordHeadroom(world: WorldStateV9): string[] {
   for (const key of Object.keys(reserve) as (keyof typeof reserve)[]) {
     if (world.sequences[key] > Number.MAX_SAFE_INTEGER - reserve[key]) return ['Terminal ID headroom exhausted'];
   }
-  if (world.cultivation.revision > Number.MAX_SAFE_INTEGER - extra.counterReserve.cultivationRevisions
+  if (world.cultivation.revision > Number.MAX_SAFE_INTEGER - extra.counterReserve.cultivationRevisions - activeCare
     || world.clock.simulationTick > Number.MAX_SAFE_INTEGER - Math.max(20, extra.counterReserve.calendarTicks)) return ['Terminal clock/revision headroom exhausted'];
   return [];
 }

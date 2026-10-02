@@ -2,7 +2,10 @@ import { copy } from '../expeditions/shared';
 import { managementV9BuildContext } from '../../content/sect-v9/world-content';
 import { applyBuildAuthorityCommandV2 } from '../builds/v2';
 import type { MilestoneRuleId } from '../builds/types';
-import type { CultivationFrame } from '../cultivation/v3';
+import type { CultivationFrame, CultivationState } from '../cultivation/v3';
+import { applyValidatedCareCommandV9, v9CarePatientEligible } from '../sect-expansion/care-runtime';
+import type { SectCareCancellation } from '../sect-expansion/care-types';
+import { PERMANENT_TALENT_RULES } from '../cultivation/rules';
 import { REALMS } from '../cultivation/types';
 import { liveProductionAt } from '../economy/automatic-production';
 import type { ProductionReceiptContext } from '../economy/automatic-types';
@@ -13,14 +16,14 @@ import { isCultivationWorkerAvailable } from './cultivation-bridge';
 import { prepareCultivationWorldEvents, projectCultivationDisciples } from './cultivation-preparation';
 import { prepareEstateResponsibilities, prepareEstateSettlement } from './estate-preparation';
 import { appendWorldEvents } from './history-access';
-import { applyV9SectStage, v9WorkOwners } from './v9-sect-bridge';
+import { applyV9SectStage, projectV9SectFrame, v9SectContext, v9WorkOwners } from './v9-sect-bridge';
 import type { WorldStateV9 } from './v9-types';
 
 export function withV9CultivationPause(world: WorldStateV9): WorldStateV9 {
   const pending = world.cultivation.pendingDeaths.length > 0 || world.cultivation.attempts.some(attempt => attempt.phase === 'DecisionReady');
   return world.clock.pauseReasons.includes('cultivation') === pending ? world : { ...world, clock: setPauseReason(world.clock, 'cultivation', pending) };
 }
-export function reconcileV9Lifecycle(world: WorldStateV9, receiptContext?: ProductionReceiptContext): WorldStateV9 {
+export function reconcileV9Lifecycle(world: WorldStateV9, receiptContext?: ProductionReceiptContext, previousCultivation?: CultivationState): WorldStateV9 {
   let next = { ...world, disciples: projectCultivationDisciples(world.disciples, world.cultivation) };
   for (const id of [...next.activeProductionTransactionIds]) {
     const job = liveProductionAt(next, id)!.transaction;
@@ -30,6 +33,26 @@ export function reconcileV9Lifecycle(world: WorldStateV9, receiptContext?: Produ
   // Release every sect owner while its real actor/position still exists. System receipt IDs
   // bind exact domain cancellation to the actual pending/final death; never player commands.
   for (const owner of v9WorkOwners(next)) {
+    if (owner.kind === 'care') {
+      if (v9CarePatientEligible(next, owner.workerId, owner.id)) continue;
+      const patient = next.cultivation.disciples.find(profile => profile.discipleId === owner.workerId)!;
+      const death = [...next.cultivation.pendingDeaths, ...next.cultivation.deaths].find(death => death.discipleId === owner.workerId);
+      const previous = previousCultivation?.disciples.find(profile => profile.discipleId === owner.workerId);
+      let cancellation: SectCareCancellation; let commandId: string;
+      if (death) { cancellation = { kind: 'death', deathId: death.deathId }; commandId = `system/v9/death/${death.deathId}/${owner.id}`; }
+      else if (patient?.injury === 0 && previous && previous.injury > 0 && previous.trainingMode === 'rest'
+        && next.cultivation.calendarMonth === previousCultivation!.calendarMonth + 1) {
+        cancellation = { kind: 'rest-healed', beforeInjury: previous.injury, beforeRevision: previousCultivation!.revision,
+          afterRevision: next.cultivation.revision, month: next.cultivation.calendarMonth,
+          healingSourceInstanceIds: previous.talents.filter(talent => talent.active && PERMANENT_TALENT_RULES[talent.sourceDefinitionId].healing > 0)
+            .map(talent => talent.sourceInstanceId).sort() };
+        commandId = `system/v9/healed/${next.cultivation.calendarMonth}/${owner.id}`;
+      } else throw new TypeError('Unavailable care patient lacks lifecycle source');
+      const cancelled = applyValidatedCareCommandV9(next, projectV9SectFrame(next), v9SectContext(next), {
+        kind: 'care.cancel', commandId, expectedRevision: next.sectExpansion.care.revision, jobId: owner.id }, cancellation);
+      if ('code' in cancelled) throw new TypeError(`Cannot release care patient: ${cancelled.code}`);
+      next = cancelled.world; continue;
+    }
     if (owner.kind === 'legacy-production' || isCultivationWorkerAvailable(next, owner.workerId)) continue;
     const death = [...next.cultivation.pendingDeaths, ...next.cultivation.deaths].find(death => death.discipleId === owner.workerId);
     if (!death) throw new TypeError('Conflicting work owner has no lifecycle cancellation source');
@@ -65,5 +88,5 @@ export function reconcileV9Lifecycle(world: WorldStateV9, receiptContext?: Produ
   return withV9CultivationPause(next);
 }
 export function composeV9CultivationFrame(world: WorldStateV9, frame: CultivationFrame, receiptContext?: ProductionReceiptContext): WorldStateV9 {
-  return reconcileV9Lifecycle(appendWorldEvents({ ...world, ...frame }, prepareCultivationWorldEvents(world, frame)), receiptContext);
+  return reconcileV9Lifecycle(appendWorldEvents({ ...world, ...frame }, prepareCultivationWorldEvents(world, frame)), receiptContext, world.cultivation);
 }

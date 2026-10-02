@@ -5,6 +5,7 @@ import { applyCultivationCommandV3 } from '../cultivation/v3';
 import { cancelProduction, startProduction } from '../economy/production';
 import { discardAvailable } from '../economy/discard';
 import { applySectEconomyCommand } from '../sect-economy/state';
+import { isSectCareCommand } from '../sect-expansion/care-validation';
 import { isConstructionCommand } from '../sect-expansion/construction-validation';
 import { isSectProductionCommand } from '../sect-expansion/production-runtime';
 import { isSectResearchCommand } from '../sect-expansion/research-validation';
@@ -38,7 +39,8 @@ export function isCommandV9(value: unknown): value is CommandV9 {
       || !ownSectFields(value.payload, ['domain', 'command'])) return false;
     const payload = value.payload;
     const checked = payload.domain === 'construction' ? isConstructionCommand(payload.command)
-      : payload.domain === 'production' ? isSectProductionCommand(payload.command) : payload.domain === 'research' && isSectResearchCommand(payload.command);
+      : payload.domain === 'production' ? isSectProductionCommand(payload.command) : payload.domain === 'research' ? isSectResearchCommand(payload.command)
+        : payload.domain === 'care' && isSectCareCommand(payload.command);
     return checked && (payload.command as { commandId: string }).commandId === value.commandId;
   } catch { return false; }
 }
@@ -55,7 +57,7 @@ export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknow
   const fingerprint = canonicalStringify({ kind: command.kind, payload: command.payload });
   const existing = lookupCommandReceipt(world, command.commandId);
   if (existing) return { world, result: existing.fingerprint === fingerprint ? existing.result : rejected(command.commandId, 'COMMAND_CONFLICT') };
-  const sectReceipts = [...world.sectExpansion.construction.receipts, ...world.sectExpansion.production.receipts, ...world.sectExpansion.research.receipts];
+  const sectReceipts = [...world.sectExpansion.construction.receipts, ...world.sectExpansion.production.receipts, ...world.sectExpansion.research.receipts, ...world.sectExpansion.care.receipts];
   const previousSect = sectReceipts.find(receipt => receipt.command.commandId === command.commandId);
   if (previousSect && (command.kind !== 'sect.command' || canonicalStringify(previousSect.command) !== canonicalStringify(command.payload.command))) return { world, result: rejected(command.commandId, 'COMMAND_CONFLICT') };
   if (!previousSect && command.issuedTick > world.clock.simulationTick) return { world, result: rejected(command.commandId, 'COMMAND_NOT_DUE') };
@@ -66,7 +68,7 @@ export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknow
       const stage = applyV9SectStage(world, command.payload);
       if ('code' in stage) return { world, result: special(command.commandId, 'SECT_EXPANSION_REJECTED', stage.code) };
       if (stage.repeated) return { world, result: { commandId: command.commandId, status: 'accepted', transactionId: stage.relatedId, eventIds: [], rejection: null,
-        sectResult: { domain: command.payload.domain, relatedId: stage.relatedId, repeated: true } } };
+        sectResult: { domain: command.payload.domain, relatedId: stage.relatedId, repeated: command.payload.domain !== 'care' } } };
       next = stage.world; result = { commandId: command.commandId, status: 'accepted', transactionId: stage.relatedId, eventIds: [], rejection: null,
         sectResult: { domain: command.payload.domain, relatedId: stage.relatedId, repeated: false } };
     } else {
@@ -100,7 +102,7 @@ export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknow
       } else if (command.kind === 'build.command') {
         const inner = command.payload.command;
         const profile = world.cultivation.disciples.find(profile => profile.discipleId === inner.discipleId);
-        const applied = profile?.lifeState === 'alive' ? applyBuildCommandV2({ builds: world.builds, sequences: world.sequences }, inner, managementV9BuildContext(world.contentIdentity)) : null;
+        const applied = profile?.lifeState === 'alive' && !world.sectExpansion.care.jobs.some(job => job.patientId === inner.discipleId && !job.terminal) ? applyBuildCommandV2({ builds: world.builds, sequences: world.sequences }, inner, managementV9BuildContext(world.contentIdentity)) : null;
         if (!applied?.ok) legacyResult = { ...rejected(command.commandId, 'BUILD_REJECTED'), rejection: { code: 'BUILD_REJECTED', buildCode: applied?.code ?? 'INVALID_STATE' } };
         else {
           next = { ...world, builds: copy(applied.frame.builds), sequences: cloneJson(applied.frame.sequences) };
@@ -112,7 +114,11 @@ export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknow
         const targets = inner.kind === 'teaching.begin' ? [inner.discipleId, inner.studentId]
           : inner.kind === 'breakthrough.confirm' ? [inner.preview.discipleId]
             : inner.kind === 'training.set' && inner.mode !== 'duty' ? [inner.discipleId] : [];
-        const busy = targets.some(id => v9WorkOwners(world).some(owner => owner.workerId === id));
+        // Care can continue resting, but no command may introduce concurrent training.
+        const careTrainingConflict = inner.kind === 'training.set' && inner.mode === 'training'
+          && world.sectExpansion.care.jobs.some(job => job.patientId === inner.discipleId && !job.terminal);
+        const busy = careTrainingConflict || targets.some(id => v9WorkOwners(world).some(owner => owner.workerId === id
+          && !(owner.kind === 'care' && inner.kind === 'training.set' && inner.mode === 'rest')));
         const applied = busy ? null : applyCultivationCommandV3(cultivationFrameOf(world), inner);
         if (!applied?.ok) legacyResult = { ...rejected(command.commandId, 'CULTIVATION_REJECTED'), rejection: { code: 'CULTIVATION_REJECTED', cultivationCode: applied?.code ?? 'DISCIPLE_UNAVAILABLE' } };
         else {
