@@ -1,5 +1,15 @@
 # 开发状态
 
+## 建造内部执行与校验分层（2026-10-02 00:52 UTC）
+
+- 研究提交[c23f9d5](https://github.com/AzureSkyHuHu/shanmen-changming/commit/c23f9d5d0709bdbd8e8f5893c56bf2e52b2cc1de)的[GitHub检查36944482970](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36944482970)已于00:17:54 UTC成功
+- 冻结树 `129e74d4b8d8f3603e85642954c6ab18f9bbd001` 完整通过118文件 / 1797项测试、1041中文键、边界/内容、双类型及生产构建；测试552.39秒。建造、生产、研究及新兼容测试共169项聚焦通过57.09秒
+- 建造公开入口保留完整frame/context、时钟、回执、拒绝顺序和候选发布/取消余量验证；内部执行器只产生类型明确的不可变候选，共用实际导航预算。声明/有效地图兼容导出不变，没有调用方授权布尔值或校验回调
+- 记录验证器仅移动模块并改名，校验函数体及第一错误顺序原样保留；仍只准入无研究前置藏经阁，没有趁抽取开放丹房或缩小验证范围
+- 新增19项契约用独立编写的规范完整frame作为固定路径预期，逐刻核对16旅行tick与320工作tick的移动、材料两阶段支付、回执、完工；另覆盖多个取消点、重试、拒绝优先级、恶意属性、精确余量、共享预算及JSON续跑。不是两个接口调用同一新函数后仅互相比对
+- 后续真实研究消费者另在工作树实现，未混入本次已验证提交。默认v7、锁定候选入口、私有预览及浏览器待授权状态不变；完整游戏仍未验收
+
+
 ## 真实付费研究与三域协调（2026-10-02 00:06 UTC）
 
 - 上一提交[48f8078](https://github.com/AzureSkyHuHu/shanmen-changming/commit/48f8078efeb67b49314e290ae43fffe9ee46af8d)的[GitHub检查36939420685](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/36939420685)已成功
