@@ -20,6 +20,12 @@ export interface ReservedDischargesV10 {
   discharged: string[];
   unknowns: string[];
 }
+/** Record comparison diagnostics only. No supported/executable/admitted flag. */
+export interface ReservedDischargeRecordsV10 {
+  readonly scope: 'v10-cross-boundary-records-only';
+  readonly issues: readonly string[];
+  readonly discharged: readonly string[];
+}
 const same = (left: unknown, right: unknown): boolean => canonicalStringify(left) === canonicalStringify(right);
 const preserved = (left: object, right: object, keys: readonly string[]): boolean => keys.every(key => {
   const a = left as Record<string, unknown>; const b = right as Record<string, unknown>;
@@ -84,30 +90,34 @@ const IMMUTABLE_JOB_FIELDS = ['jobId', 'transactionId', 'blueprintId', 'reservat
 const PAID_WORK_FIELDS = ['activeTicks', 'workSpans', 'visits', 'storageVisit', 'siteVisit', 'siteVisits',
   'workVisit', 'deliveryVisit', 'checkpoints'] as const;
 
-/** Fixed v10 proof. Both inputs are first captured and completely record-validated;
- * all owner envelopes are freshly derived from those owned actual v10 Worlds.
- * There are no caller-supplied assessments, flags, policies or callbacks. The old
- * version wrappers are never called. The shared progression structural leaves
- * keep their original version-neutral record contract and pinned build identity.
+/** INTERNAL residual cross-boundary RECORD comparisons only. This is NOT an
+ * executable-transition witness, capacity decision or reusable admission proof.
+ * Callers here already own completely validated Worlds: the public inspector
+ * obtains them by capture/validation/replay; the private tick pipeline obtains
+ * them only by its own fixed actual producer and complete capacity assessment.
+ * This leaf derives its own structural owner envelopes, accepting no supplied
+ * assessment, budget, trust flag, policy, callback or purported producer witness.
+ *
+ * Keep these comparisons shared, not duplicated or weakened for the private
+ * producer. Public arbitrary candidates still require independent actual replay.
+ * Old version wrappers are never called; the shared progression structural leaves
+ * retain their version-neutral record contract and pinned build identity.
  *
  * A pending death may terminate work, but cannot discharge disciple-lifecycle.
  * That owner requires actual death finalization, settled estate/transfers, build
  * retirement, cultivation archive and World identity archive together. */
-export function inspectReservedDischargesV10(source: WorldStateV10, candidate: WorldStateV10): ReservedDischargesV10 {
-  const result: ReservedDischargesV10 = { supported: false, discharged: [], unknowns: [] };
-  const fail = (owner: string): void => { result.unknowns.push(`Missing authentic terminal evidence for ${owner}`); };
+export function inspectReservedDischargeRecordsV10(before: WorldStateV10, after: WorldStateV10): ReservedDischargeRecordsV10 {
+  const result: { scope: 'v10-cross-boundary-records-only'; discharged: string[]; issues: string[] } = {
+    scope: 'v10-cross-boundary-records-only', discharged: [], issues: [],
+  };
+  const fail = (owner: string): void => { result.issues.push(`Missing authentic terminal evidence for ${owner}`); };
   try {
-    const before = captureValidatedV10PreparationSource(source);
-    const after = captureValidatedV10PreparationSource(candidate);
     const previous = { sect: deriveSectReservationsV10(before), progression: deriveProgressionReservationsTimeV9({
       world: before, buildFacts: deriveV10BuildObligationFacts(before) }) };
     const current = { sect: deriveSectReservationsV10(after), progression: deriveProgressionReservationsTimeV9({
       world: after, buildFacts: deriveV10BuildObligationFacts(after) }) };
     if (!previous.sect.supported || !current.sect.supported || !previous.progression.supported || !current.progression.supported) {
-      result.unknowns.push('Unsupported v10 owner envelope'); return result;
-    }
-    if (!actualTransition(before, after)) {
-      result.unknowns.push('No exact actual v10 command or single-tick candidate witness'); return result;
+      result.issues.push('Unsupported v10 owner envelope'); return result;
     }
     const left = before.sectExpansion; const right = after.sectExpansion;
     for (const owner of previous.sect.owners) {
@@ -223,17 +233,42 @@ export function inspectReservedDischargesV10(source: WorldStateV10, candidate: W
       result.discharged.push(label);
     }
     const progression = verifyProgressionReservationDischarges({ world: before, assessment: previous.progression }, { world: after, assessment: current.progression });
-    result.discharged.push(...progression.discharged); result.unknowns.push(...progression.unknowns);
+    result.discharged.push(...progression.discharged); result.issues.push(...progression.unknowns);
     // Pending expiry has no lifecycle discharge. Explicitly retain this invariant
     // even if a future structural owner derivation accidentally drops the owner.
     for (const death of after.cultivation.pendingDeaths) if (previous.progression.owners.some(owner => owner.kind === 'disciple-lifecycle' && owner.id === death.discipleId)
       && !current.progression.owners.some(owner => owner.kind === 'disciple-lifecycle' && owner.id === death.discipleId)) fail(`disciple-lifecycle:${death.discipleId}`);
-    result.supported = result.unknowns.length === 0;
-    if (!result.supported) result.discharged = [];
+    if (result.issues.length) result.discharged = [];
     return result;
   } catch {
-    // Ordinary descriptors are captured before reads; never inspect a hostile
-    // thrown object's message. Proxy reflection itself is not sandboxed here.
+    // Fixed callers already own descriptor snapshots. Never inspect exceptions.
+    return { scope: 'v10-cross-boundary-records-only', discharged: [],
+      issues: ['Unsupported complete v10 discharge source or terminal records'] };
+  }
+}
+
+/** Fixed public arbitrary-candidate proof. Preserve the original descriptor/root
+ * validation, unsupported-envelope precedence and independent actualTransition
+ * replay BEFORE the shared residual record leaf. Neither a privately produced
+ * World nor the leaf's record-only output exempts any external candidate here. */
+export function inspectReservedDischargesV10(source: WorldStateV10, candidate: WorldStateV10): ReservedDischargesV10 {
+  const result: ReservedDischargesV10 = { supported: false, discharged: [], unknowns: [] };
+  try {
+    const before = captureValidatedV10PreparationSource(source);
+    const after = captureValidatedV10PreparationSource(candidate);
+    const previous = { sect: deriveSectReservationsV10(before), progression: deriveProgressionReservationsTimeV9({
+      world: before, buildFacts: deriveV10BuildObligationFacts(before) }) };
+    const current = { sect: deriveSectReservationsV10(after), progression: deriveProgressionReservationsTimeV9({
+      world: after, buildFacts: deriveV10BuildObligationFacts(after) }) };
+    if (!previous.sect.supported || !current.sect.supported || !previous.progression.supported || !current.progression.supported) {
+      result.unknowns.push('Unsupported v10 owner envelope'); return result;
+    }
+    if (!actualTransition(before, after)) {
+      result.unknowns.push('No exact actual v10 command or single-tick candidate witness'); return result;
+    }
+    const records = inspectReservedDischargeRecordsV10(before, after);
+    return { supported: records.issues.length === 0, discharged: [...records.discharged], unknowns: [...records.issues] };
+  } catch {
     return { supported: false, discharged: [], unknowns: ['Unsupported complete v10 discharge source or terminal records'] };
   }
 }

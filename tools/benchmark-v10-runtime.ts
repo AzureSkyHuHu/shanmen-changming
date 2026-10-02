@@ -1,3 +1,4 @@
+import { createOwnedTickPipelineV10 } from '../src/core/world/runtime-owned-ticks-v10';
 import { performance } from 'node:perf_hooks';
 import { prepareUnregisteredCommandCandidateV10 } from '../src/core/kernel/commands-v10';
 import { createPrivateRuntimeV10 } from '../src/core/world/runtime-instance-v10';
@@ -32,4 +33,12 @@ export function runPrivate(active = false){
  try{for(let i=0;i<23;i++){expected=prepareNormalTickCandidateV10(expected);const start=performance.now();const result=made.instance.advance(1);const elapsed=performance.now()-start;const snapshot=made.instance.snapshot();
  if(!result.ok||result.advancedTicks!==1||!snapshot.ok||canonicalStringify(snapshot.world)!==canonicalStringify(expected)) throw Error('private exact mismatch');metrics=result.metrics;if(i>=3)times.push(elapsed);
  }const sorted=times.toSorted((a,b)=>a-b);return {scope:active?'four-disciple private owner with one real active gather; snapshots and oracle outside timing; no browser':'fresh four-disciple private owner single ticks; snapshots and oracle outside timing; no browser',samples:times.length,creationMs,p50:sorted[9],p95:sorted[18],max:sorted.at(-1),allExact:true,lastMetrics:metrics,rawMs:times};}finally{made.instance.close();}
+}
+
+export function runOwnedPipeline(){
+ let expected=fixture();const command=prepareUnregisteredCommandCandidateV10(expected,{kind:'production.start',commandId:'bench.active.gather',sequence:0,issuedTick:0,payload:{recipeId:'gather.wood',workerId:'entity:2'}});
+ if(command.result.status!=='accepted')throw Error('active setup failed');expected=command.world;for(let i=0;i<40;i++)expected=prepareNormalTickCandidateV10(expected);
+ const pipeline=createOwnedTickPipelineV10();const startCapture=performance.now();if(!pipeline.capture(expected))throw Error('pipeline capture failed');const captureMs=performance.now()-startCapture;const times:number[]=[];
+ try{for(let i=0;i<23;i++){expected=prepareNormalTickCandidateV10(expected);const start=performance.now();const result=pipeline.advanceNormal();const elapsed=performance.now()-start;if(!result||canonicalStringify(result.world)!==canonicalStringify(expected))throw Error('owned exact mismatch');if(i>=3)times.push(elapsed);}
+ const sorted=times.toSorted((a,b)=>a-b);return{scope:'private actual-tick leaf, one real active gather; not runtime integration or browser',samples:times.length,captureMs,p50:sorted[9],p95:sorted[18],max:sorted.at(-1),allExact:true,rawMs:times};}finally{pipeline.clear();}
 }

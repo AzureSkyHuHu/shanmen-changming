@@ -16,9 +16,9 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # Full serial regression reached 1894s before private-owner/codec/idle suites.
+    # Full serial regression reached 2493s before repository/views/owned-tick suites.
     # Keep every assertion and test timeout; allow runner-speed variance at job level.
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
