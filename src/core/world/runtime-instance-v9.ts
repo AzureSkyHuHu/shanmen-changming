@@ -1,5 +1,5 @@
 import { restoreHistoryArchive } from '../history';
-import { isPaused } from '../kernel/clock';
+import { isPaused, setClockSpeed } from '../kernel/clock';
 import { prepareUnregisteredCommandCandidateV9 } from '../kernel/commands-v9';
 import { isNonNegativeInteger } from '../kernel/numeric';
 import { prepareNormalTickCandidateV9, prepareNoOptionalGrowthTickCandidateV9 } from '../kernel/simulation-v9';
@@ -7,8 +7,14 @@ import { assessTeachingManagementCapacityV9, type ManagementCapacityV9 } from '.
 import type { CapacityLimitedAdvanceV9, CapacityLimitedResultV9, CandidateCapacityDecisionV9 } from './runtime-capacity-v9';
 import { actualDimensionsFit, decision, refused, TEACHING_DETAIL } from './runtime-decision-v9';
 import { carryScalarTick, detachData, ownFrozenTree, scalarIdleEligible, scalarTick, worldMayBeScalarIdle, type CarriedIdleCapacity } from './runtime-owned-internals-v9';
-import { inspectTeachingContinuationV9 } from './teaching-continuation-v9';
+import { deficitDoesNotIncreaseV9, inspectTeachingContinuationV9 } from './teaching-continuation-v9';
 import type { WorldStateV9 } from './v9-types';
+import { nextRuntimeApplicationCommandV9, projectRuntimeBuildV9, projectRuntimeCultivationV9, projectRuntimeExpansionV9,
+  projectRuntimeFrameV9, projectRuntimeBreakthroughV9, projectRuntimePlacementV9, validRuntimeBreakthroughQueryV9,
+  validRuntimeClockControlV9, validRuntimeDiscipleQueryV9, validRuntimePlacementQueryV9 } from './runtime-views-v9';
+import type { RuntimeApplicationCommandV9, RuntimeBreakthroughPreviewV9, RuntimeBuildViewV9, RuntimeClockResultV9,
+  RuntimeCultivationViewV9, RuntimeExpansionViewV9, RuntimeFrameViewV9, RuntimePlacementPreviewV9,
+  RuntimeReadV9, RuntimeReadonlyV9 } from './runtime-view-types-v9';
 
 /** Internal experiment, deliberately absent from all public engine/codec barrels.
  * Stamps describe this instance's lifetime only; they are not transferable trust. */
@@ -22,7 +28,8 @@ export interface RuntimeInstanceMetricsV9 {
 type Metrics = { -readonly [K in keyof RuntimeInstanceMetricsV9]: RuntimeInstanceMetricsV9[K] };
 type Stop = NonNullable<CapacityLimitedAdvanceV9['stopped']>;
 export type RuntimeInstanceErrorV9 = 'closed' | 'reentrant' | 'invalid-source' | 'invalid-command' | 'invalid-steps'
-  | 'unsupported-continuation' | 'capacity' | 'snapshot-failed' | 'internal-failure';
+  | 'unsupported-continuation' | 'capacity' | 'snapshot-failed' | 'internal-failure'
+  | 'invalid-query' | 'query-failed' | 'invalid-control';
 export interface RuntimeOperationV9 {
   readonly ok: boolean; readonly error: RuntimeInstanceErrorV9 | null;
   readonly stamp: RuntimeStampV9; readonly stopped: Stop | null; readonly metrics: RuntimeInstanceMetricsV9;
@@ -37,6 +44,14 @@ export interface PrivateRuntimeInstanceV9 {
   replace(input: unknown): RuntimeReplaceV9;
   invalidate(): RuntimeOperationV9;
   snapshot(): RuntimeSnapshotV9;
+  frame(): RuntimeReadV9<RuntimeFrameViewV9>;
+  cultivation(discipleId: string | null): RuntimeReadV9<RuntimeCultivationViewV9>;
+  build(discipleId: string | null): RuntimeReadV9<RuntimeBuildViewV9>;
+  expansion(): RuntimeReadV9<RuntimeExpansionViewV9>;
+  previewBreakthrough(input: unknown): RuntimeReadV9<RuntimeBreakthroughPreviewV9>;
+  previewPlacement(input: unknown): RuntimeReadV9<RuntimePlacementPreviewV9>;
+  nextApplicationCommand(start: number): RuntimeReadV9<RuntimeApplicationCommandV9>;
+  controlClock(input: unknown): RuntimeClockResultV9;
   close(): RuntimeOperationV9;
 }
 export type RuntimeCreationV9 =
@@ -118,6 +133,10 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
   const initialRecoveryOnly = !prepared.assessment.fits; prepared = null;
   let carry: IdleCarry | null = null;
   let exported: { root: PrivateWorld; world: WorldStateV9 } | null = null;
+  // Exactly one slot for each fixed view. Keys and outputs never come from a
+  // caller cache, and no arbitrary selector/callback is accepted by the facade.
+  type ViewSlot = 'frame' | 'cultivation' | 'build' | 'expansion';
+  const views = new Map<ViewSlot, { keys: readonly unknown[]; value: unknown }>();
   const stamp = (): RuntimeStampV9 => ({ generation, publication });
   const outcome = (measured: Metrics, error: RuntimeInstanceErrorV9 | null = null): RuntimeOperationV9 =>
     ({ ok: error === null, error, stamp: stamp(), stopped: stop, metrics: measured });
@@ -132,6 +151,34 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
     if (failure) throw new Error('Owned source no longer satisfies the internal source contract');
     exact = { root, generation, assessment }; return exact;
   };
+  /** Callbacks are this module's fixed implementations, never public inputs. */
+  const readFixed = <I, T>(input: unknown, valid: (value: unknown) => value is I,
+    project: (world: WorldStateV9, argument: I) => T,
+    cache?: { slot: ViewSlot; keys: (world: WorldStateV9, argument: I) => readonly unknown[] }): RuntimeReadV9<T> => {
+    const measured = freshMetrics(); const denied = blocked();
+    if (denied) return immutable({ ...outcome(measured, denied), ok: false as const, error: denied, value: null });
+    busy = true;
+    try {
+      let captured: unknown;
+      try { captured = detachData(input); }
+      catch { return immutable({ ...outcome(measured, 'invalid-query'), ok: false as const, error: 'invalid-query' as const, value: null }); }
+      if (!valid(captured)) return immutable({ ...outcome(measured, 'invalid-query'), ok: false as const, error: 'invalid-query' as const, value: null });
+      if (!exact && !carry) exactFor(measured);
+      const keys = cache?.keys(root!, captured); const previous = cache ? views.get(cache.slot) : undefined;
+      let value: RuntimeReadonlyV9<T>;
+      if (keys && previous && previous.keys.length === keys.length && keys.every((key, index) => key === previous.keys[index])) {
+        value = previous.value as RuntimeReadonlyV9<T>;
+      } else {
+        value = immutable(detachData(project(root!, captured))) as RuntimeReadonlyV9<T>;
+        // Save only after mapping, detachment and recursive freezing all succeed.
+        if (cache && keys) views.set(cache.slot, { keys, value });
+      }
+      // Do not walk an already frozen cached DTO to freeze its tiny wrapper.
+      return Object.freeze({ ...immutable(outcome(measured)), ok: true as const, error: null, value });
+    } catch { return immutable({ ...outcome(measured, 'query-failed'), ok: false as const, error: 'query-failed' as const, value: null }); }
+    finally { busy = false; }
+  };
+  const noArgument = (value: unknown): value is null => value === null;
   const publish = (next: PrivateWorld, assessment: ManagementCapacityV9 | null, nextCarry: CarriedIdleCapacity | null): void => {
     if (!Number.isSafeInteger(publication + 1)) throw new RangeError('Runtime publication stamp exhausted');
     root = next; publication++; stop = null; exported = null;
@@ -148,6 +195,75 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
     catch { return { kind: 'invalid-records', details: ['Invalid tick candidate'] }; }
   };
   const instance: PrivateRuntimeInstanceV9 = {
+    frame() {
+      return readFixed(null, noArgument, projectRuntimeFrameV9, { slot: 'frame', keys: world => [world] });
+    },
+    cultivation(discipleId) {
+      return readFixed(discipleId, validRuntimeDiscipleQueryV9, projectRuntimeCultivationV9, { slot: 'cultivation', keys: (world, id) => [id,
+        world.cultivation, world.inventory, world.disciples, world.builds, world.activeProductionTransactionIds,
+        world.sectExpansion.construction.jobs, world.sectExpansion.production.jobs, world.sectExpansion.research.jobs, world.sectExpansion.care.jobs] });
+    },
+    build(discipleId) {
+      return readFixed(discipleId, validRuntimeDiscipleQueryV9, projectRuntimeBuildV9, { slot: 'build', keys: (world, id) => [id,
+        world.builds, world.cultivation.disciples, world.sectExpansion.care.jobs] });
+    },
+    expansion() {
+      return readFixed(null, noArgument, projectRuntimeExpansionV9, { slot: 'expansion', keys: world => [world] });
+    },
+    previewBreakthrough(input) { return readFixed(input, validRuntimeBreakthroughQueryV9, projectRuntimeBreakthroughV9); },
+    previewPlacement(input) { return readFixed(input, validRuntimePlacementQueryV9, projectRuntimePlacementV9); },
+    nextApplicationCommand(start) {
+      const read = readFixed(start, (value): value is number => typeof value === 'number' && isNonNegativeInteger(value),
+        nextRuntimeApplicationCommandV9);
+      if (!read.ok) return read;
+      if (read.value === null) return Object.freeze({ ...read, ok: false as const, error: 'capacity' as const, value: null });
+      return Object.freeze({ ...read, value: read.value });
+    },
+    controlClock(input) {
+      const measured = freshMetrics(); const denied = blocked();
+      const failed = (error: RuntimeInstanceErrorV9): RuntimeClockResultV9 => immutable({ ...outcome(measured, error),
+        ok: false as const, error, changed: false as const });
+      if (denied) return failed(denied);
+      busy = true;
+      try {
+        let captured: unknown;
+        try { captured = detachData(input); } catch { return failed('invalid-control'); }
+        if (!validRuntimeClockControlV9(captured)) return failed('invalid-control');
+        const boundary = root!;
+        const same = captured.kind === 'speed' ? boundary.clock.speed === captured.speed
+          : boundary.clock.pauseReasons.includes(captured.reason) === captured.paused;
+        if (same) {
+          if (!exact && !carry) exactFor(measured);
+          return immutable({ ...outcome(measured), ok: true as const, error: null, changed: false });
+        }
+        if (!Number.isSafeInteger(publication + 1)) return failed('capacity');
+        // Internal construction fixes all fields except this one approved control.
+        // In particular it cannot clear a domain-owned pause, rewrite tick/mode,
+        // consume IDs or manufacture a command/tick witness for teaching.
+        const clock = captured.kind === 'speed' ? setClockSpeed(boundary.clock, captured.speed)
+          : { ...boundary.clock, pauseReasons: captured.paused ? [...boundary.clock.pauseReasons, captured.reason]
+            : boundary.clock.pauseReasons.filter(reason => reason !== captured.reason) };
+        const next = { ...boundary, clock };
+        // Do not disturb the old exact/carry cache on refusal. A carried estimate
+        // is never substituted for the exact before-state capacity comparison.
+        let previous = exact?.root === boundary && exact.generation === generation ? exact.assessment : null;
+        if (!previous) { measured.fullQueries++; previous = assessTeachingManagementCapacityV9(boundary); }
+        const oldFailure = sourceFailure(boundary, previous); if (oldFailure) return failed(oldFailure.error);
+        measured.fullQueries++; const assessment = assessTeachingManagementCapacityV9(next);
+        const failure = sourceFailure(next, assessment); if (failure) return failed(failure.error);
+        // Unlike a domain action, an exact clock-only change discharges nothing.
+        // Recovery-only sources may remove a pause/change equal-width speed, but
+        // cannot worsen any deficient dimension to persist an extra pause string.
+        if (!assessment.fits && !deficitDoesNotIncreaseV9(previous, assessment)) return failed('capacity');
+        ownFrozenTree(next, ownership);
+        const result: RuntimeClockResultV9 = immutable({ ok: true as const, error: null, changed: true,
+          stamp: { generation, publication: publication + 1 }, stopped: stop, metrics: measured });
+        root = next; publication++; exact = { root, generation, assessment }; carry = null; exported = null;
+        // Deliberately not publish(): UI clock controls must preserve stop.
+        return result;
+      } catch { return failed('internal-failure'); }
+      finally { busy = false; }
+    },
     advance(steps) {
       const measured = freshMetrics(); const denied = blocked();
       if (denied) return immutable({ ...outcome(measured, denied), advancedTicks: 0 });
@@ -231,7 +347,7 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
         if (!next.ok) return immutable({ ...outcome(measured, next.error), recoveryOnly: null });
         if (!Number.isSafeInteger(generation + 1) || !Number.isSafeInteger(publication + 1)) return immutable({ ...outcome(measured, 'capacity'), recoveryOnly: null });
         generation++; publication++; root = next.root; ownership = next.ownership;
-        exact = { root, generation, assessment: next.assessment }; carry = null; exported = null; stop = null;
+        exact = { root, generation, assessment: next.assessment }; carry = null; exported = null; stop = null; views.clear();
         return immutable({ ...outcome(measured), recoveryOnly: !next.assessment.fits });
       } finally { busy = false; }
     },
@@ -267,7 +383,7 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
       busy = true;
       try {
         if (!Number.isSafeInteger(generation + 1)) return immutable(outcome(measured, 'capacity'));
-        generation++; root = null; exact = null; carry = null; exported = null; ownership = new WeakSet<object>(); stop = null;
+        generation++; root = null; exact = null; carry = null; exported = null; ownership = new WeakSet<object>(); stop = null; views.clear();
         return immutable(outcome(measured));
       } finally { busy = false; }
     },
