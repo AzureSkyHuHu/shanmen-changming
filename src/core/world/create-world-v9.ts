@@ -18,10 +18,11 @@ export function createUnregisteredWorldV9(seed: string | number = 'shanmen-001')
   if (!initial.builds.origin.sequences) throw new TypeError('Missing fresh build origin');
   const builds = createBuildFrameV2({ disciples: cloneJson(initial.builds.origin.disciples), contentMode: 'experimental',
     sequences: cloneJson(initial.builds.origin.sequences) }, managementV9BuildContext(MANAGEMENT_V9_IDENTITY));
-  const world: WorldStateV9 = { ...initial, simulationVersion: '0.9.0', runtimeProtocol: 'fresh-management-v9-unregistered.2',
+  const world: WorldStateV9 = { ...initial, simulationVersion: '0.9.0', runtimeProtocol: 'fresh-management-v9-unregistered.3',
     contentVersion: MANAGEMENT_V9_CONTENT_VERSION, contentIdentity: cloneJson(MANAGEMENT_V9_IDENTITY),
     disciples: initial.disciples.map((actor, index) => ({ ...actor, presentationId: `disciple-${index % 4}` as PersistentPresentationId })),
     builds: copy(builds.builds), sequences: cloneJson(builds.sequences), cultivation: createCultivationStateV3(initial.cultivation.disciples.map(profile => profile.discipleId === MANAGEMENT_V9_GENESIS.patientId ? { ...profile, injury: MANAGEMENT_V9_GENESIS.injury } : profile)),
+    cultivationClock: { transitions: [] },
     expedition: copy(EMPTY_V9_EXPEDITION), campaign: { schemaVersion: 2, progress: copy(createCampaignStateV2('standard')), clearEvidence: [], settledRunEvidence: [] },
     legacy: { schemaVersion: 1, archivedIdentities: [], estates: [], migrationLifecycle: null },
     sectExpansion: { schemaVersion: 1,

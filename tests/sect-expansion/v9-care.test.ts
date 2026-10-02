@@ -10,6 +10,7 @@ import type { CommandV9, SectCommandV9 } from '../../src/core/kernel/contracts-v
 import { canonicalStringify, cloneJson } from '../../src/core/kernel/serialization';
 import { advanceUnregisteredTicksV9 } from '../../src/core/kernel/simulation-v9';
 import { inspectUnregisteredWorldV9Records, validateWorldStateV8 } from '../../src/core/kernel/validation';
+import { inspectV9CultivationClockRecords } from '../../src/core/world/v9-cultivation-clock-records';
 import { createUnregisteredWorldV9 } from '../../src/core/world/create-world-v9';
 import { composeV9CultivationFrame } from '../../src/core/world/v9-cultivation-bridge';
 import { createWorld } from '../../src/core/world/create-world';
@@ -74,7 +75,11 @@ function nearExpiry(world: WorldStateV9, patientId: string, remaining = 1): Worl
   // Explicit birthday boundary fixture. Actual pending death, release and estate run normally.
   const next = cloneJson(world); const actor = next.disciples.find(actor => actor.id === patientId)!;
   const profile = next.cultivation.disciples.find(profile => profile.discipleId === patientId)!;
-  actor.birthCalendarTick = next.clock.calendarTick + remaining - profile.lifespanMonths * CALENDAR_TICKS_PER_MONTH;
+  // Keep the already-proven month-aligned birthday residue. This explicit boundary
+  // fixture advances only within the current month; it cannot invent past birthday rows.
+  const target = Math.ceil((next.clock.calendarTick + remaining) / CALENDAR_TICKS_PER_MONTH) * CALENDAR_TICKS_PER_MONTH;
+  next.clock = { ...next.clock, simulationTick: target - remaining, calendarTick: target - remaining };
+  actor.birthCalendarTick = target - profile.lifespanMonths * CALENDAR_TICKS_PER_MONTH;
   actor.ageMonths = Math.floor((next.clock.calendarTick - actor.birthCalendarTick) / CALENDAR_TICKS_PER_MONTH); profile.ageMonths = actor.ageMonths;
   expect(inspectUnregisteredWorldV9Records(next)).toEqual([]); return next;
 }
@@ -88,7 +93,7 @@ let journey: WorldStateV9; let medicineReady: WorldStateV9; let cared: WorldStat
 describe('zero new stock → genuine medicine → actual v9 patient care (bounded checkpoints)', () => {
   beforeAll(() => { journey = createUnregisteredWorldV9('medicine-care-journey'); });
   it('versions the named injured-elder fresh genesis without changing old worlds or registering a save', () => {
-    expect(injuryOf(journey)).toBe(25); expect(journey.runtimeProtocol).toBe('fresh-management-v9-unregistered.2');
+    expect(injuryOf(journey)).toBe(25); expect(journey.runtimeProtocol).toBe('fresh-management-v9-unregistered.3');
     expect(journey.contentIdentity).toEqual(MANAGEMENT_V9_IDENTITY); expect(resolveContentIdentity(journey.contentIdentity, { allowCandidate: true })).toBeNull();
     expect(createWorld().cultivation.disciples.every(profile => profile.injury === 0)).toBe(true);
     expect(createWorldV8().cultivation.disciples.every(profile => profile.injury === 0)).toBe(true);
@@ -497,7 +502,9 @@ describe('rest healing source definition authentication', () => {
     if (reason?.kind !== 'rest-healed') throw new Error('Expected rest-healed source');
     forged.sectExpansion = { ...forged.sectExpansion, care: { ...forged.sectExpansion.care, jobs: [{ ...job, terminal: { ...job.terminal!,
       cancellation: { ...reason, beforeInjury: 10, healingSourceInstanceIds: [sourceId] } } }] } };
-    expect(inspectUnregisteredWorldV9Records(forged)).toContain(`INVALID_CARE_HEAL_SOURCE:${job.jobId}`);
+    // Fresh .3 detects the mismatched grant owner before the care leaf runs.
+    expect(inspectUnregisteredWorldV9Records(forged)).toContain('Invalid legacy combat controller');
+    expect(() => inspectV9CultivationClockRecords(forged)).toThrow('Invalid v9 cultivation clock: talent command source missing');
   });
 });
 
@@ -536,5 +543,137 @@ describe('rest-mode admission consistency', () => {
     expect(result.result).toMatchObject({ status: 'rejected', rejection: { detail: 'PATIENT_UNAVAILABLE' } }); expect(result.world).toBe(source);
     const active = cloneJson(careStart(medicineReady, 'unproven.active')); active.cultivation.disciples.find(profile => profile.discipleId === elder)!.trainingMode = 'rest';
     expect(inspectUnregisteredWorldV9Records(active).length).toBeGreaterThan(0);
+  });
+});
+
+
+describe('fresh .3 exact care month ownership', () => {
+  function healedAtMonth(): WorldStateV9 {
+    let world = training(boundaryInjury(monthBoundary, elder, 8), elder, 'rest', 'clock.rest');
+    return ticks(careStart(world, 'clock.care'), 44);
+  }
+  it('rejects backdating both the month anchor and the care cancellation revision together', () => {
+    const world = healedAtMonth(); const bad = cloneJson(world);
+    const job = bad.sectExpansion.care.jobs[0]!; const reason = job.terminal!.cancellation;
+    if (reason?.kind !== 'rest-healed') throw new Error('Expected rest healing');
+    const row = bad.cultivationClock.transitions.find(row => row.kind === 'month' && row.tick === job.terminal!.tick)!;
+    row.beforeRevision--;
+    bad.sectExpansion = { ...bad.sectExpansion, care: { ...bad.sectExpansion.care, jobs: [{ ...job, terminal: { ...job.terminal!,
+      cancellation: { ...reason, beforeRevision: reason.beforeRevision - 1, afterRevision: reason.afterRevision - 1 } } }] } };
+    expect(inspectUnregisteredWorldV9Records(bad).length).toBeGreaterThan(0);
+    expect(inspectUnregisteredWorldV9Records(world)).toEqual([]);
+  });
+  it('cannot move a completed treatment before its same-tick month even when the revision partition stays contiguous', () => {
+    const world = ticks(careStart(monthBoundary, 'clock.same-tick'), 44); const bad = cloneJson(world);
+    const job = bad.sectExpansion.care.jobs[0]!; const effect = job.terminal!.effect!;
+    const row = bad.cultivationClock.transitions.find(row => row.tick === effect.tick)!;
+    expect(effect.beforeRevision).toBe(row.beforeRevision + 1);
+    const before = row.beforeRevision; row.beforeRevision = effect.beforeRevision;
+    bad.sectExpansion = { ...bad.sectExpansion, care: { ...bad.sectExpansion.care, jobs: [{ ...job, terminal: { ...job.terminal!,
+      effect: { ...effect, beforeRevision: before, afterRevision: before + 1 } } }] } };
+    expect(inspectUnregisteredWorldV9Records(bad).length).toBeGreaterThan(0);
+  });
+  it('rejects a missing clock anchor without reconstructing it from care claims', () => {
+    const bad = cloneJson(healedAtMonth()); bad.cultivationClock.transitions.pop();
+    expect(inspectUnregisteredWorldV9Records(bad).length).toBeGreaterThan(0);
+  });
+  it('requires the complete genuine historical healing-source set, even if a forged injury would heal without it', () => {
+    let world = boundaryInjury(monthBoundary, elder, 10);
+    const grant = applyCultivationCommandV3(world, { kind: 'talent.grant', commandId: 'clock.healing-grant', expectedRevision: world.cultivation.revision,
+      discipleId: elder, talentId: 'cultivation.resilient-body' });
+    expect(grant.ok).toBe(true); if (!grant.ok) throw new Error('grant failed');
+    world = composeV9CultivationFrame(world, grant.frame); world = training(world, elder, 'rest', 'clock.healing-rest');
+    world = ticks(careStart(world, 'clock.healing-care'), 44);
+    const job = world.sectExpansion.care.jobs[0]!; const reason = job.terminal!.cancellation;
+    if (reason?.kind !== 'rest-healed') throw new Error('Expected rest healing');
+    const bad = { ...world, sectExpansion: { ...world.sectExpansion, care: { ...world.sectExpansion.care, jobs: [{ ...job,
+      terminal: { ...job.terminal!, cancellation: { ...reason, beforeInjury: 8, healingSourceInstanceIds: [] } } }] } } };
+    expect(inspectUnregisteredWorldV9Records(bad)).toContain(`INVALID_CARE_HEAL_SOURCE:${job.jobId}`);
+  });
+  it('cancels immediately without allocating clock evidence or cultivation revisions', () => {
+    const started = careStart(medicineReady, 'clock.immediate-start'); const cancelled = careCancel(started, 'clock.immediate-cancel');
+    expect(cancelled.cultivationClock).toEqual(started.cultivationClock);
+    expect(cancelled.cultivation.revision).toBe(started.cultivation.revision); expect(cancelled.clock).toEqual(started.clock);
+    expect(cancelled.sectExpansion.stock['wound-powder'].reserved).toBe(0);
+  });
+});
+
+
+describe('care work cannot run after a clock-created global decision pause', () => {
+  /** Retains genuine treatment, medicine/payment and lifecycle sources. Only the
+   * claimed final work tick/effect and the two adjacent revision owners are moved. */
+  function moveFinalCareTick(world: WorldStateV9, tick: number): WorldStateV9 {
+    const next = cloneJson(world); const job = next.sectExpansion.care.jobs[0]!; const terminal = job.terminal!; const effect = terminal.effect!;
+    const row = next.cultivationClock.transitions.find(row => row.tick === tick)!;
+    expect(row.beforeRevision).toBe(effect.afterRevision);
+    const beforeRevision = row.beforeRevision; row.beforeRevision = effect.beforeRevision;
+    const last = job.workSpans.at(-1)!;
+    expect(last.lastTick - last.firstTick).toBeGreaterThan(0); expect(tick).toBeGreaterThan(last.lastTick + 1);
+    const workSpans = [...job.workSpans.slice(0, -1), { ...last, lastTick: last.lastTick - 1 }, { firstTick: tick, lastTick: tick, visitIndex: last.visitIndex }];
+    next.sectExpansion = { ...next.sectExpansion, care: { ...next.sectExpansion.care, jobs: [{ ...job, workSpans,
+      terminal: { ...terminal, tick, calendarTick: tick, effect: { ...effect, tick, beforeRevision, afterRevision: beforeRevision + 1 } } }] } };
+    return next;
+  }
+  for (const patientId of [elder, 'entity:2']) it(`rejects completed care on the exact expiry-pause tick of ${patientId}`, () => {
+    const pending = ticks(nearExpiry(cared, patientId), 1);
+    expect(pending.cultivation.pendingDeaths.some(death => death.discipleId === patientId)).toBe(true);
+    const forged = moveFinalCareTick(pending, pending.clock.simulationTick);
+    expect(inspectUnregisteredWorldV9Records(forged)).toContain('Invalid legacy combat controller');
+    expect(() => inspectV9CultivationClockRecords(forged)).toThrow('Invalid v9 cultivation clock: care effect occurs on a pre-work decision-pause tick');
+    expect(inspectUnregisteredWorldV9Records(pending)).toEqual([]);
+  });
+  for (const patientId of [elder, 'entity:2']) it(`rejects effect claims during ${patientId}’s pending interval before finalization`, () => {
+    const pending = ticks(nearExpiry(cared, patientId), 1); const forged = moveFinalCareTick(pending, pending.clock.simulationTick);
+    const job = forged.sectExpansion.care.jobs[0]!; const terminal = job.terminal!; const tick = terminal.tick + 1;
+    // Forged passage of one paused tick is solely the adversarial input. The real
+    // pending world remains frozen, and no finalization/death event is supplied.
+    forged.clock = { ...forged.clock, simulationTick: tick, calendarTick: tick };
+    forged.sectExpansion = { ...forged.sectExpansion, care: { ...forged.sectExpansion.care, jobs: [{ ...job,
+      workSpans: [...job.workSpans.slice(0, -1), { ...job.workSpans.at(-1)!, firstTick: tick, lastTick: tick }],
+      terminal: { ...terminal, tick, calendarTick: tick, effect: { ...terminal.effect!, tick } } }] } };
+    expect(forged.cultivation.deaths).toHaveLength(0);
+    expect(inspectUnregisteredWorldV9Records(forged)).toContain('Invalid legacy combat controller');
+    expect(() => inspectV9CultivationClockRecords(forged)).toThrow('Invalid v9 cultivation clock: unresolved death decision advanced the clock');
+  });
+  it('rejects completed care on another disciple’s real breakthrough-ready pause tick', () => {
+    let source = cloneJson(medicineReady);
+    if (source.clock.calendarTick % CALENDAR_TICKS_PER_MONTH + 44 >= CALENDAR_TICKS_PER_MONTH) {
+      source = ticks(source, CALENDAR_TICKS_PER_MONTH - source.clock.calendarTick % CALENDAR_TICKS_PER_MONTH + 1);
+    }
+    const patient = source.cultivation.disciples.find(profile => profile.discipleId === 'entity:2')!;
+    patient.cultivation = 120; // Explicit progress boundary; preparation, escrow and decision are genuine.
+    source = accepted(source, { kind: 'cultivation.command', payload: { command: { kind: 'breakthrough.confirm', commandId: 'clock.pause.confirm',
+      expectedRevision: source.cultivation.revision, preview: previewBreakthroughV3(source, 'entity:2') } } }, 'clock.pause.confirm');
+    const attemptId = source.cultivation.attempts.at(-1)!.attemptId;
+    source = accepted(source, { kind: 'cultivation.command', payload: { command: { kind: 'breakthrough.begin', commandId: 'clock.pause.begin',
+      expectedRevision: source.cultivation.revision, attemptId } } }, 'clock.pause.begin');
+    source = ticks(careStart(source, 'clock.pause.care'), 44);
+    expect(source.sectExpansion.care.jobs[0]!.terminal?.kind).toBe('completed');
+    const boundary = cloneJson(source); const tick = (boundary.cultivation.calendarMonth + 1) * CALENDAR_TICKS_PER_MONTH;
+    boundary.clock = { ...boundary.clock, simulationTick: tick - 1, calendarTick: tick - 1 };
+    expect(inspectUnregisteredWorldV9Records(boundary)).toEqual([]);
+    const ready = ticks(boundary, 1); expect(ready.cultivation.attempts.at(-1)!.phase).toBe('DecisionReady');
+    const forged = moveFinalCareTick(ready, tick);
+    expect(inspectUnregisteredWorldV9Records(forged)).toContain('Invalid legacy combat controller');
+    expect(() => inspectV9CultivationClockRecords(forged)).toThrow('Invalid v9 cultivation clock: care effect occurs on a pre-work decision-pause tick');
+    const later = cloneJson(forged); const job = later.sectExpansion.care.jobs[0]!; const terminal = job.terminal!;
+    later.clock = { ...later.clock, simulationTick: tick + 1, calendarTick: tick + 1 };
+    later.sectExpansion = { ...later.sectExpansion, care: { ...later.sectExpansion.care, jobs: [{ ...job,
+      workSpans: [...job.workSpans.slice(0, -1), { ...job.workSpans.at(-1)!, firstTick: tick + 1, lastTick: tick + 1 }],
+      terminal: { ...terminal, tick: tick + 1, calendarTick: tick + 1, effect: { ...terminal.effect!, tick: tick + 1 } } }] } };
+    expect(inspectUnregisteredWorldV9Records(later)).toContain('Invalid legacy combat controller');
+    expect(() => inspectV9CultivationClockRecords(later)).toThrow('Invalid v9 cultivation clock: unresolved breakthrough decision advanced the clock');
+    for (const kind of ['breakthrough.resolve', 'breakthrough.cancel'] as const) {
+      const commandId = `clock.pause.${kind}`;
+      const common = { commandId, expectedRevision: ready.cultivation.revision, attemptId };
+      const command = kind === 'breakthrough.resolve' ? { ...common, kind, acknowledgeRisk: true as const } : { ...common, kind };
+      const closed = accepted(ready, { kind: 'cultivation.command', payload: { command } }, commandId);
+      expect(closed.clock.simulationTick).toBe(tick); expect(ticks(closed, 1).clock.simulationTick).toBe(tick + 1);
+      const lateClose = cloneJson(closed); lateClose.clock = { ...lateClose.clock, simulationTick: tick + 1, calendarTick: tick + 1 };
+      lateClose.events = lateClose.events.map(event => event.kind === (kind === 'breakthrough.resolve' ? 'cultivation.resolved' : 'cultivation.cancelled')
+        && event.payload.relatedId === attemptId ? { ...event, tick: tick + 1 } : event);
+      expect(inspectUnregisteredWorldV9Records(lateClose)).toContain('Invalid legacy combat controller');
+      expect(() => inspectV9CultivationClockRecords(lateClose)).toThrow('Invalid v9 cultivation clock: breakthrough decision closed after its paused boundary');
+    }
   });
 });

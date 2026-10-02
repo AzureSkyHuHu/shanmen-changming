@@ -2,8 +2,8 @@ import { createWorkPathBudget } from '../agents/work-navigation';
 import { automaticWorkContext, startAutomaticProduction } from '../economy/automatic-production';
 import { planAutomaticWork } from '../sect-economy/planner';
 import { MAX_AUTO_STARTS_PER_DECISION } from '../sect-economy/types';
-import { prepareCultivationClockAdvance } from '../world/cultivation-preparation';
-import { composeV9CultivationFrame, withV9CultivationPause } from '../world/v9-cultivation-bridge';
+import { advanceV9CultivationClock } from '../world/v9-cultivation-clock-bridge';
+import { withV9CultivationPause } from '../world/v9-cultivation-bridge';
 import { inspectV9KnownRecordHeadroom } from '../world/v9-record-headroom';
 import { tickV9LegacyProduction, tickV9SectStages, v9WorkerAvailable, v9WorkOwners } from '../world/v9-sect-bridge';
 import type { WorldStateV9 } from '../world/v9-types';
@@ -56,8 +56,7 @@ export function advanceUnregisteredTicksV9(world: WorldStateV9, steps: number, c
     const boundary = next;
     try {
       next = { ...next, clock: tickClock(next.clock) };
-      const cultivation = prepareCultivationClockAdvance(next);
-      if (cultivation) next = composeV9CultivationFrame(next, cultivation);
+      next = advanceV9CultivationClock(next);
       if (!isPaused(next.clock)) {
         const budget = createWorkPathBudget(next.clock.simulationTick);
         next = tickAutomatic(next);

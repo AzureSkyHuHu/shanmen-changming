@@ -1,4 +1,50 @@
-# v9 .2 内部经营容量查询
+# v9 .3 内部经营容量查询与时钟证据预留
+
+状态：.3 接口更新，等待集成验证。下面保留完整 .2 阶段说明，避免把后来的历史来源能力倒写为 .2 已实现。此前 .2 查询由集成负责人验证双类型检查及 25 项专项通过；.3 结果另行记录。
+
+## .3 新增的实际保存字段
+
+World 新增 `cultivationClock.transitions`。每条记录严格包含 kind（month / age-sync）、tick、beforeRevision、rootActionId 四个字段；上限直接引用 `V9_CULTIVATION_CLOCK_LIMIT = 8192`。没有新增 codec 或公开 reader。
+
+真实 tick 顺序是 World 时钟推进 → 判断实际月界/生日组 → 在容量允许时记录一次时钟转换 → 调用原修炼 reducer → 生命周期取消/归档 → 当刻工作/护理效果。同刻多个人生日共用一条 age-sync；生日与月界重合只记一条 month。每条时钟记录正好对应一次 cultivation revision 和一次 nextAction 增量。即时取消、死亡确认、归档及护理效果本身不增加时钟记录。
+
+## 有限未来预留的推导
+
+查询版本只支持 .3，.2 形状不被静默升级。整档公式改为：
+
+    实测完整 .3 envelope + 已有生产/日志/通用余量
+    + progression 预留 + sect 预留 + 新增 clock 记录预留 <= 4,194,304
+
+当前 clock 数组已在实测 envelope 内，绝不再加一次。未来记录使用实际四字段类型建立最大见证：最长 kind、最大合法 tick / beforeRevision 和最大 action ID。每个新数组成员另计最多一个分隔符，输出 bytes、decodedCharacters 和 decodedNodes。
+
+未来 clock 义务分两类：
+
+1. 已接受修炼/教学义务原先派生的有限 calendarTicks 范围：按月界余数 0 和在世弟子生日余数的集合，精确计算这个范围内的周期边界个数。重复生日和与月界重合的生日不重复计数。该范围来自已有 progression 义务，不是任意等待窗口
+2. 每个仍在世的生命周期所有者最多一条终结触发记录：为该所有者已预留的寿尽动作补足 .3 记录形状。不同人的终结可能同刻发生，或落在前述窗口内；本片明确保留逐所有者的保守重复，不宣称已知将来的死亡时间
+
+progression 原先已经预留教学/闭关月份的 action/revision，以及每个在世生命周期所有者的一次寿尽 action/revision。查询只再增加有限窗口里新增的 off-month age-sync 动作和 revision，不能把已存在的月份/寿尽标量预留重复相加。
+
+一条终结触发记录不是到达自然寿尽的全部时间承诺。自然寿尽之前任意月份、无限等待、维护续费以及可选新工作仍然排除。后续运行时门槛必须在可选增长消耗恢复空间前停止；本片不接入该门槛。
+
+## 独立时钟维度
+
+- cultivationClockTransitions：实际行数 + 派生未来行数，对比真实 8192 上限
+- cultivationClockStructuralNodes：当前结构节点 + 未来节点，对比空 clock 对象/数组节点加 8192 个真实四字段节点的结构上界
+- sequence.nextAction / cultivationRevision：保留原成长预算，再增加有限 off-month 组的差额
+
+结构节点上界是现有严格记录形状和行数上限的推论，不是假造一个新 parser reader。clock 不在独立 cultivation/build snapshot 里，因此不把它的行再塞进那些 reader 字符预算。完整 World UTF-8 字节仍统一包含它。
+
+.3 历史来源检查现在要求完整且连续的修炼 revision 所有者、真实月界/生日行和时钟顺序，弥补了 .2 beforeRevision/月界来源缺口。不过它仍是结构来源一致性检查，不是密码学真实性或完整历史伤势重放。容量结果依然保持 admitted=false、importAuthorized=false、eventualCompletionSupported=false。
+
+## .3 专项增量
+
+新增真实教学月界与共生日组的时钟记录/计数预留对照、当前数组完整 envelope 计量、8192 行相等/差一及结构节点边界、有限自然终结触发行和明确拒绝 .2。较大 row-pressure 数据是明确标注的诊断夹具，来源检查仍拒绝，不能冒充可导入的完整历史。
+
+原领域旅程改用真实 .3 时钟桥。已有历史的寿尽边界夹具保留月界生日余数，不能在历史已经记录后改写为未记录的 off-month 生日。
+
+---
+
+# v9 .2 内部经营容量查询（历史阶段）
 
 状态：内部只读实现，等待本树验证。没有注册新存档、应用引擎、Session、内容入口或 UI，没有接入运行时准入，也没有赋予导入权限。
 

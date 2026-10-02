@@ -68,7 +68,7 @@ export function inspectUnregisteredWorldV9Records(value: WorldStateV9): string[]
     canonicalUtf8ByteLength(value);
     if (!ownSectFields(value, ['seed', 'simulationVersion', 'contentVersion', 'clock', 'randomStreams', 'sequences', 'map', 'disciples', 'buildings',
       'sectEconomy', 'history', 'automaticProduction', 'inventory', 'reservations', 'transactions', 'activeProductionTransactionIds', 'commandReceipts',
-      'pendingCommands', 'events', 'unlocks', 'diagnostics', 'cultivation', 'builds', 'expedition', 'contentIdentity', 'campaign', 'legacy', 'runtimeProtocol', 'sectExpansion'])) return ['Invalid internal v9 root fields'];
+      'pendingCommands', 'events', 'unlocks', 'diagnostics', 'cultivation', 'builds', 'expedition', 'contentIdentity', 'campaign', 'legacy', 'runtimeProtocol', 'sectExpansion', 'cultivationClock'])) return ['Invalid internal v9 root fields'];
     return validateWorldSchema(value, 9);
   } catch (error) { return [error instanceof Error ? error.message : 'Invalid internal v9 records']; }
 }
@@ -85,7 +85,7 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   const errors: string[] = [];
   const fail = (message: string): string[] => [message];
   if (!object(value)) return fail('World must be an object');
-  if (version !== 9 && (Object.hasOwn(value, 'sectExpansion') || Object.hasOwn(value, 'runtimeProtocol'))) return fail('Legacy World contains reserved v9 fields');
+  if (version !== 9 && (Object.hasOwn(value, 'sectExpansion') || Object.hasOwn(value, 'runtimeProtocol') || Object.hasOwn(value, 'cultivationClock'))) return fail('Legacy World contains reserved v9 fields');
   if (!text(value.seed) || value.simulationVersion !== (version === 9 ? '0.9.0' : hasCampaign ? '0.8.0' : legacy ? '0.1.1' : version === 2 ? '0.2.0' : current ? '0.7.0' : version === 6 ? '0.6.0' : version === 5 ? '0.5.0' : version === 4 ? '0.4.0' : '0.3.0')) return fail('Unsupported world identity/version');
   if (version === 9) { if (value.contentVersion !== MANAGEMENT_V9_CONTENT_VERSION || !isManagementV9Identity(value.contentIdentity)) return fail('Unsupported internal v9 content identity'); }
   else if (hasCampaign) { try { getWorldContent(value as unknown as WorldStateV8); } catch { return fail('Unsupported World content identity'); } }

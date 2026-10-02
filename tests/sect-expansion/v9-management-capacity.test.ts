@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveContentIdentity } from '../../src/content/registry';
+import { createCultivationStateV3 } from '../../src/core/cultivation/v3';
 import { MAX_CULTIVATION_HISTORY } from '../../src/core/cultivation/rules';
 import { dispatchUnregisteredCommandV9 } from '../../src/core/kernel/commands-v9';
 import { CALENDAR_TICKS_PER_MONTH } from '../../src/core/kernel/clock';
@@ -16,6 +17,9 @@ import { createWorld } from '../../src/core/world/create-world';
 import { createWorldV8 } from '../../src/core/world/create-world-v8';
 import { createUnregisteredWorldV9 } from '../../src/core/world/create-world-v9';
 import { assessManagementCapacityV9 } from '../../src/core/world/management-capacity-v9';
+import { advanceV9CultivationClock } from '../../src/core/world/v9-cultivation-clock-bridge';
+import { V9_CULTIVATION_CLOCK_LIMIT } from '../../src/core/world/v9-cultivation-clock-types';
+import { measureProgressionRecord } from '../../src/core/save-budget/progression-bounds';
 import { deriveV9BuildObligationFacts, inspectV9KnownRecordHeadroom } from '../../src/core/world/v9-record-headroom';
 import type { WorldStateV9 } from '../../src/core/world/v9-types';
 import { parseVersionedSave } from '../../src/platform/save-codec';
@@ -48,13 +52,13 @@ describe('read-only unregistered v9 management capacity query', () => {
     expect(assessment.measuredEnvelopeBytes).toBe(measureWorldSaveBytes(world, { saveVersion: 9 }));
     expect(assessment).toMatchObject({ scope: 'unregistered-v9-immediate-recovery-and-record-peaks', supported: true, fits: true,
       admitted: false, importAuthorized: false, eventualCompletionSupported: false });
-    expect(assessment.excludedProofs.join(' ')).toMatch(/beforeRevision\/month-tick/);
+    expect(assessment.excludedProofs.join(' ')).toMatch(/historical injury replay/);
     expect(canonicalStringify(world)).toBe(before);
   });
   it('adds base, progression and sect once and never re-adds the build subtotal', () => {
     const assessment = assessManagementCapacityV9(planned());
     expect(assessment.supported, assessment.unknowns.join('; ')).toBe(true);
-    expect(assessment.costs.wireBytes).toBe(assessment.measuredEnvelopeBytes! + assessment.base!.reservedBytes + assessment.progression!.totals.bytes + assessment.sect!.totals.bytes);
+    expect(assessment.costs.wireBytes).toBe(assessment.measuredEnvelopeBytes! + assessment.base!.reservedBytes + assessment.progression!.totals.bytes + assessment.sect!.totals.bytes + assessment.clock!.bytes);
     expect(assessment.reserved.buildCommands).toBe(assessment.progression!.totals.buildRows);
     expect(assessment.reserved['sect.constructionReceipts']).toBe(2);
     expect(assessment.reserved.archiveReceiptRows).toBe(assessment.base!.archiveSlots.reserved.commandReceipts + assessment.progression!.totals.archiveRows.commandReceipts);
@@ -149,6 +153,67 @@ describe('read-only unregistered v9 management capacity query', () => {
     expect(assessManagementCapacityV9(cyclic).supported).toBe(false);
     const sparse = createUnregisteredWorldV9('hostile-sparse'); delete sparse.disciples[0];
     expect(assessManagementCapacityV9(sparse).supported).toBe(false);
+  });
+  it('reserves terminal clock rows but no arbitrary future month stream at a fresh boundary', () => {
+    const world = createUnregisteredWorldV9('clock-no-optional-time'); const result = assessManagementCapacityV9(world);
+    expect(result.supported).toBe(true); expect(result.clock).toMatchObject({ currentRows: 0, calendarTicks: 0, monthRows: 0, ageSyncRows: 0,
+      lifecycleTriggerRows: world.disciples.length, reservedRows: world.disciples.length, additionalActions: 0, additionalCultivationRevisions: 0 });
+    expect(result.reserved['cultivationClockTransitions']).toBe(world.disciples.length);
+    expect(result.clock!.decodedNodes).toBe(world.disciples.length * result.clock!.perTransition.decodedNodes);
+    expect(result.clock!.structuralNodeLimit).toBe(2 + V9_CULTIVATION_CLOCK_LIMIT * result.clock!.perTransition.decodedNodes);
+    const old = { ...world, runtimeProtocol: 'fresh-management-v9-unregistered.2' } as unknown as WorldStateV9;
+    expect(assessManagementCapacityV9(old).supported).toBe(false);
+  });
+  it('funds finite teaching months and grouped off-month birthdays without charging the existing month actions twice', () => {
+    let source = createUnregisteredWorldV9('clock-teaching-horizon');
+    // Explicit zero-history chronology fixture, before any clock evidence exists.
+    for (const id of ['entity:1', 'entity:2']) {
+      const actor = source.disciples.find(actor => actor.id === id)!; const profile = source.cultivation.disciples.find(profile => profile.discipleId === id)!;
+      actor.birthCalendarTick += 7; actor.ageMonths = Math.floor(-actor.birthCalendarTick / CALENDAR_TICKS_PER_MONTH); profile.ageMonths = actor.ageMonths;
+    }
+    // Explicit authored-origin fixture through the real schema-3 constructor,
+    // before any revision/clock history. This is not a campaign grant claim.
+    source.cultivation = createCultivationStateV3(source.cultivation.disciples.map(profile => profile.discipleId === 'entity:2'
+      ? { ...profile, knowledge: [{ knowledgeId: 'knowledge.capacity', teacherId: null, teachingId: null }] } : profile));
+    expect(inspectUnregisteredWorldV9Records(source)).toEqual([]);
+    const commandId = 'clock.teach';
+    const started = dispatchUnregisteredCommandV9(source, { kind: 'cultivation.command', commandId, issuedTick: 0, sequence: 0,
+      payload: { command: { kind: 'teaching.begin', commandId, expectedRevision: source.cultivation.revision,
+        discipleId: 'entity:2', studentId: 'entity:3', knowledgeId: 'knowledge.capacity' } } });
+    expect(started.result.status).toBe('accepted'); source = started.world;
+    const before = assessManagementCapacityV9(source); expect(before.supported, before.sourceRecordIssues.join('; ')).toBe(true);
+    expect(before.clock).toMatchObject({ calendarTicks: 2 * CALENDAR_TICKS_PER_MONTH, monthRows: 2, ageSyncRows: 2,
+      lifecycleTriggerRows: source.disciples.length, additionalActions: 2, additionalCultivationRevisions: 2 });
+    expect(before.reserved['sequence.nextAction']).toBe(before.progression!.totals.sequenceReserve.nextAction + 2);
+    expect(before.reserved.cultivationRevision).toBe(before.progression!.totals.counterReserve.cultivationRevisions + 2);
+    let next = source;
+    // Execute every revision-producing boundary through the real .3 bridge. The
+    // skipped intervals are explicitly idle, not a simulated work/tick journey.
+    for (const tick of [7, CALENDAR_TICKS_PER_MONTH, CALENDAR_TICKS_PER_MONTH + 7, 2 * CALENDAR_TICKS_PER_MONTH]) {
+      next = advanceV9CultivationClock({ ...next, clock: { ...next.clock, simulationTick: tick, calendarTick: tick } });
+      expect(inspectUnregisteredWorldV9Records(next)).toEqual([]);
+    }
+    expect(next.cultivationClock.transitions.map(row => row.kind)).toEqual(['age-sync', 'month', 'age-sync', 'month']);
+    expect(next.cultivation.disciples.find(profile => profile.discipleId === 'entity:2')!.teaching).toBeNull();
+    const delta = measureProgressionRecord(next.cultivationClock).bytes - measureProgressionRecord(source.cultivationClock).bytes;
+    expect(before.clock!.bytes).toBeGreaterThanOrEqual(delta);
+    const after = assessManagementCapacityV9(next); expect(after.supported).toBe(true);
+    expect(after.clock!.monthRows).toBe(0); expect(after.clock!.ageSyncRows).toBe(0);
+    expect(after.current.cultivationClockTransitions).toBe(4);
+  });
+  for (const spare of [4, 3]) it(`keeps .3 clock row and structural-node ceilings independent of bytes with ${spare} rows spare`, () => {
+    // Shape-correct row-pressure diagnostic, deliberately not invented historical
+    // provenance. The query may expose costs but supported must stay false.
+    const source = createUnregisteredWorldV9('clock-row-pressure');
+    source.cultivationClock.transitions = Array.from({ length: V9_CULTIVATION_CLOCK_LIMIT - spare }, (_, index) => ({
+      kind: 'month', tick: (index + 1) * CALENDAR_TICKS_PER_MONTH, beforeRevision: index, rootActionId: `action:${index + 1}`,
+    }));
+    const result = assessManagementCapacityV9(source);
+    expect(result.actualFits).toBe(true); expect(result.supported).toBe(false);
+    expect(result.costs.cultivationClockTransitions).toBe(V9_CULTIVATION_CLOCK_LIMIT + 4 - spare);
+    expect(result.deficits.some(deficit => deficit.dimension === 'cultivationClockTransitions')).toBe(spare === 3);
+    expect(result.deficits.some(deficit => deficit.dimension === 'cultivationClockStructuralNodes')).toBe(spare === 3);
+    expect(result.measuredEnvelopeBytes).toBe(measureWorldSaveBytes(source, { saveVersion: 9 }));
   });
   it('keeps v7/v8 codecs unchanged and v9 entirely unregistered despite a fitting query', () => {
     const legacy = createWorld('old-codec'); const candidate = createWorldV8('candidate-codec');

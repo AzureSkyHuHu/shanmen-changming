@@ -64,7 +64,11 @@ function nearExpiry(world: WorldStateV9, workerId: string, remaining = 1): World
   // cancellation, acknowledgement and retirement still execute actual World commands/ticks.
   const next = cloneJson(world); const actor = next.disciples.find(actor => actor.id === workerId)!;
   const profile = next.cultivation.disciples.find(profile => profile.discipleId === workerId)!;
-  actor.birthCalendarTick = next.clock.calendarTick + remaining - profile.lifespanMonths * CALENDAR_TICKS_PER_MONTH;
+  // Keep the already-proven month-aligned birthday residue. This explicit boundary
+  // fixture advances only within the current month; it cannot invent past birthday rows.
+  const target = Math.ceil((next.clock.calendarTick + remaining) / CALENDAR_TICKS_PER_MONTH) * CALENDAR_TICKS_PER_MONTH;
+  next.clock = { ...next.clock, simulationTick: target - remaining, calendarTick: target - remaining };
+  actor.birthCalendarTick = target - profile.lifespanMonths * CALENDAR_TICKS_PER_MONTH;
   actor.ageMonths = Math.floor((next.clock.calendarTick - actor.birthCalendarTick) / CALENDAR_TICKS_PER_MONTH); profile.ageMonths = actor.ageMonths;
   expect(inspectUnregisteredWorldV9Records(next)).toEqual([]); return next;
 }

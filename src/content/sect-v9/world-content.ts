@@ -6,11 +6,11 @@ import { SECT_V9_CANDIDATE_IDENTITY } from './catalog';
 /** Internal management identity. Deliberately absent from the public content registry,
  * expedition protocols, application engine and save codec. Old identities are unchanged. */
 export const MANAGEMENT_V9_GENESIS = Object.freeze({ id: 'fresh-elder-injury25.v9.1', patientId: 'entity:4', injury: 25 });
-export const MANAGEMENT_V9_CONTENT_VERSION = 'shanmen-management-0.9.0-unregistered.2';
+export const MANAGEMENT_V9_CONTENT_VERSION = 'shanmen-management-0.9.0-unregistered.3';
 export const MANAGEMENT_V9_IDENTITY: Readonly<GameContentIdentity> = Object.freeze({
-  registryId: 'content.management-v9.unregistered-2',
+  registryId: 'content.management-v9.unregistered-3',
   compositeFingerprint: stableHash({ protocol: MANAGEMENT_V9_CONTENT_VERSION,
-    base: contentIdentity(RELEASE_V8_CANDIDATE), sect: SECT_V9_CANDIDATE_IDENTITY, departures: 'closed', care: { effect: 'care.wound-powder.reduce-injury.v9.1', amount: 20, workTicks: 40 }, genesis: MANAGEMENT_V9_GENESIS }),
+    base: contentIdentity(RELEASE_V8_CANDIDATE), sect: SECT_V9_CANDIDATE_IDENTITY, departures: 'closed', cultivationClock: { protocol: 'bounded-clock-revisions.v9.1', maximumTransitions: 8192 }, care: { effect: 'care.wound-powder.reduce-injury.v9.1', amount: 20, workTicks: 40 }, genesis: MANAGEMENT_V9_GENESIS }),
   combatFingerprint: contentIdentity(RELEASE_V8_CANDIDATE).combatFingerprint, buildRulesVersion: 2,
 });
 export function isManagementV9Identity(identity: unknown): boolean {

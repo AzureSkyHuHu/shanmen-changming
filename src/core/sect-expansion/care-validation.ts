@@ -7,6 +7,7 @@ import { CALENDAR_TICKS_PER_MONTH } from '../kernel/clock';
 import { isNonNegativeInteger } from '../kernel/numeric';
 import { canonicalStringify } from '../kernel/serialization';
 import { canonicalUtf8ByteLength } from '../save-budget';
+import { v9CanonicalCultivationCommands, v9CultivationMonthTransition } from '../world/v9-cultivation-clock-records';
 import { lookupEvent } from '../world/history-access';
 import type { WorldStateV9 } from '../world/v9-types';
 import { SECT_CARE_LIMITS, WOUND_POWDER_COST_V9, type SectCareCommand, type SectCareJob } from './care-types';
@@ -163,13 +164,22 @@ export function validateCareRecordsV9(world: WorldStateV9, frame: SectMaintenanc
           if (!death || !event || lookupEvent(world, event.eventId)?.tick !== terminal.tick
             || receipt.command.commandId !== `system/v9/death/${death.deathId}/${job.jobId}`) return fail('INVALID_CARE_DEATH_SOURCE', job.jobId);
         } else if (reason.kind === 'rest-healed') {
-          // Receipt consistency only: beforeRevision is captured from the actual runtime
-          // source, not independently reconstructed as a tamper-proof historical timeline.
+          // The complete fresh revision partition binds this cancellation to the
+          // exact real month source, rather than any plausible earlier rest command.
+          const anchor = v9CultivationMonthTransition(world, reason.month);
+          if (!anchor || anchor.tick !== terminal.tick || anchor.beforeRevision !== reason.beforeRevision
+            || reason.afterRevision !== anchor.beforeRevision + 1) return fail('INVALID_CARE_HEAL_SOURCE', job.jobId);
           if (careTrainingModeAtRevision(world.cultivation, reason.beforeRevision, job.patientId) !== 'rest') return fail('INVALID_CARE_HEAL_SOURCE', job.jobId);
           const patient = [...world.cultivation.disciples, ...world.cultivation.archivedDisciples].find(profile => profile.discipleId === job.patientId)!;
           if (!array(reason.healingSourceInstanceIds, 3) || reason.healingSourceInstanceIds.some(sourceId => !id(sourceId))
             || new Set(reason.healingSourceInstanceIds).size !== reason.healingSourceInstanceIds.length
             || !same(reason.healingSourceInstanceIds, [...reason.healingSourceInstanceIds].sort())) return fail('INVALID_CARE_HEAL_SOURCE', job.jobId);
+          const commands = v9CanonicalCultivationCommands(world);
+          const expectedSources = patient.talents.filter(talent => PERMANENT_TALENT_RULES[talent.sourceDefinitionId].healing > 0
+            && commands.some(command => command.kind === 'talent.grant' && command.discipleId === job.patientId
+              && command.talentId === talent.sourceDefinitionId && command.expectedRevision < anchor.beforeRevision))
+            .map(talent => talent.sourceInstanceId).sort();
+          if (!same(reason.healingSourceInstanceIds, expectedSources)) return fail('INVALID_CARE_HEAL_SOURCE', job.jobId);
           let healing = CULTIVATION_RULES.rest.healingPerMonth;
           for (const sourceId of reason.healingSourceInstanceIds) {
             const talent = patient.talents.find(talent => talent.sourceInstanceId === sourceId);

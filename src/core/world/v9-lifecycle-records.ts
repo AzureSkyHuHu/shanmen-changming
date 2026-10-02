@@ -9,6 +9,7 @@ import { canonicalUtf8ByteLength } from '../save-budget';
 import { inspectEstateIdentityRecords, inspectEstateSettlementRecords } from './estate-records';
 import { lookupEvent } from './history-access';
 import { validateWorldLifecycleSources } from './lifecycle-source-proof';
+import { inspectV9CultivationClockRecords } from './v9-cultivation-clock-records';
 import type { WorldStateV9 } from './v9-types';
 
 const evidence: unique symbol = Symbol('v9 lifecycle records');
@@ -24,7 +25,7 @@ export const EMPTY_V9_EXPEDITION = Object.freeze({ schemaVersion: 2 as const, ru
  * history only; it is neither a whole-World validator nor a save/capacity certificate. */
 export function inspectV9LifecycleRecords(world: WorldStateV9): V9LifecycleRecordEvidence {
   canonicalUtf8ByteLength(world); // reject accessors before any domain reads
-  if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.2'
+  if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.3'
     || world.contentVersion !== MANAGEMENT_V9_CONTENT_VERSION || !isManagementV9Identity(world.contentIdentity)
     || world.clock.mode !== 'management' || world.clock.encounterTick !== 0 || world.clock.calendarTick !== world.clock.simulationTick
     || !same(world.expedition, EMPTY_V9_EXPEDITION)
@@ -74,6 +75,7 @@ export function inspectV9LifecycleRecords(world: WorldStateV9): V9LifecycleRecor
     const command = receipt.command;
     if (command.kind !== 'disciple.archive' || !world.legacy.archivedIdentities.some(identity => identity.discipleId === command.discipleId && identity.deathId === command.deathId)) throw new TypeError('Unsupported cultivation authority');
   }
+  inspectV9CultivationClockRecords(world);
   const deaths = world.legacy.archivedIdentities.map(identity => {
     const event = world.cultivation.events.find(event => event.kind === 'cultivation.died' && event.relatedId === identity.deathId && event.discipleId === identity.discipleId)!;
     const tick = lookupEvent(world, event.eventId)!.tick;

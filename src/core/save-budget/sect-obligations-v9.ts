@@ -236,11 +236,11 @@ export function deriveSectReservationsV9(world: WorldStateV9): SectObligationAss
       'Elapsed ticks and construction/production/research revisions while indefinitely blocked or waiting',
       'Optional new production/research/care starts and maintenance renewals require remeasurement and future runtime admission',
       'Whole-save import, provenance, cancellation-release admission and guaranteed eventual completion are not certified',
-      'Historical care beforeRevision/month-tick provenance is not independently authenticated by sizing',
+      'Clock/revision source consistency and historical injury authenticity are not established by sizing',
     ] };
   try {
     createCanonicalByteCounter().measure(world); // Accessors/cycles/sparse arrays fail before property reads; no mutable cache.
-    if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.2'
+    if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.3'
       || !resolveSectCatalogIdentity(world.sectExpansion.construction.catalogIdentity)) throw new TypeError('Unsupported internal v9 record identity');
     navigationPathByteBudget(world.map);
     const records = world.sectExpansion;

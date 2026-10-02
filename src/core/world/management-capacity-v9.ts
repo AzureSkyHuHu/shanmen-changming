@@ -2,6 +2,7 @@ import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
 import { isManagementV9Identity } from '../../content/sect-v9/world-content';
 import { MAX_CULTIVATION_HISTORY } from '../cultivation/rules';
 import { RESOURCE_IDS } from '../economy/types';
+import { CALENDAR_TICKS_PER_MONTH } from '../kernel/clock';
 import { inspectUnregisteredWorldV9Records } from '../kernel/validation';
 import { assessAutomaticWorkBudget, SAVE_FILE_LIMIT_BYTES, type AutomaticSaveBudgetAssessment } from '../save-budget/admission';
 import { assessBuildHistoryObligations, type BuildHistoryObligationAssessment } from '../save-budget/build-obligations';
@@ -18,6 +19,7 @@ import { SECT_RESEARCH_LIMITS } from '../sect-expansion/research-types';
 import { assessProgressionNumeric, type ProgressionNumericAssessment } from './progression-numeric';
 import { deriveV9BuildObligationFacts } from './v9-record-headroom';
 import { projectV9SectFrame } from './v9-sect-bridge';
+import { V9_CULTIVATION_CLOCK_LIMIT, type V9CultivationClockTransition } from './v9-cultivation-clock-types';
 import type { WorldStateV9 } from './v9-types';
 
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -37,7 +39,76 @@ export interface ManagementCapacityV9 {
   deficits: { dimension: string; current: number; reserved: number; cost: number; limit: number; excess: number }[];
   base: AutomaticSaveBudgetAssessment | null; build: BuildHistoryObligationAssessment | null;
   progression: ProgressionReservationAssessment | null; numeric: ProgressionNumericAssessment | null; sect: SectObligationAssessmentV9 | null;
+  clock: ManagementClockReservationV9 | null;
   sourceRecordIssues: string[]; unknowns: string[]; excludedProofs: readonly string[];
+}
+export interface ManagementClockReservationV9 {
+  supported: boolean; currentRows: number; reservedRows: number;
+  /** Finite accepted progression horizon only. No indefinite waiting is included. */
+  calendarTicks: number; monthRows: number; ageSyncRows: number; lifecycleTriggerRows: number;
+  additionalActions: number; additionalCultivationRevisions: number;
+  bytes: number; decodedCharacters: number; decodedNodes: number;
+  currentDecodedNodes: number; structuralNodeLimit: number;
+  perTransition: { bytes: number; decodedCharacters: number; decodedNodes: number };
+  progressionOwnerIds: string[]; lifecycleOwnerIds: string[]; unknowns: string[];
+}
+function periodicBoundariesAfter(tick: number, horizon: number, residue: number): number {
+  const offset = ((residue - tick % CALENDAR_TICKS_PER_MONTH) + CALENDAR_TICKS_PER_MONTH) % CALENDAR_TICKS_PER_MONTH;
+  const first = offset === 0 ? CALENDAR_TICKS_PER_MONTH : offset;
+  return horizon < first ? 0 : 1 + Math.floor((horizon - first) / CALENDAR_TICKS_PER_MONTH);
+}
+/** The .3 bridge emits one row and one action/revision per actual month or
+ * off-month birthday group; simultaneous birthdays and month ticks coalesce.
+ * Progression already reserves one expiry action for each alive lifecycle owner
+ * and one action/revision per committed teaching/seclusion month. Only additional
+ * off-month groups in that finite horizon need additional scalar headroom here.
+ * A lifecycle trigger row does not reserve the arbitrary months leading to it. */
+function deriveManagementClockReservationV9(world: WorldStateV9, progression: ProgressionReservationAssessment): ManagementClockReservationV9 {
+  const witness: V9CultivationClockTransition = { kind: 'age-sync', tick: MAX, beforeRevision: MAX - 1, rootActionId: `action:${MAX - 1}` };
+  const maximum = measureProgressionRecord(witness);
+  const emptyNodes = measureProgressionRecord({ transitions: [] }).decodedNodes;
+  const current = measureProgressionRecord(world.cultivationClock);
+  const result: ManagementClockReservationV9 = { supported: false, currentRows: world.cultivationClock.transitions.length, reservedRows: 0,
+    calendarTicks: 0, monthRows: 0, ageSyncRows: 0, lifecycleTriggerRows: 0, additionalActions: 0, additionalCultivationRevisions: 0,
+    bytes: 0, decodedCharacters: 0, decodedNodes: 0, currentDecodedNodes: current.decodedNodes,
+    structuralNodeLimit: emptyNodes + V9_CULTIVATION_CLOCK_LIMIT * maximum.decodedNodes,
+    perTransition: { bytes: maximum.bytes + 1, decodedCharacters: maximum.decodedCharacters + 1, decodedNodes: maximum.decodedNodes },
+    progressionOwnerIds: [], lifecycleOwnerIds: [], unknowns: [] };
+  if (!progression.supported) { result.unknowns.push('Clock row reservation requires a supported progression derivation'); return result; }
+  const horizon = progression.totals.counterReserve.calendarTicks;
+  if (!Number.isSafeInteger(horizon) || horizon < 0 || horizon % CALENDAR_TICKS_PER_MONTH !== 0) {
+    result.unknowns.push('Clock row reservation has no finite whole-month progression horizon'); return result;
+  }
+  result.calendarTicks = horizon;
+  result.progressionOwnerIds = progression.owners.filter(owner => owner.counterReserve.calendarTicks > 0).map(owner => `${owner.kind}:${owner.id}`);
+  result.monthRows = periodicBoundariesAfter(world.clock.calendarTick, horizon, 0);
+  if (result.monthRows !== progression.totals.counterReserve.calendarMonths) {
+    result.unknowns.push('Clock month rows differ from already-funded progression months'); return result;
+  }
+  const residues = new Set<number>();
+  for (const actor of world.disciples) {
+    const profile = world.cultivation.disciples.find(profile => profile.discipleId === actor.id);
+    if (!profile) { result.unknowns.push('Clock obligation lacks an active cultivation identity'); return result; }
+    if (profile.lifeState !== 'alive') continue;
+    const residue = ((actor.birthCalendarTick % CALENDAR_TICKS_PER_MONTH) + CALENDAR_TICKS_PER_MONTH) % CALENDAR_TICKS_PER_MONTH;
+    if (residue !== 0) residues.add(residue);
+  }
+  for (const residue of residues) result.ageSyncRows += periodicBoundariesAfter(world.clock.calendarTick, horizon, residue);
+  result.lifecycleOwnerIds = progression.owners.filter(owner => owner.kind === 'disciple-lifecycle'
+    && world.cultivation.disciples.some(profile => profile.discipleId === owner.id && profile.lifeState === 'alive')).map(owner => owner.id);
+  // Per-owner terminal trigger rows may coalesce with each other or a horizon
+  // row. Keep that deliberate conservative duplicate: no terminal discharge or
+  // equality of future death times is assumed by this read-only query.
+  result.lifecycleTriggerRows = result.lifecycleOwnerIds.length;
+  result.reservedRows = result.monthRows + result.ageSyncRows + result.lifecycleTriggerRows;
+  result.additionalActions = result.ageSyncRows; result.additionalCultivationRevisions = result.ageSyncRows;
+  result.bytes = result.reservedRows * result.perTransition.bytes;
+  result.decodedCharacters = result.reservedRows * result.perTransition.decodedCharacters;
+  result.decodedNodes = result.reservedRows * result.perTransition.decodedNodes;
+  if (![result.reservedRows, result.bytes, result.decodedCharacters, result.decodedNodes].every(value => Number.isSafeInteger(value) && value >= 0)) {
+    result.unknowns.push('Clock reservation exceeds finite safe range'); return result;
+  }
+  result.supported = true; return result;
 }
 /** Read-only internal query, intentionally not re-exported from kernel, save-budget
  * or registered World APIs. It accepts no capability flags or supplied byte counts.
@@ -50,12 +121,12 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
   const result: ManagementCapacityV9 = { scope: 'unregistered-v9-immediate-recovery-and-record-peaks', admitted: false, importAuthorized: false,
     eventualCompletionSupported: false, measuredEnvelopeBytes: null, actualFits: false, supported: false, fits: false, reason: 'unproved-obligation',
     current: {}, reserved: {}, costs: {}, limits: {}, deficits: [], base: null, build: null, progression: null, numeric: null, sect: null,
-    sourceRecordIssues: [], unknowns: [], excludedProofs: [
+    clock: null, sourceRecordIssues: [], unknowns: [], excludedProofs: [
       'Public v9 codec, Session, content and UI registration; public import authority',
       'Real runtime admission and reserved cancellation-release monotonicity',
       'Guaranteed eventual completion through arbitrary blocking, waiting, optional commands or maintenance renewals',
       'Elapsed tick and revision growth before natural lifespan death and indefinitely blocked work',
-      'Independent historical care beforeRevision/month-tick provenance; size never authenticates a treatment history',
+      'Cryptographic authenticity or complete historical injury replay; .3 structural clock evidence never makes sizing an import authority',
       'Expedition, campaign, battle, return and exit proofs: departures remain closed and no v8 exit proof is borrowed',
     ] };
   const dimension = (name: string, current: number, reserved: number, limit: number): void => {
@@ -68,8 +139,8 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
     const counter = createCanonicalByteCounter(); counter.measure(world);
     const measured = measureWorldSaveBytes(world, { saveVersion: 9, counter });
     result.measuredEnvelopeBytes = measured; result.actualFits = measured <= SAVE_FILE_LIMIT_BYTES;
-    if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.2' || !isManagementV9Identity(world.contentIdentity)) {
-      throw new TypeError('Requires internal management-v9 .2 identity');
+    if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.3' || !isManagementV9Identity(world.contentIdentity)) {
+      throw new TypeError('Requires internal management-v9 .3 identity');
     }
     result.sourceRecordIssues = inspectUnregisteredWorldV9Records(world);
     // Preserve inspectable deficits for shape-correct record-pressure fixtures.
@@ -87,15 +158,22 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
     result.unknowns.push(...progression.unknowns, ...sect.unknowns);
     if (!numeric.supported) result.unknowns.push(...numeric.diagnostics);
     if (base.unsupportedPendingKinds.length) result.unknowns.push('Unsupported pending command effects');
+    const clock = deriveManagementClockReservationV9(world, progression); result.clock = clock; result.unknowns.push(...clock.unknowns);
     const extra = progression.totals; const local = sect.totals; const records = world.sectExpansion;
     // Equation: whole envelope ONCE + existing production/journal/general margin
-    // + progression ONCE + sect ONCE. Build rows/bytes are progression subtotals.
-    dimension('wireBytes', measured, sum(base.reservedBytes, extra.bytes, local.bytes), SAVE_FILE_LIMIT_BYTES);
+    // + progression ONCE + sect ONCE + new .3 clock rows ONCE. Existing clock
+    // rows are already inside measured; build rows/bytes are progression subtotals.
+    dimension('wireBytes', measured, sum(base.reservedBytes, extra.bytes, local.bytes, clock.bytes), SAVE_FILE_LIMIT_BYTES);
     dimension('archiveProductionRows', base.archiveSlots.current.production, base.archiveSlots.reserved.production, base.archiveSlots.limitPerTable);
     dimension('archiveReceiptRows', base.archiveSlots.current.commandReceipts, sum(base.archiveSlots.reserved.commandReceipts, extra.archiveRows.commandReceipts), base.archiveSlots.limitPerTable);
     dimension('archiveEventRows', base.archiveSlots.current.events, sum(base.archiveSlots.reserved.events, extra.archiveRows.events), base.archiveSlots.limitPerTable);
     dimension('archiveCharacters', base.archiveExpansion.currentCharacters, sum(base.archiveExpansion.reservedCharacters, extra.archiveDecodedCharacters), base.archiveExpansion.characterLimit);
     dimension('archiveNodes', base.archiveExpansion.currentNodes, sum(base.archiveExpansion.reservedNodes, extra.archiveDecodedNodes), base.archiveExpansion.nodeLimit);
+    dimension('cultivationClockTransitions', world.cultivationClock.transitions.length, clock.reservedRows, V9_CULTIVATION_CLOCK_LIMIT);
+    // No codec or new reader is registered. This is the exact structural node
+    // envelope implied by the existing .3 row cap and its four-scalar row schema,
+    // not an invented parser limit or a second charge to whole-save bytes.
+    dimension('cultivationClockStructuralNodes', clock.currentDecodedNodes, clock.decodedNodes, clock.structuralNodeLimit);
     dimension('buildCommands', world.builds.history.length, extra.buildRows, build.maximumCommands);
     for (const name of Object.keys(extra.cultivationRows) as (keyof typeof extra.cultivationRows)[]) dimension(`cultivation.${name}`, world.cultivation[name].length, extra.cultivationRows[name], MAX_CULTIVATION_HISTORY);
     // The terminal destination is bounded independently from death/archive rows.
@@ -163,10 +241,10 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
       dimension(`care.${job.jobId}.visits`, job.visits.length, job.terminal ? 0 : Math.max(0, SECT_CARE_LIMITS.visits - job.visits.length), SECT_CARE_LIMITS.visits);
       dimension(`care.${job.jobId}.spans`, job.workSpans.length, job.terminal ? 0 : Math.max(0, SECT_CARE_LIMITS.workTicks - job.workSpans.length), SECT_CARE_LIMITS.workTicks);
     }
-    const sequenceReserve = { ...extra.sequenceReserve, nextEvent: sum(extra.sequenceReserve.nextEvent, base.archiveSlots.reserved.events, automatic) };
+    const sequenceReserve = { ...extra.sequenceReserve, nextAction: sum(extra.sequenceReserve.nextAction, clock.additionalActions), nextEvent: sum(extra.sequenceReserve.nextEvent, base.archiveSlots.reserved.events, automatic) };
     for (const key of Object.keys(sequenceReserve) as (keyof typeof sequenceReserve)[]) dimension(`sequence.${key}`, world.sequences[key], sequenceReserve[key], MAX);
     dimension('buildRevision', world.builds.revision, extra.buildRows, MAX);
-    dimension('cultivationRevision', world.cultivation.revision, sum(extra.counterReserve.cultivationRevisions, local.counters.cultivationRevision), MAX);
+    dimension('cultivationRevision', world.cultivation.revision, sum(extra.counterReserve.cultivationRevisions, local.counters.cultivationRevision, clock.additionalCultivationRevisions), MAX);
     dimension('calendarMonth', world.cultivation.calendarMonth, extra.counterReserve.calendarMonths, MAX);
     dimension('calendarTick', world.clock.calendarTick, extra.counterReserve.calendarTicks, MAX);
     dimension('simulationTick', world.clock.simulationTick, extra.counterReserve.calendarTicks, MAX);
@@ -181,7 +259,7 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
     dimension('sect.careNextId', records.care.nextId, 0, MAX);
     dimension('sect.maintenanceNextId', records.maintenance.nextId, 0, MAX);
     dimension('navVersion', world.map.navVersion, local.counters.navVersion, MAX);
-    result.supported = result.sourceRecordIssues.length === 0 && result.unknowns.length === 0 && progression.supported && numeric.supported && sect.supported;
+    result.supported = result.sourceRecordIssues.length === 0 && result.unknowns.length === 0 && progression.supported && numeric.supported && sect.supported && clock.supported;
     result.deficits = Object.keys(result.costs).filter(name => result.costs[name]! > result.limits[name]!).map(name => ({ dimension: name,
       current: result.current[name]!, reserved: result.reserved[name]!, cost: result.costs[name]!, limit: result.limits[name]!, excess: result.costs[name]! - result.limits[name]! }));
     result.fits = result.supported && result.actualFits && base.obligationsFit && build.fits && numeric.fits && result.deficits.length === 0;
