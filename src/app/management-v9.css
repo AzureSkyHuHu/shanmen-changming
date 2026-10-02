@@ -30,6 +30,8 @@
 .management-v9-panel > h2 { padding-bottom: .55rem; margin-bottom: .6rem; border-bottom: 1px solid #768b6650; }
 .management-v9-panel select, .management-v9-panel input { color: #263e33; background: #f9f3dd; border-color: #8d9c78; }
 .management-v9-help { color: #516649; margin: .6rem 0; }
+/* Preview paragraphs can wrap freely; their margins stay after the care action. */
+.management-v9-care-risk { display: flow-root; }
 .management-v9-notice { color: #f0c09a; margin: .6rem 0; }
 .management-v9-panel .management-v9-notice { color: #81402f; }
 .management-v9-success { padding: .6rem; background: #d5dfbd; border-left: .2rem solid #5a7f46; margin: .8rem 0; }

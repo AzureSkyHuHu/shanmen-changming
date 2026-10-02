@@ -15,6 +15,31 @@ export interface SectManagementPanelV9Props {
   session: ManagementSessionV9; snapshot: ManagementSnapshotV9; readOnly: boolean; getReadOnly: () => boolean;
   t: ManagementTranslatorV9; onFeedback: (message: ManagementTextV9) => void;
 }
+
+interface ManagementCarePatientV9Props {
+  session: Pick<ManagementSessionV9, 'isProposalCurrent'>; snapshot: ManagementSnapshotV9;
+  risk: RuntimeReadonlyV9<BreakthroughProposalV9> | null; blocked: boolean;
+  name: string; costId: string; t: ManagementTranslatorV9; onStartCare: () => void;
+}
+/** Keep the actionable subtree ahead of the effect-refreshed, optional preview. */
+export function ManagementCarePatientV9({ session, snapshot, risk, blocked, name, costId, t, onStartCare }: ManagementCarePatientV9Props) {
+  const selected = snapshot.cultivation.selected;
+  if (!selected) return <p>{t('managementV9.selectPatient')}</p>;
+  return <div className="management-v9-care-patient">
+    <div className="management-v9-care-controls">
+      <h3>{name}</h3><p>{t('managementV9.injury', { injury: selected.injury })}</p>
+      <p id={costId}>{t('managementV9.careCost')}</p>
+      <button type="button" aria-describedby={costId}
+        disabled={blocked || selected.injury <= 0 || selected.lifeState !== 'alive' || selected.activityLocked || selected.workOwner !== null || !snapshot.expansion.stock.some(row => row.resourceId === 'wound-powder' && row.available > 0)}
+        onClick={onStartCare}>{t('managementV9.startCare')}</button>
+    </div>
+    {/* Invalid risk disappears immediately, but never moves the care controls. */}
+    <div className="management-v9-care-risk">
+      {risk && managementRiskCurrentV9(risk, snapshot) && session.isProposalCurrent(risk) && <p>{t('managementV9.risk', { success: risk.view.preview.successBps / 10000, death: risk.view.preview.overallDeathBps / 10000 })}</p>}
+    </div>
+  </div>;
+}
+
 export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly, t, onFeedback }: SectManagementPanelV9Props) {
   const id = useId();
   const [workerId, setWorkerId] = useState(() => snapshot.frame.disciples.find(row => managementWorkerAvailableV9(snapshot, row.id))?.id ?? '');
@@ -124,16 +149,12 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
     <section className="management-v9-panel" aria-labelledby={`${id}-care`}>
       <h2 id={`${id}-care`}>{t('managementV9.care')}</h2>
       <p className="management-v9-help">{t('managementV9.careHint')}</p>
-      {selected ? <>
-        <h3>{name(selected.discipleId)}</h3><p>{t('managementV9.injury', { injury: selected.injury })}</p>
-        {risk && managementRiskCurrentV9(risk, snapshot) && session.isProposalCurrent(risk) && <p>{t('managementV9.risk', { success: risk.view.preview.successBps / 10000, death: risk.view.preview.overallDeathBps / 10000 })}</p>}
-        <p>{t('managementV9.careCost')}</p>
-        <button disabled={!!blocked || selected.injury <= 0 || selected.lifeState !== 'alive' || selected.activityLocked || selected.workOwner !== null || !snapshot.expansion.stock.some(row => row.resourceId === 'wound-powder' && row.available > 0)}
-          onClick={() => perform('care', current => {
-            if (current.cultivation.selected?.discipleId !== selected.discipleId || current.cultivation.selected.injury <= 0 || current.cultivation.selected.lifeState !== 'alive' || current.cultivation.selected.activityLocked || current.cultivation.selected.workOwner !== null) return { ok: false, kind: 'session-rejection', code: 'PREVIEW_STALE' };
-            return session.dispatchSect({ domain: 'care', command: { kind: 'care.start', patientId: selected.discipleId, expectedRevision: current.expansion.revisions.care } });
-          })}>{t('managementV9.startCare')}</button>
-      </> : <p>{t('managementV9.selectPatient')}</p>}
+      {selected ? <ManagementCarePatientV9 session={session} snapshot={snapshot} risk={risk} blocked={!!blocked}
+        name={name(selected.discipleId)} costId={`${id}-care-cost`} t={t}
+        onStartCare={() => perform('care', current => {
+          if (current.cultivation.selected?.discipleId !== selected.discipleId || current.cultivation.selected.injury <= 0 || current.cultivation.selected.lifeState !== 'alive' || current.cultivation.selected.activityLocked || current.cultivation.selected.workOwner !== null) return { ok: false, kind: 'session-rejection', code: 'PREVIEW_STALE' };
+          return session.dispatchSect({ domain: 'care', command: { kind: 'care.start', patientId: selected.discipleId, expectedRevision: current.expansion.revisions.care } });
+        })} /> : <p>{t('managementV9.selectPatient')}</p>}
       {snapshot.expansion.recentTerminals.filter(row => row.domain === 'care' && row.beforeInjury !== null && row.afterInjury !== null).map(row => <p key={row.jobId} className="management-v9-success">{t('managementV9.careResult', { name: name(row.actorId), before: row.beforeInjury!, after: row.afterInjury! })}</p>)}
     </section>
     <section className="management-v9-panel" aria-labelledby={`${id}-jobs`}>

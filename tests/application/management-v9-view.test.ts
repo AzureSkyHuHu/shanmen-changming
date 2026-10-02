@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
+import { Children, createElement, isValidElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
-import { ApplicationSessionV9 } from '../../src/application/session-v9';
+import { ApplicationSessionV9, type BreakthroughProposalV9 } from '../../src/application/session-v9';
 import { attachManagementReviewEscapeV9, createManagementUiHoldScopeV9, managementRiskCurrentV9, MANAGEMENT_BASE_RECIPES_V9, MANAGEMENT_RESEARCH_V9, MANAGEMENT_SECT_RECIPES_V9,
   managementBlockedV9, managementHasResourcesV9, managementIntentGuardV9, managementPhaseKeyV9,
-  managementReasonV9, managementResourceTextV9, managementResultV9, managementWorkerAvailableV9,
+  managementReasonV9, managementResourceTextV9, managementResultV9, managementWorkerAvailableV9, type ManagementSnapshotV9,
 } from '../../src/application/management-v9-contract';
-import { SectManagementPanelV9 } from '../../src/app/SectManagementPanelV9';
+import { ManagementCarePatientV9, SectManagementPanelV9 } from '../../src/app/SectManagementPanelV9';
 import { ManagementSaveSummaryV9 } from '../../src/app/ManagementSavePanelV9';
 import { IDBFactory } from 'fake-indexeddb';
 import { ManagementSaveControllerV9 } from '../../src/application/management-v9-save-controller';
 import { IndexedDbSaveRepository, MANAGEMENT_V9_DATABASE_NAME, openSaveRepository } from '../../src/platform/persistence';
 import { STARTER_RECIPES } from '../../src/core/economy/recipes';
-import { RUNTIME_VIEW_LIMITS_V9 } from '../../src/core/world/runtime-view-types-v9';
+import { RUNTIME_VIEW_LIMITS_V9, type RuntimeReadonlyV9 } from '../../src/core/world/runtime-view-types-v9';
 import { createTranslator, messageSpecifications, translate, type TextKey, type TranslationParams } from '../../src/i18n';
 import { zhCN } from '../../src/content/locales/zh-CN';
 import { en } from '../../src/content/locales/en';
@@ -103,6 +103,90 @@ describe('limited v9 management presentation', () => {
     expect(saveSource).toContain('expectedRevision: chosen.revision');
     expect(saveSource).toContain('controller.load(chosen.slotId, chosen.takeover, chosen.slotRevision)');
   });
+});
+
+// Reconciliation-slot and semantic markup regressions; pointer geometry still
+// requires a real-browser check, since the Node test environment has no layout.
+describe('v9 care controls during risk refresh', () => {
+  const element = (node: ReactNode) => {
+    if (!isValidElement<{ children?: ReactNode; [key: string]: unknown }>(node)) throw new Error('Expected a presentation element');
+    return node;
+  };
+  it.each(['zh-CN', 'en'] as const)('keeps the same care button slot and preceding content through pending/current/stale/replaced risk in %s', locale => withSession(session => {
+    const translator = (key: TextKey, parameters?: TranslationParams) => translate(locale, key, parameters);
+    const onStartCare = vi.fn();
+    const before = session.getSnapshot(); const prepared = session.prepareBreakthrough(before.cultivation.selected!.discipleId);
+    expect(prepared.ok).toBe(true); if (!prepared.ok) return;
+    const render = (snapshot: ManagementSnapshotV9, risk: RuntimeReadonlyV9<BreakthroughProposalV9> | null, visible: boolean) => {
+      const tree = ManagementCarePatientV9({ session, snapshot, risk, blocked: false, name: 'Patient', costId: 'care-cost', t: translator, onStartCare });
+      const regions = Children.toArray(tree.props.children).map(element);
+      expect(regions.map(region => region.props.className)).toEqual(['management-v9-care-controls', 'management-v9-care-risk']);
+      const controls = regions[0]!; const nodes = Children.toArray(controls.props.children).map(element);
+      expect(nodes.map(node => node.type)).toEqual(['h3', 'p', 'p', 'button']);
+      const button = nodes[3]!;
+      expect(button.props.onClick).toBe(onStartCare); expect(button.props.type).toBe('button');
+      expect(button.props['aria-describedby']).toBe('care-cost'); expect(nodes[2]!.props.id).toBe('care-cost');
+      expect(button.props.children).toBe(translator('managementV9.startCare'));
+      const riskMarkup = renderToStaticMarkup(regions[1]!);
+      if (visible && risk) expect(riskMarkup).toContain(translator('managementV9.risk', { success: risk.view.preview.successBps / 10000, death: risk.view.preview.overallDeathBps / 10000 }));
+      else expect(riskMarkup).toBe('<div class="management-v9-care-risk"></div>');
+      // Same parent/type/key/index is React's DOM-node reconciliation identity.
+      return { controlsType: controls.type, controlsKey: controls.key, buttonType: button.type, buttonKey: button.key,
+        controlsMarkup: renderToStaticMarkup(controls) };
+    };
+    const pending = render(before, null, false);
+    expect(render(before, prepared.value, true)).toEqual(pending);
+    expect(session.frame(0).ok).toBe(true); expect(session.frame(50).ok).toBe(true);
+    const after = session.getSnapshot();
+    expect(after.stamp.publication).toBeGreaterThan(before.stamp.publication);
+    expect(render(after, prepared.value, false)).toEqual(pending);
+    expect(render(after, null, false)).toEqual(pending);
+    const replacement = session.prepareBreakthrough(after.cultivation.selected!.discipleId);
+    expect(replacement.ok).toBe(true); if (!replacement.ok) return;
+    expect(render(after, replacement.value, true)).toEqual(pending);
+    expect(onStartCare).not.toHaveBeenCalled();
+  }));
+  it('removes every stale risk basis and refuses a copied or foreign proposal without replacing the controls', () => withSession(session => {
+    const snapshot = session.getSnapshot(); const prepared = session.prepareBreakthrough(snapshot.cultivation.selected!.discipleId);
+    expect(prepared.ok).toBe(true); if (!prepared.ok) return;
+    const onStartCare = vi.fn(); const isProposalCurrent = vi.fn(() => true);
+    const staleSnapshots: ManagementSnapshotV9[] = [
+      { ...snapshot, sessionEpoch: snapshot.sessionEpoch + 1 },
+      { ...snapshot, stamp: { ...snapshot.stamp, generation: snapshot.stamp.generation + 1 } },
+      { ...snapshot, stamp: { ...snapshot.stamp, publication: snapshot.stamp.publication + 1 } },
+      { ...snapshot, cultivation: { ...snapshot.cultivation, revision: snapshot.cultivation.revision + 1 } },
+      { ...snapshot, cultivation: { ...snapshot.cultivation, resourceStamp: 'new-resource-basis' } },
+      { ...snapshot, cultivation: { ...snapshot.cultivation, selected: { ...snapshot.cultivation.selected!, discipleId: 'other-patient' } } },
+    ];
+    const render = (current: ManagementSnapshotV9, risk: RuntimeReadonlyV9<BreakthroughProposalV9>, owner: Pick<ApplicationSessionV9, 'isProposalCurrent'>) => renderToStaticMarkup(createElement(ManagementCarePatientV9,
+      { session: owner, snapshot: current, risk, blocked: false, name: 'Patient', costId: 'care-cost', t, onStartCare }));
+    const withoutRisk = render(snapshot, { ...prepared.value }, session);
+    expect(withoutRisk).toContain('<div class="management-v9-care-risk"></div>');
+    for (const stale of staleSnapshots) expect(render(stale, prepared.value, { isProposalCurrent })).toBe(withoutRisk);
+    expect(isProposalCurrent).not.toHaveBeenCalled();
+    const otherSession = new ApplicationSessionV9();
+    try { expect(render(snapshot, prepared.value, otherSession)).toBe(withoutRisk); } finally { otherSession.close(); }
+    expect(onStartCare).not.toHaveBeenCalled();
+  }));
+  it('keeps treatment availability independent of risk and lets trailing risk text grow without clipping', () => withSession(session => {
+    const snapshot = session.getSnapshot();
+    // Presentation-only stock/patient inputs exercise the existing disabled gates.
+    const available: ManagementSnapshotV9 = { ...snapshot, cultivation: { ...snapshot.cultivation, selected: { ...snapshot.cultivation.selected!, injury: 25, activityLocked: false, workOwner: null } },
+      expansion: { ...snapshot.expansion, stock: [{ resourceId: 'wound-powder', owned: 1, reserved: 0, available: 1, capacity: 99 }] } };
+    const props = { session, snapshot: available, risk: null, blocked: false, name: 'Patient', costId: 'care-cost', t, onStartCare: vi.fn() };
+    expect(renderToStaticMarkup(createElement(ManagementCarePatientV9, props))).not.toContain('disabled=');
+    const selectedPatches: Partial<NonNullable<ManagementSnapshotV9['cultivation']['selected']>>[] = [
+      { injury: 0 }, { activityLocked: true }, { workOwner: { kind: 'care', id: 'job:occupied', workerId: snapshot.cultivation.selected!.discipleId } },
+    ];
+    for (const patch of [{ blocked: true }, { snapshot: { ...available, expansion: { ...available.expansion, stock: [] } } },
+      ...selectedPatches.map(selected => ({ snapshot: { ...available, cultivation: { ...available.cultivation, selected: { ...available.cultivation.selected!, ...selected } } } }))]) {
+      expect(renderToStaticMarkup(createElement(ManagementCarePatientV9, { ...props, ...patch }))).toContain('disabled=""');
+    }
+    const css = readFileSync(new URL('../../src/app/management-v9.css', import.meta.url), 'utf8');
+    const riskRule = /\.management-v9-care-risk\s*\{([^}]+)\}/.exec(css)?.[1];
+    expect(riskRule).toContain('display: flow-root');
+    expect(riskRule).not.toMatch(/(?:max-)?height\s*:|overflow\s*:\s*(?:hidden|clip)|line-clamp/);
+  }));
 });
 
 
