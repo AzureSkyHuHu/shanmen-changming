@@ -15,6 +15,7 @@ import type { WorldDeceasedIdentity, WorldEstateRecord } from '../world/campaign
 import type { WorldStateV8 } from '../world/v8-types';
 import { assessBuildHistoryObligations, type BuildHistoryObligationFacts } from './build-obligations';
 import { canonicalUtf8ByteLength } from './canonical-bytes';
+import { measureCanonicalRecord } from './canonical-records';
 
 /** Structural build-2/cultivation-3 record port; no World identity or save admission. */
 export type ProgressionRecordSource = Pick<WorldStateV8, 'automaticProduction' | 'builds' | 'clock' | 'cultivation' | 'disciples' | 'events' | 'expedition' | 'history' | 'legacy' | 'randomStreams' | 'sequences' | 'transactions'>;
@@ -91,17 +92,11 @@ function freeze<T>(value: T): T {
 }
 
 /** Same canonical UTF-16/value-node definitions as history/archive's decoded
- * accounting. Validation is descriptor-first through the canonical byte counter;
- * input accessors, sparse arrays, cycles and non-data values never get evaluated. */
+ * accounting for ordinary enumerable JSON data. The record counter captures data
+ * descriptors once, rejects accessors/sparse arrays, and reuses only authenticated
+ * fully frozen subtrees; no full canonical document or live-value second walk. */
 export function measureProgressionRecord(value: unknown): { bytes: number; decodedCharacters: number; decodedNodes: number } {
-  const bytes = canonicalUtf8ByteLength(value);
-  let decodedNodes = 0;
-  const visit = (entry: unknown): void => {
-    decodedNodes += 1;
-    if (entry !== null && typeof entry === 'object') for (const child of Object.values(entry)) visit(child);
-  };
-  visit(value);
-  return { bytes, decodedCharacters: canonicalStringify(value).length, decodedNodes };
+  return measureCanonicalRecord(value);
 }
 
 function reserve(owner: ProgressionReservation, label: string, fixture: unknown, current?: unknown): void {
