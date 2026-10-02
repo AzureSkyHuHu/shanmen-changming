@@ -1,24 +1,12 @@
+import { SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND, SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
+export { SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND, SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import { isLedgerDataArray, isLedgerDataRecord } from '../economy/ledger-operations';
 import { validateConstructionFrame } from './construction-validation';
-import { CONSTRUCTION_DESCRIPTOR_NODE_BOUND, CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './construction-record-validation';
 import { ownSectFields } from './layout';
-import { SECT_PRODUCTION_LIMITS, type SectProductionFrame, type SectProductionValidationIssue } from './production-types';
+import type { SectProductionFrame, SectProductionValidationIssue } from './production-types';
 import { validateUngatedSectProductionRecords, validateSectProductionReceipts } from './production-runtime';
 export { isSectProductionCommand, sectProductionSites } from './production-runtime';
 const fields = ownSectFields;
-/** Construction's bound already covers the single map/people/both ledgers and every claim.
- * Each ungated production record allows all 240 disjoint five-node spans, fixed proof/terminal fields,
- * and its navigation header. Only 36 live jobs may retain 65,536 three-node route cells.
- * Conservative independent maxima ensure adding any admitted cancellation cannot exceed this
- * reader gate. This is a LOCAL structural bound, never the eventual whole-World save budget.
- */
-export const SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND = CONSTRUCTION_DESCRIPTOR_NODE_BOUND
-  + 16 + SECT_PRODUCTION_LIMITS.records * (256 + SECT_PRODUCTION_LIMITS.maximumWorkTicks * 5)
-  + SECT_PRODUCTION_LIMITS.activeJobs * 65536 * 3 + SECT_PRODUCTION_LIMITS.receipts * 12;
-/** Only the combined research root permits the additional blueprint and production references.
- * Preserve the exact standalone reader cutoff, including its first rejection for hostile input. */
-export const SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND = SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND
-  + (CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND - CONSTRUCTION_DESCRIPTOR_NODE_BOUND) + SECT_PRODUCTION_LIMITS.records * 3;
 function plainTree(value: unknown, depth = 0, budget = { left: SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND }): boolean {
   if (--budget.left < 0 || depth > 24) return false;
   if (value === null || typeof value === 'boolean') return true;

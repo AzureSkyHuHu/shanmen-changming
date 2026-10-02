@@ -1,3 +1,5 @@
+import { CONSTRUCTION_DESCRIPTOR_NODE_BOUND, CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
+export { CONSTRUCTION_DESCRIPTOR_NODE_BOUND, CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { getSectBuildingDefinition, resolveSectCatalogIdentity } from '../../content/sect-v9/catalog';
 import { cardinalDistance, MOVEMENT_TICKS_PER_CELL } from '../agents/navigation';
@@ -18,32 +20,6 @@ const equal = (a: unknown, b: unknown): boolean => canonicalStringify(a) === can
 const cell = (value: unknown): boolean => fields(value, ['x', 'y']) && integer(value.x) && integer(value.y) && value.x <= 255 && value.y <= 255;
 const array = (value: unknown, maximum: number): value is unknown[] => isLedgerDataArray(value) && (value as unknown[]).length <= maximum;
 
-/** Descriptor nodes count each primitive/object/array once, excluding property names.
- * These bounds intentionally sum mutually exclusive record fields at their independent maxima.
- * A generic R-resource claim is ≤17+18R nodes (three line arrays, two checkpoints, settlement
- * outputs); a paired claim adds its object and three scalar identity/policy fields. A job's
- * ≤1079 non-route nodes include BOTH visits, all 320 spans, full navigation metadata AND the
- * largest terminal (two 9-line tagged arrays). Only the ≤36 active jobs may hold route cells.
- * This is a local structural bound, never the future whole-World 4 MiB/reader admission proof.
- */
-const MAX_MAP_CELLS = 256 * 256;
-const genericClaimNodes = (resources: number): number => 17 + 18 * resources;
-const pairedClaimNodes = 4 + genericClaimNodes(6) + genericClaimNodes(3);
-const terminalNodes = 1 + 3 + 3 + 1 + 2 * (1 + 9 * 4) + 1;
-const jobNonRouteNodes = 1 + 13 + 3 + 2 * 5 + (1 + 320 * 3) + 8 + terminalNodes;
-export const CONSTRUCTION_DESCRIPTOR_NODE_BOUND =
-  10 // Frame object, five scalar fields and the catalog identity record.
-  + (7 + MAX_MAP_CELLS * 5) // Map metadata, tiles array, maximum tile records.
-  + (1 + 8 * 6) // Legacy station records.
-  + (1 + 36 * 11) // Projected people, including each nested position.
-  + (46 + CONSTRUCTION_LIMITS.records * 3 * pairedClaimNodes) // Both inventories and all paired claims.
-  + (1 + CONSTRUCTION_LIMITS.records * 12) // Ungated public blueprint history.
-  + (1 + CONSTRUCTION_LIMITS.records * jobNonRouteNodes)
-  + CONSTRUCTION_LIMITS.activeJobs * MAX_MAP_CELLS * 3 // Live path cell records.
-  + (1 + (CONSTRUCTION_LIMITS.buildings - 8) * 13) // Completed building evidence.
-  + (1 + CONSTRUCTION_LIMITS.receipts * 13); // Largest full-body receipt (place).
-/** Local research schema adds precisely the optional reference object and its two scalars. */
-export const CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND = CONSTRUCTION_DESCRIPTOR_NODE_BOUND + CONSTRUCTION_LIMITS.records * 3;
 /** Bounded descriptor-only walk before any nested reads or canonical serialization. */
 function plainTree(value: unknown, depth = 0, budget = { left: CONSTRUCTION_DESCRIPTOR_NODE_BOUND }): boolean {
   if (--budget.left < 0 || depth > 16) return false;

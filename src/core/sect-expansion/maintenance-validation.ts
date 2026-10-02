@@ -1,3 +1,5 @@
+import { SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
+export { SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import type { SectHistoricalIdentitySource } from './history-identity';
 import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
 import { isLedgerDataArray, isLedgerDataRecord } from '../economy/ledger-operations';
@@ -11,14 +13,10 @@ import { sectMaintenanceClockFits } from './maintenance-periods';
 import { SECT_MAINTENANCE_LIMITS, type SectMaintenanceFrame, type SectMaintenancePayment } from './maintenance-types';
 import { validateMaintainedSectProductionRecords, validateWorldMaintainedSectProductionRecords, validateSectProductionReceipts } from './production-runtime';
 import { validateSectResearchConsumerGates } from './research-consumer-gates';
-import { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND, sectAllLocalClaims, sectClaimsConflict, validateMaintainedSectResearchRecords, validateWorldMaintainedSectResearchRecords } from './research-validation';
+import { sectAllLocalClaims, sectClaimsConflict, validateMaintainedSectResearchRecords, validateWorldMaintainedSectResearchRecords } from './research-validation';
 
 const integer = isNonNegativeInteger;
 const same = (a: unknown, b: unknown): boolean => canonicalStringify(a) === canonicalStringify(b);
-/** The research bound already budgets all 384 paired ledger claims. Add the domain object,
- * next-ID scalar and payments array, then one object plus nine scalar leaves per payment.
- * No receipt duplicates, navigation paths or per-tick failure records are persisted here. */
-export const SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND = SECT_RESEARCH_DESCRIPTOR_NODE_BOUND + 3 + SECT_MAINTENANCE_LIMITS.payments * 10;
 function plainTree(value: unknown, depth = 0, budget = { left: SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND }): boolean {
   if (--budget.left < 0 || depth > 24) return false;
   if (value === null || typeof value === 'boolean') return true;

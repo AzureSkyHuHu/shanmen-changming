@@ -1,3 +1,5 @@
+import { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
+export { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { sectBuildingPaidAt, sectBuildingPaidRange } from './maintenance-periods';
 import type { SectMaintenanceFrame } from './maintenance-types';
@@ -14,7 +16,6 @@ import { validateSectResearchConsumerGates } from './research-consumer-gates';
 import { deriveSectFootprint, ownSectFields } from './layout';
 import { normalizeSectResourceLines, sectReservationLines } from './ledger';
 import { sectProductionClaims, validateSectProductionRecords, validateSectProductionReceipts } from './production-runtime';
-import { SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './production-validation';
 import { SECT_RESEARCH_LIMITS, type SectResearchCommand, type SectResearchFrame, type SectResearchSiteProof, type SectResearchValidationIssue } from './research-types';
 
 const integer = isNonNegativeInteger;
@@ -24,12 +25,6 @@ const same = (left: unknown, right: unknown): boolean => canonicalStringify(left
 const array = (value: unknown, maximum: number): value is unknown[] => isLedgerDataArray(value) && (value as unknown[]).length <= maximum;
 const cell = (value: unknown): boolean => fields(value, ['x', 'y']) && integer(value.x) && integer(value.y) && value.x <= 255 && value.y <= 255;
 const key = (p: { readonly x: number; readonly y: number }): string => `${p.x},${p.y}`;
-/** Independent maxima, including all visits/spans, terminal/cancel receipts and the one live
- * research route. The production bound includes construction's single shared authority/book.
- * This is a local descriptor gate, not an archive or whole-World save-capacity certificate. */
-export const SECT_RESEARCH_DESCRIPTOR_NODE_BOUND = SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND + 16
-  + SECT_RESEARCH_LIMITS.records * (256 + SECT_RESEARCH_LIMITS.maximumWorkTicks * 6 + SECT_RESEARCH_LIMITS.visits * 6)
-  + 65536 * 3 + SECT_RESEARCH_LIMITS.receipts * 12;
 function plainTree(value: unknown, depth = 0, budget = { left: SECT_RESEARCH_DESCRIPTOR_NODE_BOUND }): boolean {
   if (--budget.left < 0 || depth > 24) return false;
   if (value === null || typeof value === 'boolean') return true;

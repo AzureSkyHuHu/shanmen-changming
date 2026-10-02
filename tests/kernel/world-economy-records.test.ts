@@ -315,8 +315,19 @@ describe('internal records are narrower than World admission', () => {
     const world = cloneJson(started[8]); world.simulationVersion = '0.9.0';
     Object.assign(world, { sectExpansion: { schemaVersion: 1 } });
     expect(closeLegacyWorldEconomyReservations(records(world))).toEqual([]);
-    expect(current.validateWorldState(world)).toEqual(['Unsupported world identity/version']);
-    expect(current.validateWorldStateV8(world)).toEqual(['Unsupported world identity/version']);
+    expect(current.validateWorldState(world)).toEqual(['Legacy World contains reserved v9 fields']);
+    expect(current.validateWorldStateV8(world)).toEqual(['Legacy World contains reserved v9 fields']);
+    // Without the new reserved domain, the existing identity rejection stays unchanged.
+    const identityOnly = cloneJson(started[8]); identityOnly.simulationVersion = '0.9.0';
+    expect(current.validateWorldState(identityOnly)).toEqual(['Unsupported world identity/version']);
+    expect(current.validateWorldStateV8(identityOnly)).toEqual(['Unsupported world identity/version']);
+  });
+  it.each(['sectExpansion', 'runtimeProtocol'])('rejects reserved %s even under otherwise valid old labels', field => {
+    for (const version of [7, 8] as const) {
+      const world = cloneJson(started[version]);
+      Object.assign(world, { [field]: field === 'sectExpansion' ? { schemaVersion: 1 } : 'fresh-management-v9-unregistered.1' });
+      expect(validators[version].current(world)).toEqual(['Legacy World contains reserved v9 fields']);
+    }
   });
   it('keeps the descriptor-safe v8 snapshot boundary ahead of getter execution', () => {
     const world = cloneJson(started[8]); if (!('campaign' in world)) throw new Error('Expected real v8');
