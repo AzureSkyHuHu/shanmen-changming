@@ -91,7 +91,7 @@ export interface ConstructionBuilding extends PlacedBuildingSpace {
   readonly sourceJobId: string;
   readonly completedTick: number;
   readonly completedCalendarTick: number;
-  /** Construction includes the first month. Maintenance execution is deliberately not implemented. */
+  /** Construction includes the first month. Immutable origin; later payments never extend this field. */
   readonly firstMaintenanceCalendarTick: number;
 }
 interface ConstructionCommandBase { readonly commandId: string; readonly expectedRevision: number }

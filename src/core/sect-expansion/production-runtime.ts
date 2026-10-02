@@ -1,3 +1,5 @@
+import { sectBuildingPaidAt, sectBuildingPaidRange } from './maintenance-periods';
+import type { SectMaintenanceFrame } from './maintenance-types';
 import { getSectRecipeDefinition } from '../../content/sect-v9/catalog';
 import type { SectCell, SectRecipeDefinition } from '../../content/sect-v9/types';
 import { cardinalDistance, emptyNavigation, isWalkable, MOVEMENT_TICKS_PER_CELL } from '../agents/navigation';
@@ -43,14 +45,14 @@ export function sectProductionClaims(frame: SectProductionFrame): readonly Const
 function otherClaims(frame: SectProductionFrame, context: SectProductionContext, owner?: string): readonly ConstructionClaim[] {
   return [...context.externalClaims, ...constructionClaims(frame.construction), ...sectProductionClaims(frame)].filter(claim => claim.ownerId !== owner);
 }
-function siteUsable(frame: SectProductionFrame, recipe: SectRecipeDefinition, site: SectProductionSiteProof, researchAuthority?: SectResearchFrame, job?: SectProductionJob): boolean {
+function siteUsable(frame: SectProductionFrame, recipe: SectRecipeDefinition, site: SectProductionSiteProof, researchAuthority?: SectResearchFrame, job?: SectProductionJob, maintenance?: SectMaintenanceFrame): boolean {
   if (!sectProductionSites(frame, recipe).some(current => same(current, site))) return false;
   if (recipe.requiredResearch.length && (!researchAuthority || (job
     ? !productionResearchGateMatches({ ...researchAuthority, construction: frame.construction, production: frame.production }, job)
     : !productionResearchGate(researchAuthority, recipe.recipeId, frame.construction.lastSimulationTick, frame.construction.lastCalendarTick)))) return false;
   if (site.kind === 'legacy-point') return frame.construction.legacyStations.some(station => station.id === site.siteId && station.operational);
-  // No upkeep executor exists yet. Never invent a paid flag or extend this first prepaid interval.
-  return frame.construction.lastCalendarTick < site.firstMaintenanceCalendarTick!;
+  return maintenance ? sectBuildingPaidAt(maintenance, site.siteId, frame.construction.lastSimulationTick, frame.construction.lastCalendarTick)
+    : frame.construction.lastCalendarTick < site.firstMaintenanceCalendarTick!;
 }
 function siteOwner(frame: SectProductionFrame, context: SectProductionContext, site: SectProductionSiteProof, owner?: string): string | null {
   return otherClaims(frame, context, owner).find(claim => claim.kind === 'seat' && claim.key === site.siteId
@@ -98,7 +100,10 @@ export function validateSectProductionRecords(frame: SectProductionFrame): reado
 export function validateUngatedSectProductionRecords(frame: SectProductionFrame): readonly SectProductionValidationIssue[] {
   return validateProductionRecords(frame, 'ungated');
 }
-function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' | 'research-consumer-records'): readonly SectProductionValidationIssue[] {
+export function validateMaintainedSectProductionRecords(frame: SectMaintenanceFrame): readonly SectProductionValidationIssue[] {
+  return validateProductionRecords(frame, 'research-consumer-records', frame);
+}
+function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' | 'research-consumer-records', maintenance?: SectMaintenanceFrame): readonly SectProductionValidationIssue[] {
   const fail = (code: string, path: string): readonly SectProductionValidationIssue[] => [{ code, path }];
   const domain = frame.production; const authority = frame.construction;
   if (!fields(domain, ['revision', 'nextId', 'jobs', 'receipts']) || !integer(domain.revision) || !integer(domain.nextId) || domain.nextId < 1
@@ -140,7 +145,7 @@ function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' 
     if (site.kind === 'placed') {
       const sourceJob = authority.jobs.find(value => value.jobId === site.sourceJobId);
       if (sourceJob?.terminal?.kind !== 'completed' || sourceJob.terminal.tick > job.startedTick
-        || sourceJob.terminal.calendarTick > job.startedCalendarTick || job.startedCalendarTick >= site.firstMaintenanceCalendarTick!) return fail('INVALID_SITE_SOURCE', job.transactionId);
+        || sourceJob.terminal.calendarTick > job.startedCalendarTick || !(maintenance ? sectBuildingPaidAt(maintenance, site.siteId, job.startedTick, job.startedCalendarTick) : job.startedCalendarTick < site.firstMaintenanceCalendarTick!)) return fail('INVALID_SITE_SOURCE', job.transactionId);
     }
     if (job.worksiteId !== null && job.worksiteId !== site.siteId || job.seatSiteId !== null && job.seatSiteId !== site.siteId) return fail('INVALID_SITE_OWNERSHIP', job.transactionId);
     const storage = authority.legacyStations.find(value => value.blueprintId === 'storage');
@@ -151,6 +156,7 @@ function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' 
       && value.calendarTick - job.startedCalendarTick <= value.tick - job.startedTick && cell(value.position) && inMap(value.position);
     if (!visit(job.workVisit) || !visit(job.deliveryVisit) || job.workVisit && !equal(job.workVisit.position, site.position)
       || job.deliveryVisit && (!job.workVisit || job.deliveryVisit.tick <= job.workVisit.tick || !equal(job.deliveryVisit.position, { x: storage.x, y: storage.y }))) return fail('INVALID_VISIT', job.transactionId);
+    if (maintenance && site.kind === 'placed' && job.workVisit && !sectBuildingPaidAt(maintenance, site.siteId, job.workVisit.tick, job.workVisit.calendarTick)) return fail('INVALID_PAID_VISIT', job.transactionId);
     const workTravel = Math.max(1, cardinalDistance(job.origin, site.position) * MOVEMENT_TICKS_PER_CELL);
     const deliveryTravel = Math.max(1, cardinalDistance(site.position, storage) * MOVEMENT_TICKS_PER_CELL);
     if (job.workVisit && (job.workVisit.tick - job.startedTick < workTravel || job.workVisit.calendarTick - job.startedCalendarTick < workTravel)) return fail('IMPOSSIBLE_TRAVEL_DURATION', job.transactionId);
@@ -161,7 +167,7 @@ function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' 
         || span.lastTick < span.firstTick || span.lastCalendarTick < span.firstCalendarTick || span.lastTick > authority.lastSimulationTick
         || span.lastCalendarTick > authority.lastCalendarTick || span.firstCalendarTick - lastCalendar > span.firstTick - lastTick || span.lastTick - span.firstTick !== span.lastCalendarTick - span.firstCalendarTick
         || count > 0 && span.firstTick === lastTick + 1 && span.firstCalendarTick === lastCalendar + 1
-        || site.firstMaintenanceCalendarTick !== null && span.lastCalendarTick >= site.firstMaintenanceCalendarTick) return fail('INVALID_WORK_EVIDENCE', job.transactionId);
+        || site.firstMaintenanceCalendarTick !== null && !(maintenance ? sectBuildingPaidRange(maintenance, site.siteId, span.firstTick, span.lastTick, span.firstCalendarTick, span.lastCalendarTick) : span.lastCalendarTick < site.firstMaintenanceCalendarTick)) return fail('INVALID_WORK_EVIDENCE', job.transactionId);
       count += span.lastTick - span.firstTick + 1; lastTick = span.lastTick; lastCalendar = span.lastCalendarTick;
     }
     if (count !== job.activeTicks || count > 0 && !job.workVisit) return fail('INVALID_WORK_EVIDENCE', job.transactionId);
@@ -210,7 +216,7 @@ function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' 
           || claim.base.settlement?.kind !== 'committed' || claim.base.settlement.operationId !== `complete:${job.transactionId}`
           || claim.sect.settlement?.kind !== 'committed'
           || !equal([...claim.base.settlement.outputs.map(line => ({ ledger: 'base', ...line })), ...claim.sect.settlement.outputs.map(line => ({ ledger: 'sect', ...line }))], terminal.outputs)
-          || site.firstMaintenanceCalendarTick !== null && terminal.calendarTick >= site.firstMaintenanceCalendarTick) return fail('INVALID_COMPLETION', job.transactionId);
+          || site.firstMaintenanceCalendarTick !== null && !(maintenance ? sectBuildingPaidAt(maintenance, site.siteId, terminal.tick, terminal.calendarTick) : terminal.calendarTick < site.firstMaintenanceCalendarTick)) return fail('INVALID_COMPLETION', job.transactionId);
       } else if (job.state !== 'Cancelled' || job.phase !== 'Cancelled' || claim.base.settlement?.kind !== 'released'
         || claim.base.settlement.operationId !== `cancel:${job.transactionId}` || terminal.consumed.length || terminal.outputs.length
         || !equal(terminal.released, normalizeSectResourceLines(recipe.inputs))) return fail('INVALID_CANCELLATION', job.transactionId);
@@ -239,7 +245,7 @@ export function validateSectProductionReceipts(frame: SectProductionFrame): read
   return [];
 }
 /** Manual commands have only identity/revision plus recipe/worker or job. No client cost/effect authority. */
-export function applyValidatedSectProductionCommand(frame: SectProductionFrame, context: SectProductionContext, command: SectProductionCommand, researchAuthority?: SectResearchFrame): SectProductionResult {
+export function applyValidatedSectProductionCommand(frame: SectProductionFrame, context: SectProductionContext, command: SectProductionCommand, researchAuthority?: SectResearchFrame, maintenance?: SectMaintenanceFrame): SectProductionResult {
   const old = frame.production.receipts.find(receipt => receipt.command.commandId === command.commandId);
   if (old) return same(old.command, command) ? accepted(frame, old.jobId, true) : rejected(frame, 'IDENTITY_CONFLICT');
   if (command.expectedRevision !== frame.production.revision) return rejected(frame, 'STALE_REVISION');
@@ -258,7 +264,7 @@ export function applyValidatedSectProductionCommand(frame: SectProductionFrame, 
     const worker = frame.construction.people.find(person => person.id === command.workerId);
     if (!worker || !eligible(worker) || active.some(job => job.workerId === worker.id)) return rejected(frame, 'WORKER_UNAVAILABLE');
     if (otherClaims(frame, context).some(claim => claim.kind === 'worker' && claim.key === worker.id)) return rejected(frame, 'CLAIM_CONFLICT');
-    const sites = sectProductionSites(frame, recipe).filter(site => siteUsable(frame, recipe, site, researchAuthority));
+    const sites = sectProductionSites(frame, recipe).filter(site => siteUsable(frame, recipe, site, researchAuthority, undefined, maintenance));
     if (!sites.length) return rejected(frame, 'WORKSTATION_UNAVAILABLE');
     const site = sites.filter(value => siteOwner(frame, context, value) === null).sort((a, b) => cardinalDistance(worker.position, a.position) - cardinalDistance(worker.position, b.position) || compareStable(a.siteId, b.siteId))[0];
     if (!site) return rejected(frame, 'CLAIM_CONFLICT');
@@ -301,7 +307,7 @@ function blockedUnavailable(frame: SectProductionFrame, id: string): SectProduct
   return replace(frame, { ...job, state: 'Blocked', blockedReason: 'WORKER_UNAVAILABLE', seatSiteId: null, worksiteId: null,
     phase: job.activeTicks === job.requiredTicks ? 'TravellingToStorage' : 'WaitingForStation', navigation: emptyNavigation() });
 }
-function makeContext(context: SectProductionContext, researchAuthority?: SectResearchFrame): ProductionContext<SectProductionFrame, SectProductionJob> {
+function makeContext(context: SectProductionContext, researchAuthority?: SectResearchFrame, maintenance?: SectMaintenanceFrame): ProductionContext<SectProductionFrame, SectProductionJob> {
   // The shared runner calls job() at the beginning of each stable-sorted job iteration. This
   // ephemeral cursor is internal adapter routing, never serialized/player-supplied authority.
   let cursor = '';
@@ -321,7 +327,7 @@ function makeContext(context: SectProductionContext, researchAuthority?: SectRes
     },
     workSites: (frame, recipeView) => {
       const job = currentJob(frame, cursor); const recipe = getSectRecipeDefinition(recipeView.workstation)!;
-      if (!siteUsable(frame, recipe, job.productiveSite, researchAuthority, job)) return [];
+      if (!siteUsable(frame, recipe, job.productiveSite, researchAuthority, job, maintenance)) return [];
       const foreignOwner = siteOwner(frame, context, job.productiveSite, job.transactionId);
       return [{ id: job.productiveSite.siteId, position: { ...job.productiveSite.position },
         ownerTransactionId: foreignOwner ?? (job.seatSiteId === null ? null : job.transactionId) }];
@@ -357,7 +363,7 @@ function makeContext(context: SectProductionContext, researchAuthority?: SectRes
     cancel: (frame, id) => ({ ok: true, world: blockedUnavailable(frame, id) }),
     complete: (frame, id) => {
       const job = currentJob(frame, id); const recipe = getSectRecipeDefinition(job.recipeId)!;
-      if (!siteUsable(frame, recipe, job.productiveSite, researchAuthority, job)) {
+      if (!siteUsable(frame, recipe, job.productiveSite, researchAuthority, job, maintenance)) {
         return { ok: true, world: replace(frame, { ...job, state: 'Blocked', blockedReason: 'WORKSTATION_UNAVAILABLE' }) };
       }
       const committed = commitSectReservation(frame.construction.ledger, { reservationId: job.reservationId, ownerTransactionId: id }, `complete:${id}`, recipe.outputs);
@@ -371,7 +377,7 @@ function makeContext(context: SectProductionContext, researchAuthority?: SectRes
   };
 }
 /** Internal production-only stage. Authority clocks have already advanced exactly once. */
-export function tickValidatedSectProduction(frame: SectProductionFrame, context: SectProductionContext, budget: WorkPathBudget, researchAuthority?: SectResearchFrame): SectProductionFrame {
+export function tickValidatedSectProduction(frame: SectProductionFrame, context: SectProductionContext, budget: WorkPathBudget, researchAuthority?: SectResearchFrame, maintenance?: SectMaintenanceFrame): SectProductionFrame {
   return runProductionPhases<SectProductionFrame, SectProductionJob>({ ...frame,
-    production: { ...frame.production, revision: frame.production.revision + 1 } }, makeContext(context, researchAuthority), budget);
+    production: { ...frame.production, revision: frame.production.revision + 1 } }, makeContext(context, researchAuthority, maintenance), budget);
 }

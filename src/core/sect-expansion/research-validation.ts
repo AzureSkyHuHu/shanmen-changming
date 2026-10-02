@@ -1,3 +1,5 @@
+import { sectBuildingPaidAt, sectBuildingPaidRange } from './maintenance-periods';
+import type { SectMaintenanceFrame } from './maintenance-types';
 import { getSectResearchDefinition } from '../../content/sect-v9/catalog';
 import type { SectResearchDefinition } from '../../content/sect-v9/types';
 import { cardinalDistance, MOVEMENT_TICKS_PER_CELL } from '../agents/navigation';
@@ -78,6 +80,36 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
   if (productionIssues.length) return productionIssues;
   const productionReceipts = validateSectProductionReceipts(frame);
   if (productionReceipts.length) return productionReceipts;
+  const records = validateSectResearchRecords(frame);
+  if (records.length) return records;
+  const domain = frame.research; const active = domain.jobs.filter(job => job.terminal === null);
+  const gates = validateSectResearchConsumerGates(frame);
+  if (gates.length) return gates;
+  for (const claim of authority.ledger.reservations) {
+    const owners = authority.jobs.filter(job => job.jobId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
+      + frame.production.jobs.filter(job => job.transactionId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
+      + domain.jobs.filter(job => job.jobId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length;
+    if (owners !== 1) return fail('ORPHAN_RESERVATION', claim.reservationId);
+  }
+  if (active.length + authority.jobs.filter(job => job.terminal === null).length + frame.production.jobs.filter(job => job.terminal === null).length > 36) return fail('JOB_LIMIT', 'frame');
+  if (sectClaimsConflict(sectAllLocalClaims(frame))) return fail('CLAIM_CONFLICT', 'frame');
+  return [];
+}
+
+function paidAt(_frame: SectResearchFrame, site: SectResearchSiteProof, tick: number, calendar: number, maintenance?: SectMaintenanceFrame): boolean {
+  return maintenance ? sectBuildingPaidAt(maintenance, site.buildingId, tick, calendar) : calendar < site.firstMaintenanceCalendarTick;
+}
+/** Narrow local research stage. Construction and production descriptors/records are already checked. */
+export function validateSectResearchRecords(frame: SectResearchFrame): readonly SectResearchValidationIssue[] {
+  return validateResearchRecords(frame);
+}
+/** Four-domain stage, called only after immutable maintenance records have been authenticated. */
+export function validateMaintainedSectResearchRecords(frame: SectMaintenanceFrame): readonly SectResearchValidationIssue[] {
+  return validateResearchRecords(frame, frame);
+}
+function validateResearchRecords(frame: SectResearchFrame, maintenance?: SectMaintenanceFrame): readonly SectResearchValidationIssue[] {
+  const fail = (code: string, path: string): readonly SectResearchValidationIssue[] => [{ code, path }];
+  const authority = frame.construction;
   const domain = frame.research;
   if (!fields(domain, ['revision', 'nextId', 'jobs', 'receipts']) || !integer(domain.revision) || !integer(domain.nextId) || domain.nextId < 1
     || !array(domain.jobs, SECT_RESEARCH_LIMITS.records) || !array(domain.receipts, SECT_RESEARCH_LIMITS.receipts)
@@ -119,13 +151,13 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
       || !sectResearchSites(frame, definition).some(proof => same(proof, site))) return fail('INVALID_SITE_SOURCE', job.jobId);
     const source = authority.jobs.find(value => value.jobId === site.sourceJobId);
     if (source?.terminal?.kind !== 'completed' || source.terminal.tick > job.startedTick || source.terminal.calendarTick > job.startedCalendarTick
-      || job.startedCalendarTick >= site.firstMaintenanceCalendarTick) return fail('INVALID_PAID_SITE', job.jobId);
+      || !paidAt(frame, site, job.startedTick, job.startedCalendarTick, maintenance)) return fail('INVALID_PAID_SITE', job.jobId);
     let visitTick = job.startedTick; let visitCalendar = job.startedCalendarTick;
     for (const [i, visit] of job.visits.entries()) {
       if (!fields(visit, ['tick', 'calendarTick', 'position']) || !integer(visit.tick) || !integer(visit.calendarTick)
         || visit.tick <= visitTick || visit.calendarTick <= visitCalendar || visit.tick > authority.lastSimulationTick || visit.calendarTick > authority.lastCalendarTick
         || visit.calendarTick - visitCalendar > visit.tick - visitTick || !same(visit.position, site.position)
-        || visit.calendarTick >= site.firstMaintenanceCalendarTick
+        || !paidAt(frame, site, visit.tick, visit.calendarTick, maintenance)
         || i === 0 && (visit.tick - job.startedTick < Math.max(1, cardinalDistance(job.origin, site.position) * MOVEMENT_TICKS_PER_CELL)
           || visit.calendarTick - job.startedCalendarTick < Math.max(1, cardinalDistance(job.origin, site.position) * MOVEMENT_TICKS_PER_CELL))) return fail('INVALID_VISIT', job.jobId);
       visitTick = visit.tick; visitCalendar = visit.calendarTick;
@@ -137,7 +169,7 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
         || span.firstTick <= lastTick || span.firstCalendarTick <= lastCalendar || span.lastTick < span.firstTick || span.lastCalendarTick < span.firstCalendarTick
         || span.lastTick > authority.lastSimulationTick || span.lastCalendarTick > authority.lastCalendarTick
         || span.firstCalendarTick - lastCalendar > span.firstTick - lastTick || span.lastTick - span.firstTick !== span.lastCalendarTick - span.firstCalendarTick
-        || span.lastCalendarTick >= site.firstMaintenanceCalendarTick) return fail('INVALID_WORK_EVIDENCE', job.jobId);
+        || !(maintenance ? sectBuildingPaidRange(maintenance, site.buildingId, span.firstTick, span.lastTick, span.firstCalendarTick, span.lastCalendarTick) : span.lastCalendarTick < site.firstMaintenanceCalendarTick)) return fail('INVALID_WORK_EVIDENCE', job.jobId);
       const visit = job.visits[span.visitIndex]!; const nextVisit = job.visits[span.visitIndex + 1];
       if (span.firstTick <= visit.tick || span.firstCalendarTick <= visit.calendarTick
         || span.firstCalendarTick - visit.calendarTick > span.firstTick - visit.tick
@@ -169,7 +201,7 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
         || nav.path.length || nav.target !== null || nav.routeVersion !== null || nav.movementTicks !== 0 || nav.retryAtTick !== 0 || job.blocked !== null) return fail('INVALID_TERMINAL', job.jobId);
       if (terminal.kind === 'completed') {
         if (count !== definition.workTicks || terminal.tick !== lastTick || terminal.calendarTick !== lastCalendar || terminal.previousPhase !== 'working'
-          || !same(terminal.position, site.position) || terminal.released.length || terminal.calendarTick >= site.firstMaintenanceCalendarTick
+          || !same(terminal.position, site.position) || terminal.released.length || !paidAt(frame, site, terminal.tick, terminal.calendarTick, maintenance)
           || claim.base.settlement?.kind !== 'committed' || claim.sect.settlement?.kind !== 'committed'
           || claim.base.settlement.operationId !== `complete:${job.jobId}` || claim.base.settlement.outputs.length || claim.sect.settlement.outputs.length
           || !same(terminal.consumed, normalizeSectResourceLines(definition.costs))) return fail('INVALID_COMPLETION', job.jobId);
@@ -198,15 +230,5 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
     if (starts[0]!.revision <= previousStartRevision || starts[0]!.revision <= previousCancellationRevision) return fail('INVALID_RECEIPT_CHRONOLOGY', job.jobId);
     previousStartRevision = starts[0]!.revision; previousCancellationRevision = cancellations[0]?.revision ?? 0;
   }
-  const gates = validateSectResearchConsumerGates(frame);
-  if (gates.length) return gates;
-  for (const claim of authority.ledger.reservations) {
-    const owners = authority.jobs.filter(job => job.jobId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
-      + frame.production.jobs.filter(job => job.transactionId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
-      + domain.jobs.filter(job => job.jobId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length;
-    if (owners !== 1) return fail('ORPHAN_RESERVATION', claim.reservationId);
-  }
-  if (active.length + authority.jobs.filter(job => job.terminal === null).length + frame.production.jobs.filter(job => job.terminal === null).length > 36) return fail('JOB_LIMIT', 'frame');
-  if (sectClaimsConflict(sectAllLocalClaims(frame))) return fail('CLAIM_CONFLICT', 'frame');
   return [];
 }
