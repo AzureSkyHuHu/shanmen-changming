@@ -6,37 +6,21 @@ import type { CandidateCapacityDecisionV9, CapacityLimitedResultV9 } from './run
 import type { SaveCapacityRejectionCode } from '../save-budget';
 import type { WorldStateV9 } from './v9-types';
 
-export const TEACHING_DETAIL = 'Teaching continuation is unsupported by this limited gate; use the existing .3 record-only API until a finite continuation proof is implemented';
-export const hasTeaching = (world: WorldStateV9): boolean => world.cultivation.disciples.some(profile => profile.teaching !== null);
-export function actualDimensionsFit(value: ManagementCapacityV9): boolean {
-  return value.actualFits && Object.keys(value.current).every(key => Number.isSafeInteger(value.current[key]) && value.current[key]! >= 0
-    && Number.isSafeInteger(value.limits[key]) && value.current[key]! <= value.limits[key]!);
-}
-/** The query reports overflowing summed costs as Infinity. Compare the actual
- * integer operands instead, so no rounding or Infinity creates release authority. */
-function unionFitsOrNonincreasing(before: ManagementCapacityV9, after: ManagementCapacityV9): boolean {
-  const keys = new Set([...Object.keys(before.costs), ...Object.keys(after.costs)]);
-  for (const key of keys) {
-    const hasBefore = Object.hasOwn(before.costs, key); const hasAfter = Object.hasOwn(after.costs, key);
-    const limit = hasAfter ? after.limits[key] : before.limits[key];
-    if (!Number.isSafeInteger(limit) || limit! < 0 || hasBefore && hasAfter && before.limits[key] !== after.limits[key]) return false;
-    const operands = [hasBefore ? before.current[key] : 0, hasBefore ? before.reserved[key] : 0,
-      hasAfter ? after.current[key] : 0, hasAfter ? after.reserved[key] : 0];
-    if (!operands.every(value => Number.isSafeInteger(value) && value! >= 0)) return false;
-    const prior = BigInt(operands[0]!) + BigInt(operands[1]!); const next = BigInt(operands[2]!) + BigInt(operands[3]!);
-    if (next > BigInt(limit!) && next > prior) return false;
-  }
-  return true;
-}
+export { TEACHING_DETAIL, hasTeaching, actualDimensionsFitV9 as actualDimensionsFit } from './teaching-continuation-v9';
+import { TEACHING_DETAIL, actualDimensionsFitV9 as actualDimensionsFit, deficitDoesNotIncreaseV9,
+  inspectTeachingContinuationV9, authenticTeachingTransitionV9 } from './teaching-continuation-v9';
 export function decision(before: WorldStateV9, after: WorldStateV9, previous: ManagementCapacityV9, current: ManagementCapacityV9): CandidateCapacityDecisionV9 {
   const fail = (reason: CandidateCapacityDecisionV9['reason'], code: Exclude<CandidateCapacityDecisionV9['code'], null>, details: readonly string[]): CandidateCapacityDecisionV9 =>
     ({ ok: false, code, reason, assessment: current, discharged: [], details });
   if (!previous.supported || !current.supported) return fail('unsupported-source', 'SAVE_OBLIGATION_UNBOUNDED',
     [...previous.sourceRecordIssues, ...previous.unknowns, ...current.sourceRecordIssues, ...current.unknowns]);
-  if (hasTeaching(before) || hasTeaching(after)) return fail('unsupported-continuation', 'UNSUPPORTED_CONTINUATION', [TEACHING_DETAIL]);
+  const previousTeaching = inspectTeachingContinuationV9(before, previous); const currentTeaching = inspectTeachingContinuationV9(after, current);
+  if (!previousTeaching.supported || !currentTeaching.supported) return fail('unsupported-continuation', 'UNSUPPORTED_CONTINUATION',
+    [TEACHING_DETAIL, ...previousTeaching.unknowns, ...currentTeaching.unknowns]);
+  if (!authenticTeachingTransitionV9(before, after)) return fail('unsupported-continuation', 'UNSUPPORTED_CONTINUATION', ['Teaching transition has no actual reducer witness']);
   if (!actualDimensionsFit(previous) || !actualDimensionsFit(current)) return fail('actual-capacity', 'SAVE_CAPACITY_EXCEEDED', ['Actual complete-boundary hard limit exceeded']);
   if (current.fits) return { ok: true, code: null, reason: 'ordinary', assessment: current, discharged: [], details: [] };
-  if (!unionFitsOrNonincreasing(previous, current)) return fail('future-capacity', 'SAVE_CAPACITY_EXCEEDED', ['A deficient capacity dimension increased']);
+  if (!deficitDoesNotIncreaseV9(previous, current)) return fail('future-capacity', 'SAVE_CAPACITY_EXCEEDED', ['A deficient capacity dimension increased']);
   let release: ReservedDischargesV9;
   try { release = inspectReservedDischargesV9(before, after,
     { sect: previous.sect!, progression: previous.progression! }, { sect: current.sect!, progression: current.progression! }); }

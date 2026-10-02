@@ -291,19 +291,22 @@ describe('separate limited v9 complete-candidate runtime gate', () => {
     const result = advanceCapacityLimitedTicksV9(source, 20); expect(result.world).toBe(source); expect(result.stopped).toBeNull();
     expect(result.metrics.fullQueries).toBe(1); expect(result.metrics.normalCandidates).toBe(0);
   });
-  it('explicitly rejects new and preexisting active teaching without changing existing .3 behavior or losing retries', () => {
+  it('admits the finite disjoint teaching subset while retaining one-short protection, .3 behavior and retry priority', () => {
     const source = createUnregisteredWorldV9('runtime-teaching-policy');
     source.cultivation = createCultivationStateV3(source.cultivation.disciples.map(profile => profile.discipleId === 'entity:2'
       ? { ...profile, knowledge: [{ knowledgeId: 'knowledge.test', teacherId: null, teachingId: null }] } : profile));
     const input = command(source, { kind: 'cultivation.command', payload: { command: { kind: 'teaching.begin', commandId: 'teaching.begin',
       expectedRevision: 0, discipleId: 'entity:2', studentId: 'entity:3', knowledgeId: 'knowledge.test' } } }, 'teaching.begin');
-    const refused = dispatchCapacityLimitedCommandV9(source, input); expect(refused.result.rejection?.code).toBe('UNSUPPORTED_CONTINUATION'); expect(refused.world).toBe(source);
+    const admitted = dispatchCapacityLimitedCommandV9(source, input); expect(admitted.result.status).toBe('accepted');
     const existing = dispatchUnregisteredCommandV9(source, input); expect(existing.result.status).toBe('accepted');
     expect(advanceUnregisteredTicksV9(existing.world, 1).stopped).toBeNull();
-    const stopped = advanceCapacityLimitedTicksV9(existing.world, 1); expect(stopped.stopped?.kind).toBe('unsupported-continuation'); expect(stopped.world).toBe(existing.world);
+    const advanced = advanceCapacityLimitedTicksV9(existing.world, 1); expect(advanced.stopped).toBeNull(); expect(advanced.world.clock.simulationTick).toBe(1);
+    const short = cloneJson(existing.world); short.sectExpansion = { ...short.sectExpansion, construction: { ...short.sectExpansion.construction, revision: Number.MAX_SAFE_INTEGER - 2 * CALENDAR_TICKS_PER_MONTH + 1 } };
+    const stopped = advanceCapacityLimitedTicksV9(short, 1); expect(stopped.stopped?.kind).toBe('unsupported-continuation'); expect(stopped.world).toBe(short);
     expect(dispatchCapacityLimitedCommandV9(existing.world, input).result.status).toBe('accepted');
     const conflicting = command(existing.world, { kind: 'cultivation.command', payload: { command: { kind: 'training.set', commandId: 'teaching.begin', expectedRevision: existing.world.cultivation.revision, discipleId: 'entity:2', mode: 'rest' } } }, 'teaching.begin');
     expect(dispatchCapacityLimitedCommandV9(existing.world, conflicting).result.rejection?.code).toBe('COMMAND_CONFLICT');
-    expect(verifyCapacityLimitedCandidateV9(existing.world, existing.world).reason).toBe('unsupported-continuation');
+    expect(verifyCapacityLimitedCandidateV9(existing.world, existing.world).reason).toBe('ordinary');
+    expect(verifyCapacityLimitedCandidateV9(short, short).reason).toBe('unsupported-continuation');
   });
 });

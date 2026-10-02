@@ -172,7 +172,7 @@ function sortedIds(values: readonly string[]): string { return canonicalStringif
  * source/knowledge/relic/item/heir changes must re-admit this derivation. Teaching
  * knowledge and permanent grants are also included in eventual archive summaries.
  */
-export function deriveProgressionReservations(input: { world: ProgressionRecordSource; buildFacts: BuildHistoryObligationFacts }): ProgressionReservationAssessment {
+function deriveProgressionEnvelope(input: { world: ProgressionRecordSource; buildFacts: BuildHistoryObligationFacts }, numericTail: boolean): ProgressionReservationAssessment {
   const result: ProgressionReservationAssessment = { supported: false, owners: [], totals: amounts(), unknowns: [],
     coverage: ['build retirement/history/receipt/source-removal and remaining item ownership chains',
       'cultivation expiry/death/archive, active teaching and accepted breakthrough terminal records',
@@ -444,19 +444,7 @@ export function deriveProgressionReservations(input: { world: ProgressionRecordS
     for (const value of Object.values(result.totals).flatMap(value => typeof value === 'number' ? [value] : Object.values(value))) {
       if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new RangeError('Progression charge exceeds finite safe range');
     }
-    for (const key of Object.keys(SEQUENCES) as (keyof SequenceState)[]) {
-      if (world.sequences[key] > MAX - result.totals.sequenceReserve[key]) result.numeric.diagnostics.push(`Insufficient terminal ${key} headroom`);
-    }
-    const counters: readonly [string, number, number][] = [
-      ['build revision', world.builds.revision, result.totals.buildRows],
-      ['cultivation revision', world.cultivation.revision, result.totals.counterReserve.cultivationRevisions],
-      ['cultivation calendar month', world.cultivation.calendarMonth, result.totals.counterReserve.calendarMonths],
-      ['World calendar tick', world.clock.calendarTick, result.totals.counterReserve.calendarTicks],
-      ['World simulation tick', world.clock.simulationTick, result.totals.counterReserve.calendarTicks],
-    ];
-    for (const [label, current, remaining] of counters) if (current > MAX - remaining) result.numeric.diagnostics.push(`Insufficient terminal ${label} headroom`);
-    if (activeAttempts.length) result.numeric.uncovered.push('Raw events RNG draws for accepted breakthrough samples, including rejection draws');
-    result.numeric.fits = result.numeric.diagnostics.length === 0;
+    if (numericTail) result.numeric = assessProgressionReservationNumbers(world, result.totals, activeAttempts.length);
     result.supported = result.unknowns.length === 0;
   } catch (error) {
     result.unknowns.push(error instanceof Error ? error.message : 'No finite progression record envelope derived');
@@ -464,6 +452,40 @@ export function deriveProgressionReservations(input: { world: ProgressionRecordS
     result.owners = []; result.totals = amounts();
   }
   return freeze(result);
+}
+
+/** Original v7/v8/.3 entry point. The numeric tail runs at the same point in the
+ * derivation and retains its original whole-month amounts and diagnostic order. */
+export function deriveProgressionReservations(input: { world: ProgressionRecordSource; buildFacts: BuildHistoryObligationFacts }): ProgressionReservationAssessment {
+  return deriveProgressionEnvelope(input, true);
+}
+/** Internal record-only derivation. Deliberately has NO numeric field to clear or
+ * reinterpret. Version-specific time proofs must calculate their own numbers. */
+export function deriveProgressionRecordEnvelope(input: { world: ProgressionRecordSource; buildFacts: BuildHistoryObligationFacts }): Omit<ProgressionReservationAssessment, 'numeric'> {
+  const { numeric: _unprovedNumeric, ...records } = deriveProgressionEnvelope(input, false);
+  return freeze(records);
+}
+/** Shared numeric tail, called only after a version has derived its actual total
+ * operands. Does not consume, clear, or override a previous assessment. */
+export function assessProgressionReservationNumbers(world: ProgressionRecordSource, totals: ProgressionBudgetAmounts, activeAttempts: number): ProgressionReservationAssessment['numeric'] {
+  const numeric: ProgressionReservationAssessment['numeric'] = { fits: false, diagnostics: [], uncovered: [
+    'Shared month/birthday steps before eventual natural lifespan death',
+    'Production/run/battle counters and other future consumers of shared IDs or RNG streams',
+  ] };
+  for (const key of Object.keys(SEQUENCES) as (keyof SequenceState)[]) {
+    if (world.sequences[key] > MAX - totals.sequenceReserve[key]) numeric.diagnostics.push(`Insufficient terminal ${key} headroom`);
+  }
+  const counters: readonly [string, number, number][] = [
+    ['build revision', world.builds.revision, totals.buildRows],
+    ['cultivation revision', world.cultivation.revision, totals.counterReserve.cultivationRevisions],
+    ['cultivation calendar month', world.cultivation.calendarMonth, totals.counterReserve.calendarMonths],
+    ['World calendar tick', world.clock.calendarTick, totals.counterReserve.calendarTicks],
+    ['World simulation tick', world.clock.simulationTick, totals.counterReserve.calendarTicks],
+  ];
+  for (const [label, current, remaining] of counters) if (current > MAX - remaining) numeric.diagnostics.push(`Insufficient terminal ${label} headroom`);
+  if (activeAttempts) numeric.uncovered.push('Raw events RNG draws for accepted breakthrough samples, including rejection draws');
+  numeric.fits = numeric.diagnostics.length === 0;
+  return numeric;
 }
 
 function maximumRealm(current: Realm, target: Realm | null | undefined): Realm {

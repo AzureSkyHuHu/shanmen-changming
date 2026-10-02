@@ -1,18 +1,21 @@
 import { restoreHistoryArchive } from '../history';
 import { isPaused } from '../kernel/clock';
-import { isCommandV9, prepareUnregisteredCommandCandidateV9 } from '../kernel/commands-v9';
+import { prepareUnregisteredCommandCandidateV9 } from '../kernel/commands-v9';
 import { isNonNegativeInteger } from '../kernel/numeric';
 import { prepareNormalTickCandidateV9, prepareNoOptionalGrowthTickCandidateV9 } from '../kernel/simulation-v9';
-import { assessManagementCapacityV9, type ManagementCapacityV9 } from './management-capacity-v9';
+import { assessTeachingManagementCapacityV9, type ManagementCapacityV9 } from './management-capacity-v9';
 import type { CapacityLimitedAdvanceV9, CapacityLimitedResultV9, CandidateCapacityDecisionV9 } from './runtime-capacity-v9';
-import { actualDimensionsFit, decision, hasTeaching, refused, TEACHING_DETAIL } from './runtime-decision-v9';
+import { actualDimensionsFit, decision, refused, TEACHING_DETAIL } from './runtime-decision-v9';
 import { carryScalarTick, detachData, ownFrozenTree, scalarIdleEligible, scalarTick, worldMayBeScalarIdle, type CarriedIdleCapacity } from './runtime-owned-internals-v9';
+import { inspectTeachingContinuationV9 } from './teaching-continuation-v9';
 import type { WorldStateV9 } from './v9-types';
 
 /** Internal experiment, deliberately absent from all public engine/codec barrels.
  * Stamps describe this instance's lifetime only; they are not transferable trust. */
 export interface RuntimeStampV9 { readonly generation: number; readonly publication: number }
 export interface RuntimeInstanceMetricsV9 {
+  /** Top-level source/candidate capacity queries only. Excludes internal teaching
+   * recovery assessments and reducer replays; never a total-cost measurement. */
   readonly fullQueries: number; readonly fastQueries: number;
   readonly normalCandidates: number; readonly noOptionalCandidates: number; readonly exports: number;
 }
@@ -54,7 +57,8 @@ const invalidStop = (): Stop => ({ kind: 'invalid-records', details: ['Invalid e
 const capacityStop = (): Stop => ({ kind: 'capacity', details: ['Actual complete-boundary hard limit exceeded'] });
 function sourceFailure(world: WorldStateV9, assessment: ManagementCapacityV9): { error: RuntimeInstanceErrorV9; stopped: Stop } | null {
   if (!assessment.supported) return { error: 'invalid-source', stopped: { kind: 'invalid-records', details: [...assessment.sourceRecordIssues, ...assessment.unknowns] } };
-  if (hasTeaching(world)) return { error: 'unsupported-continuation', stopped: { kind: 'unsupported-continuation', details: [TEACHING_DETAIL] } };
+  const teaching = inspectTeachingContinuationV9(world, assessment);
+  if (!teaching.supported) return { error: 'unsupported-continuation', stopped: { kind: 'unsupported-continuation', details: [TEACHING_DETAIL, ...teaching.unknowns] } };
   if (!actualDimensionsFit(assessment)) return { error: 'capacity', stopped: capacityStop() };
   return null;
 }
@@ -68,7 +72,7 @@ function prepareSource(input: unknown, metrics: Metrics): Prepared {
   catch { return { ok: false, error: 'invalid-source', stopped: invalidStop() }; }
   try {
     metrics.fullQueries++;
-    const world = detached as WorldStateV9; const assessment = assessManagementCapacityV9(world);
+    const world = detached as WorldStateV9; const assessment = assessTeachingManagementCapacityV9(world);
     const failure = sourceFailure(world, assessment); if (failure) return { ok: false, ...failure };
     const ownership = new WeakSet<object>(); ownFrozenTree(world, ownership);
     return { ok: true, root: world as PrivateWorld, assessment, ownership };
@@ -124,7 +128,7 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
     if (!root || !ownership.has(root)) throw new Error('Missing private owned root');
     if (exact?.root === root && exact.generation === generation) return exact;
     measured.fullQueries++;
-    const assessment = assessManagementCapacityV9(root); const failure = sourceFailure(root, assessment);
+    const assessment = assessTeachingManagementCapacityV9(root); const failure = sourceFailure(root, assessment);
     if (failure) throw new Error('Owned source no longer satisfies the internal source contract');
     exact = { root, generation, assessment }; return exact;
   };
@@ -178,7 +182,7 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
               // Detach ordinary candidate data; only the history module's
               // authenticated immutable archive can retain its identity.
               const candidate = detachInternalCandidate(prepare(boundary)); measured.fullQueries++;
-              const assessment = assessManagementCapacityV9(candidate);
+              const assessment = assessTeachingManagementCapacityV9(candidate);
               const checked = decision(boundary, candidate, previous.assessment, assessment);
               if (!checked.ok) { failure = checked; continue; }
               ownFrozenTree(candidate, ownership); publish(candidate as PrivateWorld, assessment, null);
@@ -206,11 +210,8 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
         // Retry/conflict priority remains in the unchanged preparation. Results
         // must be detached even when they originate inside a private receipt.
         if (candidate.world === boundary) return immutable({ ...outcome(measured), result: detachData(candidate.result), published: false });
-        if (isCommandV9(captured) && captured.kind === 'cultivation.command' && captured.payload.command.kind === 'teaching.begin') {
-          return immutable({ ...outcome(measured), result: refused(candidate.result.commandId, 'UNSUPPORTED_CONTINUATION'), published: false });
-        }
         const previous = exactFor(measured); const next = detachInternalCandidate(candidate.world); measured.fullQueries++;
-        const assessment = assessManagementCapacityV9(next); const checked = decision(boundary, next, previous.assessment, assessment);
+        const assessment = assessTeachingManagementCapacityV9(next); const checked = decision(boundary, next, previous.assessment, assessment);
         if (!checked.ok) return immutable({ ...outcome(measured), result: refused(candidate.result.commandId, checked.code!), published: false });
         // Prepare output before publication: even an unexpected export failure
         // cannot publish a command whose caller never received a result.

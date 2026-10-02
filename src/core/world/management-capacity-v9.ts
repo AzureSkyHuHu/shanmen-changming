@@ -9,6 +9,7 @@ import { assessBuildHistoryObligations, type BuildHistoryObligationAssessment } 
 import { createCanonicalByteCounter } from '../save-budget/canonical-bytes';
 import { measureWorldSaveBytes } from '../save-budget/envelope';
 import { deriveProgressionReservations, measureProgressionRecord, type ProgressionReservationAssessment } from '../save-budget/progression-bounds';
+import { deriveProgressionReservationsTimeV9 } from '../save-budget/progression-time-v9';
 import { deriveSectReservationsV9, type SectObligationAssessmentV9 } from '../save-budget/sect-obligations-v9';
 import { CONSTRUCTION_LIMITS } from '../sect-expansion/construction-types';
 import { SECT_CARE_LIMITS } from '../sect-expansion/care-types';
@@ -63,7 +64,7 @@ function periodicBoundariesAfter(tick: number, horizon: number, residue: number)
  * and one action/revision per committed teaching/seclusion month. Only additional
  * off-month groups in that finite horizon need additional scalar headroom here.
  * A lifecycle trigger row does not reserve the arbitrary months leading to it. */
-function deriveManagementClockReservationV9(world: WorldStateV9, progression: ProgressionReservationAssessment): ManagementClockReservationV9 {
+function deriveManagementClockReservationV9(world: WorldStateV9, progression: ProgressionReservationAssessment, phaseAware: boolean): ManagementClockReservationV9 {
   const witness: V9CultivationClockTransition = { kind: 'age-sync', tick: MAX, beforeRevision: MAX - 1, rootActionId: `action:${MAX - 1}` };
   const maximum = measureProgressionRecord(witness);
   const emptyNodes = measureProgressionRecord({ transitions: [] }).decodedNodes;
@@ -76,7 +77,7 @@ function deriveManagementClockReservationV9(world: WorldStateV9, progression: Pr
     progressionOwnerIds: [], lifecycleOwnerIds: [], unknowns: [] };
   if (!progression.supported) { result.unknowns.push('Clock row reservation requires a supported progression derivation'); return result; }
   const horizon = progression.totals.counterReserve.calendarTicks;
-  if (!Number.isSafeInteger(horizon) || horizon < 0 || horizon % CALENDAR_TICKS_PER_MONTH !== 0) {
+  if (!Number.isSafeInteger(horizon) || horizon < 0 || (!phaseAware && horizon % CALENDAR_TICKS_PER_MONTH !== 0)) {
     result.unknowns.push('Clock row reservation has no finite whole-month progression horizon'); return result;
   }
   result.calendarTicks = horizon;
@@ -117,7 +118,17 @@ function deriveManagementClockReservationV9(world: WorldStateV9, progression: Pr
  * Optional maintenance/new work is future growth, not an infinite commitment.
  * A future runtime gate must preserve these reserves before allowing each tick or
  * command; this query does not install that gate or prove its release semantics. */
+/** Historical .3 sizing remains unchanged. */
 export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapacityV9 {
+  return assessManagementCapacity(world, false);
+}
+/** Separate finite-time sizing for the internal gate. This calculates H before
+ * numeric assessment; it never repairs a failed older numeric result. Teaching
+ * eligibility/reachable recovery is separately checked at both runtime roots. */
+export function assessTeachingManagementCapacityV9(world: WorldStateV9): ManagementCapacityV9 {
+  return assessManagementCapacity(world, true);
+}
+function assessManagementCapacity(world: WorldStateV9, phaseAware: boolean): ManagementCapacityV9 {
   const result: ManagementCapacityV9 = { scope: 'unregistered-v9-immediate-recovery-and-record-peaks', admitted: false, importAuthorized: false,
     eventualCompletionSupported: false, measuredEnvelopeBytes: null, actualFits: false, supported: false, fits: false, reason: 'unproved-obligation',
     current: {}, reserved: {}, costs: {}, limits: {}, deficits: [], base: null, build: null, progression: null, numeric: null, sect: null,
@@ -152,13 +163,13 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
     result.base = base;
     if (base.encodedBytes !== measured) throw new TypeError('Whole-envelope measurement differs');
     const facts = deriveV9BuildObligationFacts(world); const build = assessBuildHistoryObligations(facts); result.build = build;
-    const progression = deriveProgressionReservations({ world, buildFacts: facts }); result.progression = progression;
+    const progression = (phaseAware ? deriveProgressionReservationsTimeV9 : deriveProgressionReservations)({ world, buildFacts: facts }); result.progression = progression;
     const numeric = assessProgressionNumeric(world, progression); result.numeric = numeric;
     const sect = deriveSectReservationsV9(world); result.sect = sect;
     result.unknowns.push(...progression.unknowns, ...sect.unknowns);
     if (!numeric.supported) result.unknowns.push(...numeric.diagnostics);
     if (base.unsupportedPendingKinds.length) result.unknowns.push('Unsupported pending command effects');
-    const clock = deriveManagementClockReservationV9(world, progression); result.clock = clock; result.unknowns.push(...clock.unknowns);
+    const clock = deriveManagementClockReservationV9(world, progression, phaseAware); result.clock = clock; result.unknowns.push(...clock.unknowns);
     const extra = progression.totals; const local = sect.totals; const records = world.sectExpansion;
     // Equation: whole envelope ONCE + existing production/journal/general margin
     // + progression ONCE + sect ONCE + new .3 clock rows ONCE. Existing clock
@@ -249,9 +260,9 @@ export function assessManagementCapacityV9(world: WorldStateV9): ManagementCapac
     dimension('calendarTick', world.clock.calendarTick, extra.counterReserve.calendarTicks, MAX);
     dimension('simulationTick', world.clock.simulationTick, extra.counterReserve.calendarTicks, MAX);
     dimension('eventsDraws', world.randomStreams.events.draws, numeric.rawEventDrawsRequired, MAX);
-    dimension('sect.constructionRevision', records.construction.revision, local.counters.constructionRevision, MAX);
-    dimension('sect.productionRevision', records.production.revision, local.counters.productionRevision, MAX);
-    dimension('sect.researchRevision', records.research.revision, local.counters.researchRevision, MAX);
+    dimension('sect.constructionRevision', records.construction.revision, sum(local.counters.constructionRevision, phaseAware ? clock.calendarTicks : 0), MAX);
+    dimension('sect.productionRevision', records.production.revision, sum(local.counters.productionRevision, phaseAware ? clock.calendarTicks : 0), MAX);
+    dimension('sect.researchRevision', records.research.revision, sum(local.counters.researchRevision, phaseAware ? clock.calendarTicks : 0), MAX);
     dimension('sect.careRevision', records.care.revision, local.counters.careRevision, MAX);
     dimension('sect.constructionNextId', records.construction.nextId, local.counters.constructionNextId, MAX);
     dimension('sect.productionNextId', records.production.nextId, 0, MAX);

@@ -282,17 +282,20 @@ describe('real non-scalar work remains completely assessed', () => {
 });
 
 describe('limited teaching and adversarial lifetime inputs', () => {
-  it('rejects existing teaching at construction/replacement and preserves new-command/retry/conflict priority', () => {
+  it('admits finite teaching at construction/replacement, rejects unsafe headroom and preserves new-command/retry/conflict priority', () => {
     const source = createUnregisteredWorldV9('instance-teaching');
     source.cultivation = createCultivationStateV3(source.cultivation.disciples.map(profile => profile.discipleId === 'entity:2'
       ? { ...profile, knowledge: [{ knowledgeId: 'knowledge.test', teacherId: null, teachingId: null }] } : profile));
     const input = fixtureCommand(source, { kind: 'cultivation.command', payload: { command: { kind: 'teaching.begin', commandId: 'instance.teaching.begin',
       expectedRevision: 0, discipleId: 'entity:2', studentId: 'entity:3', knowledgeId: 'knowledge.test' } } }, 'instance.teaching.begin');
-    const instance = runtime(source); command(instance, source, input); expect(instance.command(input).result?.rejection?.code).toBe('UNSUPPORTED_CONTINUATION');
+    const instance = runtime(source); const taught = command(instance, source, input); expect(instance.command(input).result?.status).toBe('accepted');
     const existing = dispatchUnregisteredCommandV9(source, input); expect(existing.result.status).toBe('accepted');
-    expect(createPrivateRuntimeV9(existing.world)).toMatchObject({ ok: false, error: 'unsupported-continuation' });
-    const before = instance.snapshot(); expect(instance.replace(existing.world).error).toBe('unsupported-continuation'); expect(instance.snapshot().world).toBe(before.world);
-    const original = training(source, 'instance.priority'); const next = command(instance, source, original);
+    expect(createPrivateRuntimeV9(existing.world).ok).toBe(true);
+    expect(instance.replace(existing.world).ok).toBe(true);
+    const short = cloneJson(existing.world); short.sectExpansion = { ...short.sectExpansion, construction: { ...short.sectExpansion.construction, revision: Number.MAX_SAFE_INTEGER - 2 * MONTH + 1 } };
+    expect(createPrivateRuntimeV9(short)).toMatchObject({ ok: false, error: 'unsupported-continuation' });
+    const before = instance.snapshot(); expect(instance.replace(short).error).toBe('unsupported-continuation'); expect(instance.snapshot().world).toBe(before.world);
+    const original = training(taught, 'instance.priority'); const next = command(instance, taught, original);
     const conflict = fixtureCommand(next, { kind: 'cultivation.command', payload: { command: { kind: 'teaching.begin', commandId: original.commandId,
       expectedRevision: next.cultivation.revision, discipleId: 'entity:2', studentId: 'entity:3', knowledgeId: 'knowledge.test' } } }, original.commandId);
     command(instance, next, conflict); expect(instance.command(conflict).result?.rejection?.code).toBe('COMMAND_CONFLICT');
@@ -403,7 +406,7 @@ describe('candidate-only authenticated archive preservation', () => {
   it('keeps sealed history across active ticks while still copying every ordinary candidate subtree', () => {
     const source = cloneJson(heavy); const instance = runtime(source);
     const input = fixtureCommand(source, { kind: 'production.start', payload: { recipeId: 'craft.plank', workerId: 'entity:2' } }, 'instance.archive.start');
-    const spy = vi.spyOn(capacityQueries, 'assessManagementCapacityV9');
+    const spy = vi.spyOn(capacityQueries, 'assessTeachingManagementCapacityV9');
     try {
       const strictStart = dispatchCapacityLimitedCommandV9(source, input); spy.mockClear();
       expect(instance.command(input).result).toEqual(strictStart.result);
@@ -426,7 +429,7 @@ describe('candidate-only authenticated archive preservation', () => {
   it('authenticates real archive growth and preserves archived exact retries plus payload conflicts', () => {
     let oracle = cloneJson(heavy); const instance = runtime(oracle); const startCount = oracle.history.commandReceipts.count;
     const first = training(oracle, 'a.instance.archive.first'); const secondId = 'a.instance.archive.second';
-    const spy = vi.spyOn(capacityQueries, 'assessManagementCapacityV9');
+    const spy = vi.spyOn(capacityQueries, 'assessTeachingManagementCapacityV9');
     try {
       oracle = command(instance, oracle, first); const firstOwned = spy.mock.calls.at(-1)![0];
       expect(restoreHistoryArchive(firstOwned.history)).toBe(firstOwned.history);
@@ -444,7 +447,7 @@ describe('candidate-only authenticated archive preservation', () => {
   it('never shares an imported or exported archive across instance or replacement boundaries', () => {
     const source = cloneJson(heavy); const baseline = canonicalStringify(source); const a = runtime(source); const b = runtime(source);
     const input = fixtureCommand(source, { kind: 'production.start', payload: { recipeId: 'craft.plank', workerId: 'entity:2' } }, 'a.instance.archive.isolation');
-    const spy = vi.spyOn(capacityQueries, 'assessManagementCapacityV9');
+    const spy = vi.spyOn(capacityQueries, 'assessTeachingManagementCapacityV9');
     try {
       a.command(input); const privateA = spy.mock.calls.at(-1)![0];
       b.command(input); const privateB = spy.mock.calls.at(-1)![0];
