@@ -8,6 +8,25 @@ import { assessHistoryExpansion, assessHistorySlots, manualProductionByteObligat
 import { assessProgressionNumeric } from './progression-numeric';
 import type { WorldStateV9 } from './v9-types';
 
+/** Structural facts shared by internal v9 record inspection and read-only capacity queries.
+ * No legacy World wrapper, caller-supplied authority or persisted budget is involved. */
+export function deriveV9BuildObligationFacts(world: WorldStateV9): BuildHistoryObligationFacts {
+  const profiles = new Map(world.cultivation.disciples.map(profile => [profile.discipleId, profile]));
+  const awardIds = new Set<string>();
+  for (const profile of profiles.values()) for (const realm of REALMS.slice(1, REALMS.indexOf(profile.realm) + 1)) {
+    if (!world.builds.awards.some(award => award.discipleId === profile.discipleId && award.ruleId === `realm.${realm}`)) awardIds.add(`realm/${profile.discipleId}/${realm}`);
+  }
+  for (const attempt of world.cultivation.attempts) if (['Reserved', 'InSeclusion', 'DecisionReady'].includes(attempt.phase)
+    && attempt.preview.targetRealm && !world.builds.awards.some(award => award.discipleId === attempt.discipleId && award.ruleId === `realm.${attempt.preview.targetRealm}`)) awardIds.add(`realm/${attempt.discipleId}/${attempt.preview.targetRealm}`);
+  return { historyCount: world.builds.history.length,
+    maximumCommands: managementV9BuildContext(world.contentIdentity).rules.maximumCommands,
+    disciples: world.builds.disciples.map(build => ({ discipleId: build.discipleId, lifeState: profiles.get(build.discipleId)!.lifeState, heirId: profiles.get(build.discipleId)!.heirId })),
+    retiredDiscipleIds: world.builds.retiredDisciples.map(build => build.discipleId),
+    equipment: world.builds.equipment.map(item => ({ itemInstanceId: item.instanceId, ownerDiscipleId: item.owner.kind === 'disciple' ? item.owner.discipleId : null })),
+    pendingEstates: world.legacy.estates.filter(estate => estate.settledMonth === null).map(estate => ({ discipleId: estate.discipleId, beneficiaryId: estate.beneficiaryId })),
+    teachingIds: [], realmMilestoneIds: [...awardIds], activeRun: null };
+}
+
 /** Known finite record/counter obligations only. Deliberately NOT whole-save bytes,
  * reader-union admission, perpetual time/cancellation growth or an exit certificate. */
 export function inspectV9KnownRecordHeadroom(world: WorldStateV9): string[] {
@@ -16,20 +35,7 @@ export function inspectV9KnownRecordHeadroom(world: WorldStateV9): string[] {
   // that existing job; forced cancellation adds at most one already-reserved receipt.
   if (care.jobs.length > SECT_CARE_LIMITS.records || care.receipts.length + activeCare > SECT_CARE_LIMITS.receipts
     || care.revision > Number.MAX_SAFE_INTEGER - activeCare) return ['Care terminal record/revision headroom exhausted'];
-  const profiles = new Map(world.cultivation.disciples.map(profile => [profile.discipleId, profile]));
-  const awardIds = new Set<string>();
-  for (const profile of profiles.values()) for (const realm of REALMS.slice(1, REALMS.indexOf(profile.realm) + 1)) {
-    if (!world.builds.awards.some(award => award.discipleId === profile.discipleId && award.ruleId === `realm.${realm}`)) awardIds.add(`realm/${profile.discipleId}/${realm}`);
-  }
-  for (const attempt of world.cultivation.attempts) if (['Reserved', 'InSeclusion', 'DecisionReady'].includes(attempt.phase)
-    && attempt.preview.targetRealm && !world.builds.awards.some(award => award.discipleId === attempt.discipleId && award.ruleId === `realm.${attempt.preview.targetRealm}`)) awardIds.add(`realm/${attempt.discipleId}/${attempt.preview.targetRealm}`);
-  const facts: BuildHistoryObligationFacts = { historyCount: world.builds.history.length,
-    maximumCommands: managementV9BuildContext(world.contentIdentity).rules.maximumCommands,
-    disciples: world.builds.disciples.map(build => ({ discipleId: build.discipleId, lifeState: profiles.get(build.discipleId)!.lifeState, heirId: profiles.get(build.discipleId)!.heirId })),
-    retiredDiscipleIds: world.builds.retiredDisciples.map(build => build.discipleId),
-    equipment: world.builds.equipment.map(item => ({ itemInstanceId: item.instanceId, ownerDiscipleId: item.owner.kind === 'disciple' ? item.owner.discipleId : null })),
-    pendingEstates: world.legacy.estates.filter(estate => estate.settledMonth === null).map(estate => ({ discipleId: estate.discipleId, beneficiaryId: estate.beneficiaryId })),
-    teachingIds: [], realmMilestoneIds: [...awardIds], activeRun: null };
+  const facts = deriveV9BuildObligationFacts(world);
   const build = assessBuildHistoryObligations(facts); if (!build.fits) return ['Build terminal record capacity exhausted'];
   const progression = deriveProgressionReservations({ world, buildFacts: facts });
   const numeric = assessProgressionNumeric(world, progression);
