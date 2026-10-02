@@ -1,3 +1,4 @@
+import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { sectBuildingPaidAt, sectBuildingPaidRange } from './maintenance-periods';
 import type { SectMaintenanceFrame } from './maintenance-types';
 import { getSectResearchDefinition } from '../../content/sect-v9/catalog';
@@ -107,7 +108,11 @@ export function validateSectResearchRecords(frame: SectResearchFrame): readonly 
 export function validateMaintainedSectResearchRecords(frame: SectMaintenanceFrame): readonly SectResearchValidationIssue[] {
   return validateResearchRecords(frame, frame);
 }
-function validateResearchRecords(frame: SectResearchFrame, maintenance?: SectMaintenanceFrame): readonly SectResearchValidationIssue[] {
+/** World-only record leaf; its authenticated history source cannot supply active actors. */
+export function validateWorldMaintainedSectResearchRecords(frame: SectMaintenanceFrame, identities: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
+  return validateResearchRecords(frame, frame, identities);
+}
+function validateResearchRecords(frame: SectResearchFrame, maintenance?: SectMaintenanceFrame, identities?: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
   const fail = (code: string, path: string): readonly SectResearchValidationIssue[] => [{ code, path }];
   const authority = frame.construction;
   const domain = frame.research;
@@ -131,7 +136,7 @@ function validateResearchRecords(frame: SectResearchFrame, maintenance?: SectMai
     if (!fields(job, ['jobId', 'reservationId', 'researchId', 'workerId', 'startedTick', 'startedCalendarTick', 'origin', 'site', 'prerequisites',
       'phase', 'activeTicks', 'requiredTicks', 'visits', 'workSpans', 'navigation', 'blocked', 'terminal'])
       || !allocation(job.jobId, 'sect-research') || !allocation(job.reservationId, 'sect-research-reservation')
-      || !authority.people.some(person => person.id === job.workerId) || !integer(job.startedTick) || job.startedTick > authority.lastSimulationTick
+      || !(authority.people.some(person => person.id === job.workerId) || isArchivedSectWorkerReference(identities, job.workerId, job.terminal)) || !integer(job.startedTick) || job.startedTick > authority.lastSimulationTick
       || !integer(job.startedCalendarTick) || job.startedCalendarTick > authority.lastCalendarTick || !cell(job.origin) || !inMap(job.origin)
       || !integer(job.activeTicks) || !integer(job.requiredTicks) || !['to-site', 'working', 'completed', 'cancelled'].includes(job.phase)
       || ![null, 'PATH_BLOCKED', 'PATH_BUDGET', 'WORKER_UNAVAILABLE', 'WORKSTATION_UNAVAILABLE', 'ENTRANCE_BUSY', 'VISIT_CAPACITY'].includes(job.blocked)

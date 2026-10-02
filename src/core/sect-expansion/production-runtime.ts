@@ -1,3 +1,4 @@
+import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { sectBuildingPaidAt, sectBuildingPaidRange } from './maintenance-periods';
 import type { SectMaintenanceFrame } from './maintenance-types';
 import { getSectRecipeDefinition } from '../../content/sect-v9/catalog';
@@ -103,7 +104,11 @@ export function validateUngatedSectProductionRecords(frame: SectProductionFrame)
 export function validateMaintainedSectProductionRecords(frame: SectMaintenanceFrame): readonly SectProductionValidationIssue[] {
   return validateProductionRecords(frame, 'research-consumer-records', frame);
 }
-function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' | 'research-consumer-records', maintenance?: SectMaintenanceFrame): readonly SectProductionValidationIssue[] {
+/** World-only record leaf; its authenticated history source cannot supply active actors. */
+export function validateWorldMaintainedSectProductionRecords(frame: SectMaintenanceFrame, identities: SectHistoricalIdentitySource): readonly SectProductionValidationIssue[] {
+  return validateProductionRecords(frame, 'research-consumer-records', frame, identities);
+}
+function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' | 'research-consumer-records', maintenance?: SectMaintenanceFrame, identities?: SectHistoricalIdentitySource): readonly SectProductionValidationIssue[] {
   const fail = (code: string, path: string): readonly SectProductionValidationIssue[] => [{ code, path }];
   const domain = frame.production; const authority = frame.construction;
   if (!fields(domain, ['revision', 'nextId', 'jobs', 'receipts']) || !integer(domain.revision) || !integer(domain.nextId) || domain.nextId < 1
@@ -129,7 +134,7 @@ function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' 
       'reservationId', 'startedCalendarTick', 'origin', 'productiveSite', 'seatSiteId', 'workVisit', 'deliveryVisit', 'workSpans', 'terminal',
       ...(scope === 'research-consumer-records' && job.recipeId === 'craft.wound-powder.v9' ? ['researchGate'] : [])])
       || !allocation(job.transactionId, 'sect-production') || !allocation(job.reservationId, 'sect-production-reservation') || jobIds.has(job.transactionId)
-      || !authority.people.some(person => person.id === job.workerId) || !integer(job.startedTick) || job.startedTick > authority.lastSimulationTick
+      || !(authority.people.some(person => person.id === job.workerId) || isArchivedSectWorkerReference(identities, job.workerId, job.terminal)) || !integer(job.startedTick) || job.startedTick > authority.lastSimulationTick
       || !integer(job.startedCalendarTick) || job.startedCalendarTick > authority.lastCalendarTick || !cell(job.origin) || !inMap(job.origin)
       || !integer(job.activeTicks) || !integer(job.requiredTicks) || !PRODUCTION_PHASES.includes(job.phase)
       || !['Running', 'Blocked', 'Committed', 'Cancelled'].includes(job.state)

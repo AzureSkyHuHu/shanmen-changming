@@ -1,16 +1,17 @@
+import type { SectHistoricalIdentitySource } from './history-identity';
 import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
 import { isLedgerDataArray, isLedgerDataRecord } from '../economy/ledger-operations';
 import { isNonNegativeInteger } from '../kernel/numeric';
 import { canonicalStringify, compareStable } from '../kernel/serialization';
-import { validateConstructionRecords } from './construction-record-validation';
+import { validateConstructionRecords, validateWorldConstructionRecords } from './construction-record-validation';
 import type { ConstructionValidationIssue } from './construction-types';
 import { ownSectFields } from './layout';
 import { normalizeSectResourceLines, sectReservationLines } from './ledger';
 import { sectMaintenanceClockFits } from './maintenance-periods';
 import { SECT_MAINTENANCE_LIMITS, type SectMaintenanceFrame, type SectMaintenancePayment } from './maintenance-types';
-import { validateMaintainedSectProductionRecords, validateSectProductionReceipts } from './production-runtime';
+import { validateMaintainedSectProductionRecords, validateWorldMaintainedSectProductionRecords, validateSectProductionReceipts } from './production-runtime';
 import { validateSectResearchConsumerGates } from './research-consumer-gates';
-import { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND, sectAllLocalClaims, sectClaimsConflict, validateMaintainedSectResearchRecords } from './research-validation';
+import { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND, sectAllLocalClaims, sectClaimsConflict, validateMaintainedSectResearchRecords, validateWorldMaintainedSectResearchRecords } from './research-validation';
 
 const integer = isNonNegativeInteger;
 const same = (a: unknown, b: unknown): boolean => canonicalStringify(a) === canonicalStringify(b);
@@ -29,20 +30,37 @@ function plainTree(value: unknown, depth = 0, budget = { left: SECT_MAINTENANCE_
 /** Acyclic: shape → construction → maintenance accounting/periods → production → research
  * evidence → research consumer gates → exact four-owner closure → shared claims/headroom. */
 export function validateSectMaintenanceFrame(input: unknown): readonly ConstructionValidationIssue[] {
+  const records = validateRecords(input);
+  return records.length ? records : validateSectMaintenanceOwnerClosure(input as SectMaintenanceFrame);
+}
+/** Internal composable leaf: authenticates all four domains' records, prices, paid intervals and
+ * consumer references, but deliberately does not close the owner union. A future five-owner root
+ * must authenticate its additional owner before doing its own exact closure. This is not admission. */
+export function validateWorldSectMaintenanceRecords(input: unknown, identities: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
+  return validateRecords(input, identities);
+}
+function validateRecords(input: unknown, identities?: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path: string): readonly ConstructionValidationIssue[] => [{ code, path }];
   if (!plainTree(input) || !ownSectFields(input, ['schemaVersion', 'construction', 'production', 'research', 'maintenance']) || input.schemaVersion !== 1)
     return fail('INVALID_SHAPE', 'frame');
   const frame = input as unknown as SectMaintenanceFrame; const authority = frame.construction;
-  const construction = validateConstructionRecords(authority);
+  const construction = identities ? validateWorldConstructionRecords(authority, identities) : validateConstructionRecords(authority);
   if (construction.length) return construction.map(issue => ({ ...issue, path: `construction.${issue.path}` }));
   const payments = validateSectMaintenanceRecords(frame); if (payments.length) return payments;
   for (const building of authority.buildings) {
     if (!sectMaintenanceClockFits(frame, building.completedTick, building.completedCalendarTick)) return fail('INVALID_MAINTENANCE_CLOCK', building.buildingId);
   }
-  const production = validateMaintainedSectProductionRecords(frame); if (production.length) return production;
+  const production = identities ? validateWorldMaintainedSectProductionRecords(frame, identities) : validateMaintainedSectProductionRecords(frame); if (production.length) return production;
   const receipts = validateSectProductionReceipts(frame); if (receipts.length) return receipts;
-  const research = validateMaintainedSectResearchRecords(frame); if (research.length) return research;
+  const research = identities ? validateWorldMaintainedSectResearchRecords(frame, identities) : validateMaintainedSectResearchRecords(frame); if (research.length) return research;
   const gates = validateSectResearchConsumerGates(frame); if (gates.length) return gates;
+  return [];
+}
+/** Exact FOUR-owner closure and shared live claims, only after all records are authenticated.
+ * Do not call this for a future care owner or filter its reservations to make this pass. */
+export function validateSectMaintenanceOwnerClosure(frame: SectMaintenanceFrame): readonly ConstructionValidationIssue[] {
+  const fail = (code: string, path: string): readonly ConstructionValidationIssue[] => [{ code, path }];
+  const authority = frame.construction;
   for (const claim of authority.ledger.reservations) {
     const owners = authority.jobs.filter(job => job.jobId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
       + frame.production.jobs.filter(job => job.transactionId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
