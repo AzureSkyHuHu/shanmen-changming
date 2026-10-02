@@ -1,3 +1,4 @@
+import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { getSectBuildingDefinition, resolveSectCatalogIdentity } from '../../content/sect-v9/catalog';
 import { cardinalDistance, MOVEMENT_TICKS_PER_CELL } from '../agents/navigation';
 import { isLedgerDataArray, isLedgerDataRecord } from '../economy/ledger-operations';
@@ -82,7 +83,12 @@ export function validateConstructionRecords(input: unknown): readonly Constructi
 export function validateUngatedConstructionRecords(input: unknown): readonly ConstructionValidationIssue[] {
   return validateRecords(input, 'ungated');
 }
-function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-records'): readonly ConstructionValidationIssue[] {
+/** Internal World-composition leaf. Its source was authenticated by the selected World version;
+ * only a terminal record may refer to an archived identity. Public roots never call this path. */
+export function validateWorldConstructionRecords(input: unknown, identities: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
+  return validateRecords(input, 'research-consumer-records', identities);
+}
+function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-records', identities?: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path: string): readonly ConstructionValidationIssue[] => [{ code, path }];
   if (!plainTree(input, 0, { left: scope === 'ungated' ? CONSTRUCTION_DESCRIPTOR_NODE_BOUND : CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND }) || !fields(input, ['schemaVersion', 'catalogIdentity', 'revision', 'nextId', 'lastSimulationTick', 'lastCalendarTick', 'map', 'legacyStations', 'people', 'ledger', 'blueprints', 'jobs', 'buildings', 'receipts'])) return fail('INVALID_SHAPE', 'frame');
   const frame = input as unknown as ConstructionFrame;
@@ -161,7 +167,7 @@ function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-r
   for (const job of frame.jobs) {
     if (!fields(job, ['jobId', 'blueprintId', 'reservationId', 'resultBuildingId', 'workerId', 'storageId', 'seatToken', 'entranceToken', 'phase', 'startedTick', 'startedCalendarTick', 'origin', 'storageVisit', 'siteVisit', 'workSpans', 'activeTicks', 'navigation', 'blocked', 'terminal'])
       || !allocation(job.jobId, 'sect-construction') || !allocation(job.reservationId, 'sect-reservation') || !allocation(job.resultBuildingId, 'sect-building') || !blueprintIds.has(job.blueprintId)
-      || !frame.people.some(person => person.id === job.workerId) || !frame.legacyStations.some(station => station.id === job.storageId && station.blueprintId === 'storage')
+      || !(frame.people.some(person => person.id === job.workerId) || isArchivedSectWorkerReference(identities, job.workerId, job.terminal)) || !frame.legacyStations.some(station => station.id === job.storageId && station.blueprintId === 'storage')
       || !integer(job.startedTick) || job.startedTick > frame.lastSimulationTick || !integer(job.startedCalendarTick) || job.startedCalendarTick > frame.lastCalendarTick
       || !cell(job.origin) || !inMap(job.origin) || !['to-storage', 'to-site', 'working', 'completed', 'cancelled'].includes(job.phase)
       || ![null, 'PATH_BLOCKED', 'PATH_BUDGET', 'WORKER_UNAVAILABLE', 'ENTRANCE_BUSY', 'STORAGE_UNAVAILABLE', 'PLACEMENT_CHANGED'].includes(job.blocked)
