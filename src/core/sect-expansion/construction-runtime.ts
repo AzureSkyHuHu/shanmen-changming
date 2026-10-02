@@ -6,6 +6,8 @@ import { canonicalStringify, cloneJson, compareStable } from '../kernel/serializ
 import type { WorldMap } from '../world/types';
 import { deriveSectFootprint } from './layout';
 import { commitSectReservation, consumeSectConstructionCheckpoint, releaseSectReservation, reserveSectResources, sectReservationLines } from './ledger';
+import { constructionResearchGate, constructionResearchGateMatches } from './research-consumer-gates';
+import type { SectResearchFrame } from './research-types';
 import { assessSectPlacement } from './queries';
 import type { PlacedBuildingSpace, SectPlacementRequest, SectSpatialContext } from './types';
 import { CONSTRUCTION_LIMITS, type ConstructionBlueprint, type ConstructionClaim, type ConstructionCommand, type ConstructionContext,
@@ -71,20 +73,21 @@ function siteOccupied(frame: ConstructionFrame, job: ConstructionJob): boolean {
   const door = entrance(frame, job);
   return frame.people.some(person => person.id !== job.workerId && person.lifeState !== 'dead' && !person.away && sameCell(person.position, door));
 }
-/** Internal prediction for a validated frame/context; research gates remain fail-closed.
+/** Internal prediction for a validated frame/context and, only at the research root, full authority.
  * This is a local candidate only, never proof of research, funds or completed work. */
-export function previewValidatedConstructionPlacement(frame: ConstructionFrame, context: ConstructionContext, request: SectPlacementRequest): ConstructionResult {
+export function previewValidatedConstructionPlacement(frame: ConstructionFrame, context: ConstructionContext, request: SectPlacementRequest, researchAuthority?: SectResearchFrame): ConstructionResult {
   const geometry = deriveSectFootprint(request);
   if (!geometry.ok) return rejected(frame, 'INVALID_COMMAND');
-  if (getSectBuildingDefinition(request.definitionId)!.levels[0]!.requiredResearch.length) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
+  if (getSectBuildingDefinition(request.definitionId)!.levels[0]!.requiredResearch.length
+    && (!researchAuthority || !constructionResearchGate(researchAuthority, request.definitionId, context.simulationTick, context.calendarTick))) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
   return assessSectPlacement(spatial(frame), request).ok ? accepted(frame) : rejected(frame, 'PLACEMENT_CHANGED');
 }
 /**
  * Internal command stage: source frame, context, clock and command shape are already checked.
- * The owner validates/clones the whole candidate before publication. Research-gated
- * definitions fail closed until a real research authority and provenance contract are integrated.
+ * The owner validates/clones the whole candidate before publication. Only research root passes
+ * its actual full authority; the standalone public wrapper can never authorize gated work.
  */
-export function applyValidatedConstructionCommand(frame: ConstructionFrame, context: ConstructionContext, command: ConstructionCommand): ConstructionResult {
+export function applyValidatedConstructionCommand(frame: ConstructionFrame, context: ConstructionContext, command: ConstructionCommand, researchAuthority?: SectResearchFrame): ConstructionResult {
   const old = frame.receipts.find(receipt => receipt.command.commandId === command.commandId);
   if (old) return canonicalStringify(old.command) === canonicalStringify(command) ? accepted(frame, old.relatedId, true) : rejected(frame, 'IDENTITY_CONFLICT');
   if (command.expectedRevision !== frame.revision) return rejected(frame, 'STALE_REVISION');
@@ -94,10 +97,11 @@ export function applyValidatedConstructionCommand(frame: ConstructionFrame, cont
     if (context.mode !== 'management' || context.expeditionActive) return rejected(frame, 'MANAGEMENT_REQUIRED');
     if (frame.blueprints.length >= CONSTRUCTION_LIMITS.records || frame.blueprints.filter(bp => bp.status === 'planned').length >= CONSTRUCTION_LIMITS.blueprints
       || frame.nextId >= MAX || frame.receipts.length + 3 * (frame.blueprints.filter(bp => bp.status === 'planned').length + 1) + frame.jobs.filter(live).length > CONSTRUCTION_LIMITS.receipts) return rejected(frame, 'CAPACITY_EXCEEDED');
-    const preview = previewValidatedConstructionPlacement(frame, context, command.placement);
+    const preview = previewValidatedConstructionPlacement(frame, context, command.placement, researchAuthority);
     if (!preview.ok) return preview;
     relatedId = `sect-blueprint:${frame.nextId}`;
-    const bp: ConstructionBlueprint = { ...placement(command.placement), blueprintId: relatedId, placedTick: context.simulationTick,
+    const researchGate = researchAuthority ? constructionResearchGate(researchAuthority, command.placement.definitionId, context.simulationTick, context.calendarTick) : null;
+    const bp: ConstructionBlueprint = { ...placement(command.placement), ...(researchGate ? { researchGate } : {}), blueprintId: relatedId, placedTick: context.simulationTick,
       placedCalendarTick: context.calendarTick, status: 'planned', jobId: null, endedTick: null };
     next = { ...frame, nextId: frame.nextId + 1, blueprints: [...frame.blueprints, bp] };
   } else {
@@ -107,7 +111,8 @@ export function applyValidatedConstructionCommand(frame: ConstructionFrame, cont
     if (command.kind === 'construction.start') {
       if (context.mode !== 'management' || context.paused || context.expeditionActive) return rejected(frame, 'MANAGEMENT_REQUIRED');
       if (bp.status !== 'planned') return rejected(frame, 'TRANSACTION_FINISHED');
-      if (getSectBuildingDefinition(bp.definitionId)!.levels[0]!.requiredResearch.length) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
+      if (getSectBuildingDefinition(bp.definitionId)!.levels[0]!.requiredResearch.length
+        && (!researchAuthority || !constructionResearchGateMatches(researchAuthority, bp, context.simulationTick, context.calendarTick))) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
       const active = frame.jobs.filter(live);
       if (active.length + context.externalActiveJobs >= CONSTRUCTION_LIMITS.activeJobs || active.length + frame.buildings.length + 8 >= CONSTRUCTION_LIMITS.buildings
         || frame.jobs.length >= CONSTRUCTION_LIMITS.records || frame.ledger.reservations.length >= CONSTRUCTION_LIMITS.records * 3
@@ -174,7 +179,7 @@ function complete(frame: ConstructionFrame, context: ConstructionContext, job: C
  * Advances this authority clock once and preserves source on rejection. The owner still checks
  * cancellation headroom and the complete candidate before publishing. ONE caller-owned path
  * budget is shared with all work domains; it is never an authorization or validation bypass. */
-export function tickValidatedConstruction(frame: ConstructionFrame, context: ConstructionContext, budget: WorkPathBudget): ConstructionResult {
+export function tickValidatedConstruction(frame: ConstructionFrame, context: ConstructionContext, budget: WorkPathBudget, researchAuthority?: SectResearchFrame): ConstructionResult {
   const activeCount = frame.jobs.filter(live).length;
   if (frame.revision === MAX || frame.map.navVersion > MAX - activeCount || (activeCount > 0 && (context.calendarTick > MAX - 1200 || context.simulationTick > MAX - 20))) return rejected(frame, 'CAPACITY_EXCEEDED');
   let next: ConstructionFrame = { ...frame, lastSimulationTick: context.simulationTick, lastCalendarTick: context.calendarTick, revision: frame.revision + 1 };
@@ -182,6 +187,10 @@ export function tickValidatedConstruction(frame: ConstructionFrame, context: Con
   const ordered = frame.jobs.filter(live).slice().sort((a, b) => compareStable(a.jobId, b.jobId));
   for (const original of ordered) {
     let job = next.jobs.find(value => value.jobId === original.jobId)!;
+    const bp = blueprint(next, job);
+    // Resolve the durable reference again before this boundary's work/checkpoints/completion.
+    if (getSectBuildingDefinition(bp.definitionId)!.levels[0]!.requiredResearch.length
+      && (!researchAuthority || !constructionResearchGateMatches(researchAuthority, bp, context.simulationTick, context.calendarTick))) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
     const worker = next.people.find(person => person.id === job.workerId)!;
     if (!eligible(worker) || conflicts(context, 'worker', worker.id, job.jobId)) { next = replaceJob(next, { ...job, blocked: 'WORKER_UNAVAILABLE' }); continue; }
     const storage = next.legacyStations.find(station => station.id === job.storageId)!;

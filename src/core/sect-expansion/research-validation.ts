@@ -6,11 +6,12 @@ import { isNonNegativeInteger } from '../kernel/numeric';
 import { canonicalStringify, compareStable } from '../kernel/serialization';
 import { constructionClaims } from './construction';
 import type { ConstructionClaim } from './construction-types';
-import { validateConstructionFrame } from './construction-validation';
+import { validateConstructionRecords } from './construction-record-validation';
+import { validateSectResearchConsumerGates } from './research-consumer-gates';
 import { deriveSectFootprint, ownSectFields } from './layout';
 import { normalizeSectResourceLines, sectReservationLines } from './ledger';
 import { sectProductionClaims, validateSectProductionRecords, validateSectProductionReceipts } from './production-runtime';
-import { SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND } from './production-validation';
+import { SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './production-validation';
 import { SECT_RESEARCH_LIMITS, type SectResearchCommand, type SectResearchFrame, type SectResearchSiteProof, type SectResearchValidationIssue } from './research-types';
 
 const integer = isNonNegativeInteger;
@@ -23,7 +24,7 @@ const key = (p: { readonly x: number; readonly y: number }): string => `${p.x},$
 /** Independent maxima, including all visits/spans, terminal/cancel receipts and the one live
  * research route. The production bound includes construction's single shared authority/book.
  * This is a local descriptor gate, not an archive or whole-World save-capacity certificate. */
-export const SECT_RESEARCH_DESCRIPTOR_NODE_BOUND = SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND + 16
+export const SECT_RESEARCH_DESCRIPTOR_NODE_BOUND = SECT_PRODUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND + 16
   + SECT_RESEARCH_LIMITS.records * (256 + SECT_RESEARCH_LIMITS.maximumWorkTicks * 6 + SECT_RESEARCH_LIMITS.visits * 6)
   + 65536 * 3 + SECT_RESEARCH_LIMITS.receipts * 12;
 function plainTree(value: unknown, depth = 0, budget = { left: SECT_RESEARCH_DESCRIPTOR_NODE_BOUND }): boolean {
@@ -42,7 +43,8 @@ export function isSectResearchCommand(value: unknown): value is SectResearchComm
 }
 /** Both registered nodes require the same genuinely constructed, ungated library L1. */
 export function sectResearchSites(frame: SectResearchFrame, definition: SectResearchDefinition): readonly SectResearchSiteProof[] {
-  return frame.construction.buildings.filter(building => building.definitionId === definition.workstation.definitionId && building.level >= definition.workstation.minimumLevel).map(building => {
+  return frame.construction.buildings.filter(building => definition.workstation.definitionId === 'library.v9' && building.definitionId === 'library.v9' && building.level === 1
+    && building.level >= definition.workstation.minimumLevel && frame.construction.blueprints.some(bp => bp.jobId === building.sourceJobId && bp.definitionId === 'library.v9' && bp.researchGate === undefined)).map(building => {
     const shape = deriveSectFootprint({ definitionId: building.definitionId, anchor: building.anchor, rotation: building.rotation });
     if (!shape.ok) throw new Error('Validated research building geometry was lost');
     return { buildingId: building.buildingId, sourceJobId: building.sourceJobId, position: shape.footprint.entrance,
@@ -64,13 +66,13 @@ export function sectClaimsConflict(claims: readonly ConstructionClaim[]): boolea
   for (const claim of claims) { const token = `${claim.kind}:${claim.key}`; if (seen.has(token)) return true; seen.add(token); }
   return false;
 }
-/** Acyclic order: descriptors → construction → local production → research DAG/evidence →
+/** Acyclic order: descriptors → construction → local production → research DAG/evidence → consumer gates →
  * exact three-owner closure → cross-domain claims/headroom. Never weaken a public validator. */
 export function validateSectResearchFrame(input: unknown): readonly SectResearchValidationIssue[] {
   const fail = (code: string, path: string): readonly SectResearchValidationIssue[] => [{ code, path }];
   if (!plainTree(input) || !fields(input, ['schemaVersion', 'construction', 'production', 'research']) || input.schemaVersion !== 1) return fail('INVALID_SHAPE', 'frame');
   const frame = input as unknown as SectResearchFrame; const authority = frame.construction;
-  const constructionIssues = validateConstructionFrame(authority);
+  const constructionIssues = validateConstructionRecords(authority);
   if (constructionIssues.length) return constructionIssues.map(issue => ({ ...issue, path: `construction.${issue.path}` }));
   const productionIssues = validateSectProductionRecords(frame);
   if (productionIssues.length) return productionIssues;
@@ -196,6 +198,8 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
     if (starts[0]!.revision <= previousStartRevision || starts[0]!.revision <= previousCancellationRevision) return fail('INVALID_RECEIPT_CHRONOLOGY', job.jobId);
     previousStartRevision = starts[0]!.revision; previousCancellationRevision = cancellations[0]?.revision ?? 0;
   }
+  const gates = validateSectResearchConsumerGates(frame);
+  if (gates.length) return gates;
   for (const claim of authority.ledger.reservations) {
     const owners = authority.jobs.filter(job => job.jobId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length
       + frame.production.jobs.filter(job => job.transactionId === claim.ownerTransactionId && job.reservationId === claim.reservationId).length

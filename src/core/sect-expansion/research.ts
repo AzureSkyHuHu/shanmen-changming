@@ -3,7 +3,7 @@ import type { SectResearchId } from '../../content/sect-v9/types';
 import { cardinalDistance, emptyNavigation, isWalkable, sameCell } from '../agents/navigation';
 import { advanceWorkNavigationWithBudget, type WorkPathBudget } from '../agents/work-navigation';
 import { canonicalStringify, cloneJson, compareStable } from '../kernel/serialization';
-import { applyConstructionCommand, constructionEffectiveMap, tickConstruction } from './construction';
+import { applyValidatedConstructionCommand, constructionEffectiveMap, tickValidatedConstruction } from './construction-runtime';
 import type { ConstructionCommand, ConstructionPerson } from './construction-types';
 import { isConstructionCommand, validateConstructionContext } from './construction-validation';
 import { commitSectReservation, releaseSectReservation, reserveSectResources, sectReservationLines } from './ledger';
@@ -53,7 +53,7 @@ export function createSectResearchFrame(source: SectProductionFrame): SectResear
   if (validateSectResearchFrame(frame).length) throw new RangeError('Invalid three-domain projection');
   return cloneJson(frame);
 }
-/** Read-only completion evidence. Gate consumers remain closed in this slice. */
+/** Read-only completion evidence. Used for inspection; validators resolve leaf references directly without recursive validation. */
 export function sectResearchCompletion(frame: SectResearchFrame, researchId: SectResearchId): SectResearchJob | null {
   if (validateSectResearchFrame(frame).length) return null;
   const job = frame.research.jobs.find(value => value.researchId === researchId && value.terminal?.kind === 'completed');
@@ -133,9 +133,9 @@ export function applySectResearchConstructionCommand(frame: SectResearchFrame, c
   const cancellation = command.kind === 'construction.cancel';
   if (!cancellation && contextConflict(frame, context)) return rejected(frame, 'CLAIM_CONFLICT');
   if (!cancellation && capacity(frame, context)) return rejected(frame, 'CAPACITY_EXCEEDED');
-  const result = applyConstructionCommand(frame.construction, cancellation ? context : { ...context,
+  const result = applyValidatedConstructionCommand(frame.construction, cancellation ? context : { ...context,
     externalActiveJobs: context.externalActiveJobs + frame.production.jobs.filter(job => job.terminal === null).length + frame.research.jobs.filter(live).length,
-    externalClaims: [...context.externalClaims, ...sectProductionClaims(frame), ...sectResearchClaims(frame)] }, command);
+    externalClaims: [...context.externalClaims, ...sectProductionClaims(frame), ...sectResearchClaims(frame)] }, command, frame);
   if (!result.ok) return rejected(frame, result.code);
   if (result.repeated) return accepted(frame, result.relatedId, true);
   return publish(frame, { ...frame, construction: result.frame }, result.relatedId);
@@ -149,7 +149,7 @@ export function applySectResearchProductionCommand(frame: SectResearchFrame, con
   if (command.kind !== 'production.cancel' && contextConflict(frame, context)) return rejected(frame, 'CLAIM_CONFLICT');
   const result = applyValidatedSectProductionCommand(frame, { ...context,
     externalActiveJobs: context.externalActiveJobs + frame.research.jobs.filter(live).length,
-    externalClaims: [...context.externalClaims, ...sectResearchClaims(frame)] }, command);
+    externalClaims: [...context.externalClaims, ...sectResearchClaims(frame)] }, command, frame);
   if (!result.ok) return rejected(frame, result.code);
   if (result.repeated) return accepted(frame, result.jobId, true);
   return publish(frame, { ...frame, construction: result.frame.construction, production: result.frame.production }, result.jobId);
@@ -198,13 +198,13 @@ export function tickSectResearch(frame: SectResearchFrame, context: SectResearch
   const researchActive = frame.research.jobs.filter(live).length; const productionActive = frame.production.jobs.filter(job => job.terminal === null).length;
   if (capacity(frame, context) || frame.research.revision === MAX || frame.production.revision === MAX
     || researchActive + productionActive > 0 && context.simulationTick > MAX - 20) return rejected(frame, 'CAPACITY_EXCEEDED');
-  const construction = tickConstruction(authority, { ...context, externalActiveJobs: context.externalActiveJobs + researchActive + productionActive,
-    externalClaims: [...context.externalClaims, ...sectProductionClaims(frame), ...sectResearchClaims(frame)] }, budget);
+  const construction = tickValidatedConstruction(authority, { ...context, externalActiveJobs: context.externalActiveJobs + researchActive + productionActive,
+    externalClaims: [...context.externalClaims, ...sectProductionClaims(frame), ...sectResearchClaims(frame)] }, budget, frame);
   if (!construction.ok) return rejected(frame, construction.code);
   try {
     const afterConstruction = { ...frame, construction: construction.frame };
     const production = tickValidatedSectProduction(afterConstruction, { ...context, externalActiveJobs: context.externalActiveJobs + researchActive,
-      externalClaims: [...context.externalClaims, ...sectResearchClaims(afterConstruction)] }, budget);
+      externalClaims: [...context.externalClaims, ...sectResearchClaims(afterConstruction)] }, budget, afterConstruction);
     const next = tickResearchOnly({ ...afterConstruction, construction: production.construction, production: production.production }, context, budget);
     return publish(frame, next);
   } catch (error) {

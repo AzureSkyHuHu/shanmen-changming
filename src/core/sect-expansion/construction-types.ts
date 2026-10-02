@@ -1,3 +1,4 @@
+import type { SectResearchGateRef } from './research-gate-types';
 import type { SectCatalogIdentity, SectCell, SectResourceLine } from '../../content/sect-v9/types';
 import type { JobNavigation } from '../agents/navigation';
 import type { SectLedgerContext } from './ledger';
@@ -40,6 +41,8 @@ export interface ConstructionContext {
   readonly externalClaims: readonly ConstructionClaim[];
 }
 export interface ConstructionBlueprint extends SectPlacementRequest {
+  /** Present only on the authenticated alchemy/medicine consumer; ungated records omit it. */
+  readonly researchGate?: SectResearchGateRef;
   readonly blueprintId: string;
   readonly placedTick: number;
   readonly placedCalendarTick: number;

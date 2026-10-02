@@ -1,3 +1,4 @@
+import type { SectResearchGateRef } from './research-gate-types';
 import type { SectCell, SectRecipeId, SectResourceLine } from '../../content/sect-v9/types';
 import type { ProductionProgress } from '../economy/production-context';
 import type { ConstructionClaim, ConstructionContext, ConstructionFrame, ConstructionValidationIssue } from './construction-types';
@@ -27,6 +28,8 @@ export interface SectProductionTerminal extends SectProductionVisit {
 }
 /** transactionId is this domain's canonical job ID, not a legacy transaction or assignment. */
 export interface SectProductionJob extends ProductionProgress {
+  /** Present only on the authenticated alchemy/medicine consumer; ungated records omit it. */
+  readonly researchGate?: SectResearchGateRef;
   recipeId: SectRecipeId;
   readonly reservationId: string;
   readonly startedCalendarTick: number;

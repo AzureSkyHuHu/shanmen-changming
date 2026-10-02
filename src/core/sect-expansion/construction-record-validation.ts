@@ -5,6 +5,7 @@ import { isNonNegativeInteger } from '../kernel/numeric';
 import { canonicalStringify } from '../kernel/serialization';
 import { deriveSectFootprint, ownSectFields } from './layout';
 import { normalizeSectResourceLines, sectReservationLines, validateSectLedgerContext } from './ledger';
+import { isSectResearchGateRef } from './research-consumer-gates';
 import { LEGACY_SECT_STATION_IDS } from './types';
 import { CONSTRUCTION_LIMITS, type ConstructionCommand, type ConstructionContext, type ConstructionFrame, type ConstructionValidationIssue } from './construction-types';
 
@@ -35,11 +36,13 @@ export const CONSTRUCTION_DESCRIPTOR_NODE_BOUND =
   + (1 + 8 * 6) // Legacy station records.
   + (1 + 36 * 11) // Projected people, including each nested position.
   + (46 + CONSTRUCTION_LIMITS.records * 3 * pairedClaimNodes) // Both inventories and all paired claims.
-  + (1 + CONSTRUCTION_LIMITS.records * 12) // Blueprint history.
+  + (1 + CONSTRUCTION_LIMITS.records * 12) // Ungated public blueprint history.
   + (1 + CONSTRUCTION_LIMITS.records * jobNonRouteNodes)
   + CONSTRUCTION_LIMITS.activeJobs * MAX_MAP_CELLS * 3 // Live path cell records.
   + (1 + (CONSTRUCTION_LIMITS.buildings - 8) * 13) // Completed building evidence.
   + (1 + CONSTRUCTION_LIMITS.receipts * 13); // Largest full-body receipt (place).
+/** Local research schema adds precisely the optional reference object and its two scalars. */
+export const CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND = CONSTRUCTION_DESCRIPTOR_NODE_BOUND + CONSTRUCTION_LIMITS.records * 3;
 /** Bounded descriptor-only walk before any nested reads or canonical serialization. */
 function plainTree(value: unknown, depth = 0, budget = { left: CONSTRUCTION_DESCRIPTOR_NODE_BOUND }): boolean {
   if (--budget.left < 0 || depth > 16) return false;
@@ -71,12 +74,17 @@ export function validateConstructionContext(value: unknown): value is Constructi
 }
 
 /** Local structural/accounting record checks in their established first-issue order.
- * The ungated-library restriction is deliberately still part of these checks: no local record
- * or caller flag certifies research. Imported provenance and whole-World budget need the future
- * bridge. This module has no runtime/public-wrapper dependency, so composition stays acyclic. */
+ * Local consumer references are shape only, never proof of completed research. */
 export function validateConstructionRecords(input: unknown): readonly ConstructionValidationIssue[] {
+  return validateRecords(input, 'research-consumer-records');
+}
+/** Named strict entry point preserves the public ungated schema and first-issue ordering. */
+export function validateUngatedConstructionRecords(input: unknown): readonly ConstructionValidationIssue[] {
+  return validateRecords(input, 'ungated');
+}
+function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-records'): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path: string): readonly ConstructionValidationIssue[] => [{ code, path }];
-  if (!plainTree(input) || !fields(input, ['schemaVersion', 'catalogIdentity', 'revision', 'nextId', 'lastSimulationTick', 'lastCalendarTick', 'map', 'legacyStations', 'people', 'ledger', 'blueprints', 'jobs', 'buildings', 'receipts'])) return fail('INVALID_SHAPE', 'frame');
+  if (!plainTree(input, 0, { left: scope === 'ungated' ? CONSTRUCTION_DESCRIPTOR_NODE_BOUND : CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND }) || !fields(input, ['schemaVersion', 'catalogIdentity', 'revision', 'nextId', 'lastSimulationTick', 'lastCalendarTick', 'map', 'legacyStations', 'people', 'ledger', 'blueprints', 'jobs', 'buildings', 'receipts'])) return fail('INVALID_SHAPE', 'frame');
   const frame = input as unknown as ConstructionFrame;
   if (frame.schemaVersion !== 1 || !resolveSectCatalogIdentity(frame.catalogIdentity) || !integer(frame.revision) || !integer(frame.nextId) || frame.nextId < 1
     || !integer(frame.lastSimulationTick) || !integer(frame.lastCalendarTick)) return fail('INVALID_IDENTITY', 'frame');
@@ -121,12 +129,14 @@ export function validateConstructionRecords(input: unknown): readonly Constructi
   const blueprintIds = new Set<string>();
   const occupiedClaims = new Set(frame.legacyStations.map(station => `${station.x},${station.y}`));
   for (const bp of frame.blueprints) {
-    if (!fields(bp, ['definitionId', 'anchor', 'rotation', 'blueprintId', 'placedTick', 'placedCalendarTick', 'status', 'jobId', 'endedTick'])
+    if (!fields(bp, ['definitionId', 'anchor', 'rotation', 'blueprintId', 'placedTick', 'placedCalendarTick', 'status', 'jobId', 'endedTick',
+      ...(scope === 'research-consumer-records' && bp?.definitionId === 'alchemy.v9' ? ['researchGate'] : [])])
       || !allocation(bp.blueprintId, 'sect-blueprint') || !deriveSectFootprint({ definitionId: bp.definitionId, anchor: bp.anchor, rotation: bp.rotation }).ok
       || !integer(bp.placedTick) || bp.placedTick > frame.lastSimulationTick || !integer(bp.placedCalendarTick) || bp.placedCalendarTick > frame.lastCalendarTick
       || !['planned', 'started', 'completed', 'cancelled'].includes(bp.status) || !nullableId(bp.jobId)
       || !(bp.endedTick === null || integer(bp.endedTick) && bp.endedTick >= bp.placedTick && bp.endedTick <= frame.lastSimulationTick)
-      || getSectBuildingDefinition(bp.definitionId)!.levels[0]!.requiredResearch.length !== 0) return fail('INVALID_BLUEPRINT', 'blueprints');
+      || (getSectBuildingDefinition(bp.definitionId)!.levels[0]!.requiredResearch.length !== 0
+        && (scope === 'ungated' || bp.definitionId !== 'alchemy.v9' || !isSectResearchGateRef(bp.researchGate)))) return fail('INVALID_BLUEPRINT', 'blueprints');
     if ((bp.status === 'planned' && (bp.jobId !== null || bp.endedTick !== null)) || (bp.status === 'started' && (bp.jobId === null || bp.endedTick !== null))
       || ((bp.status === 'completed' || bp.status === 'cancelled') && bp.endedTick === null) || (bp.status === 'completed' && bp.jobId === null)) return fail('INVALID_BLUEPRINT_STATE', bp.blueprintId);
     const geometry = deriveSectFootprint({ definitionId: bp.definitionId, anchor: bp.anchor, rotation: bp.rotation });

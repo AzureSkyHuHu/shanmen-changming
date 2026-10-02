@@ -10,6 +10,9 @@ import { canonicalStringify, cloneJson, compareStable } from '../kernel/serializ
 import { constructionClaims, constructionEffectiveMap } from './construction';
 import type { ConstructionClaim, ConstructionPerson } from './construction-types';
 import { deriveSectFootprint, ownSectFields } from './layout';
+import { isSectResearchGateRef, productionResearchGate, productionResearchGateMatches } from './research-consumer-gates';
+import type { SectResearchFrame } from './research-types';
+import type { SectResearchGateRef } from './research-gate-types';
 import { commitSectReservation, normalizeSectResourceLines, releaseSectReservation, reserveSectResources, sectReservationLines } from './ledger';
 import { SECT_PRODUCTION_LIMITS, type SectProductionCommand, type SectProductionContext, type SectProductionFrame, type SectProductionJob,
   type SectProductionRejection, type SectProductionResult, type SectProductionSiteProof, type SectProductionValidationIssue } from './production-types';
@@ -40,8 +43,11 @@ export function sectProductionClaims(frame: SectProductionFrame): readonly Const
 function otherClaims(frame: SectProductionFrame, context: SectProductionContext, owner?: string): readonly ConstructionClaim[] {
   return [...context.externalClaims, ...constructionClaims(frame.construction), ...sectProductionClaims(frame)].filter(claim => claim.ownerId !== owner);
 }
-function siteUsable(frame: SectProductionFrame, recipe: SectRecipeDefinition, site: SectProductionSiteProof): boolean {
-  if (recipe.requiredResearch.length || !sectProductionSites(frame, recipe).some(current => same(current, site))) return false;
+function siteUsable(frame: SectProductionFrame, recipe: SectRecipeDefinition, site: SectProductionSiteProof, researchAuthority?: SectResearchFrame, job?: SectProductionJob): boolean {
+  if (!sectProductionSites(frame, recipe).some(current => same(current, site))) return false;
+  if (recipe.requiredResearch.length && (!researchAuthority || (job
+    ? !productionResearchGateMatches({ ...researchAuthority, construction: frame.construction, production: frame.production }, job)
+    : !productionResearchGate(researchAuthority, recipe.recipeId, frame.construction.lastSimulationTick, frame.construction.lastCalendarTick)))) return false;
   if (site.kind === 'legacy-point') return frame.construction.legacyStations.some(station => station.id === site.siteId && station.operational);
   // No upkeep executor exists yet. Never invent a paid flag or extend this first prepaid interval.
   return frame.construction.lastCalendarTick < site.firstMaintenanceCalendarTick!;
@@ -86,6 +92,13 @@ export function sectProductionSites(frame: SectProductionFrame, recipe: SectReci
 /** Internal only: the owner has checked descriptors and construction authority first.
  * Does not claim to validate the whole frame or close the reservation-owner union. */
 export function validateSectProductionRecords(frame: SectProductionFrame): readonly SectProductionValidationIssue[] {
+  return validateProductionRecords(frame, 'research-consumer-records');
+}
+/** Strict named entry point retains the original two-domain rejection order. */
+export function validateUngatedSectProductionRecords(frame: SectProductionFrame): readonly SectProductionValidationIssue[] {
+  return validateProductionRecords(frame, 'ungated');
+}
+function validateProductionRecords(frame: SectProductionFrame, scope: 'ungated' | 'research-consumer-records'): readonly SectProductionValidationIssue[] {
   const fail = (code: string, path: string): readonly SectProductionValidationIssue[] => [{ code, path }];
   const domain = frame.production; const authority = frame.construction;
   if (!fields(domain, ['revision', 'nextId', 'jobs', 'receipts']) || !integer(domain.revision) || !integer(domain.nextId) || domain.nextId < 1
@@ -108,7 +121,8 @@ export function validateSectProductionRecords(frame: SectProductionFrame): reado
   };
   for (const job of domain.jobs) {
     if (!fields(job, ['transactionId', 'recipeId', 'workerId', 'state', 'activeTicks', 'requiredTicks', 'startedTick', 'blockedReason', 'phase', 'worksiteId', 'storageId', 'navigation',
-      'reservationId', 'startedCalendarTick', 'origin', 'productiveSite', 'seatSiteId', 'workVisit', 'deliveryVisit', 'workSpans', 'terminal'])
+      'reservationId', 'startedCalendarTick', 'origin', 'productiveSite', 'seatSiteId', 'workVisit', 'deliveryVisit', 'workSpans', 'terminal',
+      ...(scope === 'research-consumer-records' && job.recipeId === 'craft.wound-powder.v9' ? ['researchGate'] : [])])
       || !allocation(job.transactionId, 'sect-production') || !allocation(job.reservationId, 'sect-production-reservation') || jobIds.has(job.transactionId)
       || !authority.people.some(person => person.id === job.workerId) || !integer(job.startedTick) || job.startedTick > authority.lastSimulationTick
       || !integer(job.startedCalendarTick) || job.startedCalendarTick > authority.lastCalendarTick || !cell(job.origin) || !inMap(job.origin)
@@ -119,7 +133,7 @@ export function validateSectProductionRecords(frame: SectProductionFrame): reado
       || !array(job.workSpans, SECT_PRODUCTION_LIMITS.maximumWorkTicks)) return fail('INVALID_JOB', 'production.jobs');
     jobIds.add(job.transactionId);
     const recipe = getSectRecipeDefinition(job.recipeId);
-    if (!recipe || recipe.requiredResearch.length !== 0 || job.requiredTicks !== recipe.workTicks || job.activeTicks > recipe.workTicks) return fail('INVALID_RECIPE_SOURCE', job.transactionId);
+    if (!recipe || (recipe.requiredResearch.length !== 0 && (scope === 'ungated' || job.recipeId !== 'craft.wound-powder.v9' || !isSectResearchGateRef(job.researchGate))) || job.requiredTicks !== recipe.workTicks || job.activeTicks > recipe.workTicks) return fail('INVALID_RECIPE_SOURCE', job.transactionId);
     const site = job.productiveSite;
     if (!fields(site, ['kind', 'siteId', 'position', 'sourceJobId', 'level', 'firstMaintenanceCalendarTick'])
       || !sectProductionSites(frame, recipe).some(proof => equal(proof, site))) return fail('INVALID_SITE_SOURCE', job.transactionId);
@@ -225,7 +239,7 @@ export function validateSectProductionReceipts(frame: SectProductionFrame): read
   return [];
 }
 /** Manual commands have only identity/revision plus recipe/worker or job. No client cost/effect authority. */
-export function applyValidatedSectProductionCommand(frame: SectProductionFrame, context: SectProductionContext, command: SectProductionCommand): SectProductionResult {
+export function applyValidatedSectProductionCommand(frame: SectProductionFrame, context: SectProductionContext, command: SectProductionCommand, researchAuthority?: SectResearchFrame): SectProductionResult {
   const old = frame.production.receipts.find(receipt => receipt.command.commandId === command.commandId);
   if (old) return same(old.command, command) ? accepted(frame, old.jobId, true) : rejected(frame, 'IDENTITY_CONFLICT');
   if (command.expectedRevision !== frame.production.revision) return rejected(frame, 'STALE_REVISION');
@@ -234,7 +248,8 @@ export function applyValidatedSectProductionCommand(frame: SectProductionFrame, 
   if (command.kind === 'production.start') {
     const recipe = getSectRecipeDefinition(command.recipeId);
     if (!recipe) return rejected(frame, 'UNKNOWN_RECIPE');
-    if (recipe.requiredResearch.length) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
+    const researchGate: SectResearchGateRef | null = researchAuthority ? productionResearchGate(researchAuthority, recipe.recipeId, context.simulationTick, context.calendarTick) : null;
+    if (recipe.requiredResearch.length && !researchGate) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
     if (context.mode !== 'management' || context.paused || context.expeditionActive) return rejected(frame, 'MANAGEMENT_REQUIRED');
     const active = frame.production.jobs.filter(live); const constructionActive = frame.construction.jobs.filter(job => job.terminal === null).length;
     if (active.length + constructionActive + context.externalActiveJobs >= SECT_PRODUCTION_LIMITS.activeJobs
@@ -243,7 +258,7 @@ export function applyValidatedSectProductionCommand(frame: SectProductionFrame, 
     const worker = frame.construction.people.find(person => person.id === command.workerId);
     if (!worker || !eligible(worker) || active.some(job => job.workerId === worker.id)) return rejected(frame, 'WORKER_UNAVAILABLE');
     if (otherClaims(frame, context).some(claim => claim.kind === 'worker' && claim.key === worker.id)) return rejected(frame, 'CLAIM_CONFLICT');
-    const sites = sectProductionSites(frame, recipe).filter(site => siteUsable(frame, recipe, site));
+    const sites = sectProductionSites(frame, recipe).filter(site => siteUsable(frame, recipe, site, researchAuthority));
     if (!sites.length) return rejected(frame, 'WORKSTATION_UNAVAILABLE');
     const site = sites.filter(value => siteOwner(frame, context, value) === null).sort((a, b) => cardinalDistance(worker.position, a.position) - cardinalDistance(worker.position, b.position) || compareStable(a.siteId, b.siteId))[0];
     if (!site) return rejected(frame, 'CLAIM_CONFLICT');
@@ -252,7 +267,7 @@ export function applyValidatedSectProductionCommand(frame: SectProductionFrame, 
     const reservationId = `sect-production-reservation:${frame.production.nextId + 1}`;
     const reserved = reserveSectResources(frame.construction.ledger, { reservationId, ownerTransactionId: jobId }, recipe.inputs, 'on-completion');
     if (!reserved.ok) return rejected(frame, reserved.rejection.code === 'INSUFFICIENT_INVENTORY' ? 'INSUFFICIENT_INVENTORY' : 'INVALID_RESERVATION');
-    const job: SectProductionJob = { transactionId: jobId, recipeId: recipe.recipeId, workerId: worker.id, reservationId, state: 'Running', activeTicks: 0,
+    const job: SectProductionJob = { ...(researchGate ? { researchGate } : {}), transactionId: jobId, recipeId: recipe.recipeId, workerId: worker.id, reservationId, state: 'Running', activeTicks: 0,
       requiredTicks: recipe.workTicks, startedTick: context.simulationTick, startedCalendarTick: context.calendarTick, origin: { ...worker.position },
       blockedReason: null, phase: 'WaitingForStation', worksiteId: null, storageId: null, navigation: emptyNavigation(), productiveSite: cloneJson(site), seatSiteId: null,
       workVisit: null, deliveryVisit: null, workSpans: [], terminal: null };
@@ -286,7 +301,7 @@ function blockedUnavailable(frame: SectProductionFrame, id: string): SectProduct
   return replace(frame, { ...job, state: 'Blocked', blockedReason: 'WORKER_UNAVAILABLE', seatSiteId: null, worksiteId: null,
     phase: job.activeTicks === job.requiredTicks ? 'TravellingToStorage' : 'WaitingForStation', navigation: emptyNavigation() });
 }
-function makeContext(context: SectProductionContext): ProductionContext<SectProductionFrame, SectProductionJob> {
+function makeContext(context: SectProductionContext, researchAuthority?: SectResearchFrame): ProductionContext<SectProductionFrame, SectProductionJob> {
   // The shared runner calls job() at the beginning of each stable-sorted job iteration. This
   // ephemeral cursor is internal adapter routing, never serialized/player-supplied authority.
   let cursor = '';
@@ -306,7 +321,7 @@ function makeContext(context: SectProductionContext): ProductionContext<SectProd
     },
     workSites: (frame, recipeView) => {
       const job = currentJob(frame, cursor); const recipe = getSectRecipeDefinition(recipeView.workstation)!;
-      if (!siteUsable(frame, recipe, job.productiveSite)) return [];
+      if (!siteUsable(frame, recipe, job.productiveSite, researchAuthority, job)) return [];
       const foreignOwner = siteOwner(frame, context, job.productiveSite, job.transactionId);
       return [{ id: job.productiveSite.siteId, position: { ...job.productiveSite.position },
         ownerTransactionId: foreignOwner ?? (job.seatSiteId === null ? null : job.transactionId) }];
@@ -342,7 +357,7 @@ function makeContext(context: SectProductionContext): ProductionContext<SectProd
     cancel: (frame, id) => ({ ok: true, world: blockedUnavailable(frame, id) }),
     complete: (frame, id) => {
       const job = currentJob(frame, id); const recipe = getSectRecipeDefinition(job.recipeId)!;
-      if (!siteUsable(frame, recipe, job.productiveSite)) {
+      if (!siteUsable(frame, recipe, job.productiveSite, researchAuthority, job)) {
         return { ok: true, world: replace(frame, { ...job, state: 'Blocked', blockedReason: 'WORKSTATION_UNAVAILABLE' }) };
       }
       const committed = commitSectReservation(frame.construction.ledger, { reservationId: job.reservationId, ownerTransactionId: id }, `complete:${id}`, recipe.outputs);
@@ -356,7 +371,7 @@ function makeContext(context: SectProductionContext): ProductionContext<SectProd
   };
 }
 /** Internal production-only stage. Authority clocks have already advanced exactly once. */
-export function tickValidatedSectProduction(frame: SectProductionFrame, context: SectProductionContext, budget: WorkPathBudget): SectProductionFrame {
+export function tickValidatedSectProduction(frame: SectProductionFrame, context: SectProductionContext, budget: WorkPathBudget, researchAuthority?: SectResearchFrame): SectProductionFrame {
   return runProductionPhases<SectProductionFrame, SectProductionJob>({ ...frame,
-    production: { ...frame.production, revision: frame.production.revision + 1 } }, makeContext(context), budget);
+    production: { ...frame.production, revision: frame.production.revision + 1 } }, makeContext(context, researchAuthority), budget);
 }

@@ -115,14 +115,14 @@ describe('isolated paid three-domain research coordinator', () => {
     frame = step(frame); expect(frame.research.jobs[0]!.terminal?.kind).toBe('completed'); expect(frame.construction.ledger.stock['spirit-stone'].owned).toBe(0);
     expect(frame.construction.people.find(person => person.id === 'entity:2')!.position).toEqual({ x: 1, y: 3 });
   });
-  it('retains completion past expiry while construction and medicine production gates remain closed', () => {
+  it('retains completion past expiry, admitting alchemy while requiring its real productive site', () => {
     const expired = until(complete, value => value.construction.lastCalendarTick === value.construction.buildings[0]!.firstMaintenanceCalendarTick);
     expect(sectResearchCompletion(expired, 'basic-medicine.v9')?.terminal?.kind).toBe('completed');
     rejection(expired, command(expired), 'RESEARCH_COMPLETED'); rejection(expired, cancelCommand(expired), 'TRANSACTION_FINISHED');
-    expect(applySectResearchProductionCommand(expired, context(expired), prodCommand(expired, 'craft.wound-powder.v9'))).toMatchObject({ ok: false, code: 'RESEARCH_AUTHORITY_REQUIRED' });
+    expect(applySectResearchProductionCommand(expired, context(expired), prodCommand(expired, 'craft.wound-powder.v9'))).toMatchObject({ ok: false, code: 'WORKSTATION_UNAVAILABLE' });
     expect(applySectResearchProductionCommand(expired, context(expired), prodCommand(expired, 'craft.wound-powder-alt.v9'))).toMatchObject({ ok: false, code: 'RESEARCH_AUTHORITY_REQUIRED' });
     expect(applySectResearchConstructionCommand(expired, context(expired), { kind: 'blueprint.place', commandId: 'alchemy', expectedRevision: expired.construction.revision,
-      placement: { definitionId: 'alchemy.v9', anchor: { x: 9, y: 1 }, rotation: 90 } })).toMatchObject({ ok: false, code: 'RESEARCH_AUTHORITY_REQUIRED' });
+      placement: { definitionId: 'alchemy.v9', anchor: { x: 9, y: 1 }, rotation: 90 } })).toMatchObject({ ok: true });
   });
   it('rejects missing prerequisites, duplicate active/completed research, empty inventory and fake libraries', () => {
     rejection(ready, command(ready, 'herbal-compatibility.v9'), 'PREREQUISITE_REQUIRED'); rejection(travelling, command(travelling), 'RESEARCH_ACTIVE');
@@ -291,7 +291,8 @@ describe('isolated paid three-domain research coordinator', () => {
       expect(sectResearchCompletion(frame, 'basic-medicine.v9')?.jobId).toBe(source.research.jobs[0]!.jobId);
       rejection(frame, command(frame, 'herbal-compatibility.v9'), 'RESEARCH_COMPLETED');
       for (const recipe of ['craft.wound-powder.v9', 'craft.wound-powder-alt.v9'] as const) {
-        expect(applySectResearchProductionCommand(frame, context(frame), prodCommand(frame, recipe))).toMatchObject({ ok: false, code: 'RESEARCH_AUTHORITY_REQUIRED', frame });
+        expect(applySectResearchProductionCommand(frame, context(frame), prodCommand(frame, recipe))).toMatchObject({ ok: false,
+          code: recipe === 'craft.wound-powder.v9' ? 'WORKSTATION_UNAVAILABLE' : 'RESEARCH_AUTHORITY_REQUIRED', frame });
       }
       const forged = cloneJson(frame) as any; forged.research.jobs[1].prerequisites[0].completionJobId = forged.research.jobs[1].jobId;
       expect(validateSectResearchFrame(forged).length).toBeGreaterThan(0);
