@@ -196,7 +196,7 @@ export function applyV9SectStage(world: WorldStateV9, command: SectCommandV9): {
   const result = applyValidatedSectResearchCommand(frame, context, command.command, frame);
   return result.ok ? { world: result.repeated ? world : composeV9SectFrame(world, { ...frame, construction: result.frame.construction, research: result.frame.research }), relatedId: result.jobId, repeated: result.repeated } : { code: result.code };
 }
-export function tickV9SectStages(world: WorldStateV9, budget: WorkPathBudget): WorldStateV9 {
+function prepareSectStages(world: WorldStateV9, budget: WorkPathBudget, growth: 'normal' | 'no-optional-growth'): WorldStateV9 {
   if (isPaused(world.clock)) return world;
   const frame = projectV9SectFrame(world); const baseContext = v9SectContext(world);
   const context = { ...baseContext, externalActiveJobs: baseContext.externalActiveJobs + world.sectExpansion.care.jobs.filter(job => !job.terminal).length,
@@ -206,13 +206,23 @@ export function tickV9SectStages(world: WorldStateV9, budget: WorkPathBudget): W
     externalActiveJobs: context.externalActiveJobs + researchActive + frame.production.jobs.filter(job => !job.terminal).length,
     externalClaims: [...context.externalClaims, ...sectProductionClaims(frame), ...sectResearchClaims(frame)] }, budget, frame);
   if (!construction.ok) throw new RangeError(construction.code);
-  const maintained = tickValidatedSectMaintenancePayment({ ...frame, construction: construction.frame }, context);
+  const constructed = { ...frame, construction: construction.frame };
+  const maintained = growth === 'normal' ? tickValidatedSectMaintenancePayment(constructed, context) : constructed;
   const production = tickValidatedSectProduction(maintained, { ...context, externalActiveJobs: context.externalActiveJobs + researchActive,
     externalClaims: [...context.externalClaims, ...sectResearchClaims(maintained)] }, budget, maintained, maintained);
   const afterProduction = { ...maintained, construction: production.construction, production: production.production };
   const research = tickValidatedSectResearch(afterProduction, context, budget, afterProduction);
   const composed = composeV9SectFrame(world, { ...afterProduction, construction: research.construction, research: research.research, care: frame.care });
   return tickValidatedCareV9(composed, projectV9SectFrame(composed), v9SectContext(composed), budget);
+}
+/** Normal funded order is unchanged: construction, maintenance, production, research, care. */
+export function tickV9SectStages(world: WorldStateV9, budget: WorkPathBudget): WorldStateV9 {
+  return prepareSectStages(world, budget, 'normal');
+}
+/** Internal recovery preparation. It never changes maintenance permissions or saves
+ * a disabled setting; the owning gate retries this path from the unchanged boundary. */
+export function prepareV9SectStagesWithoutOptionalGrowth(world: WorldStateV9, budget: WorkPathBudget): WorldStateV9 {
+  return prepareSectStages(world, budget, 'no-optional-growth');
 }
 /** Old recipe/state machines remain unchanged; only their actual movement/site view is bound
  * to v9's authoritative footprint and exclusive expansion claims. One budget is shared. */

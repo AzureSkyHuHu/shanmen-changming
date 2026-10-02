@@ -46,7 +46,7 @@ export function isCommandV9(value: unknown): value is CommandV9 {
 }
 /** Complete runtime RECORD boundary, still unregistered. Whole-save/capacity admission is a
  * separate milestone, so no caller may route this through an application engine or codec. */
-export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknown): { world: WorldStateV9; result: CommandResultV9 } {
+export function prepareUnregisteredCommandCandidateV9(world: WorldStateV9, input: unknown): { world: WorldStateV9; result: CommandResultV9 } {
   let sourceErrors: string[];
   try { canonicalUtf8ByteLength(world); sourceErrors = inspectUnregisteredWorldV9Records(world); }
   catch (error) { sourceErrors = [error instanceof Error ? error.message : 'Invalid source']; }
@@ -130,11 +130,23 @@ export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknow
     }
     const errors = inspectUnregisteredWorldV9Records(next);
     if (errors.length) return { world, result: special(command.commandId, 'INVALID_WORLD_RECORDS', errors[0]) };
-    const headroom = inspectV9KnownRecordHeadroom(next);
-    if (headroom.length) return { world, result: rejected(command.commandId, 'CAPACITY_EXCEEDED') };
     return { world: next, result };
   } catch (error) {
     if (error instanceof RangeError) return { world, result: rejected(command.commandId, 'CAPACITY_EXCEEDED') };
     return { world, result: special(command.commandId, 'INVALID_WORLD_RECORDS', error instanceof Error ? error.message : 'Invalid candidate') };
+  }
+}
+
+/** Historical .3 record-only boundary. The separately named capacity-limited
+ * runtime uses the complete prepared candidate and its own publication gate. */
+export function dispatchUnregisteredCommandV9(world: WorldStateV9, input: unknown): { world: WorldStateV9; result: CommandResultV9 } {
+  const prepared = prepareUnregisteredCommandCandidateV9(world, input);
+  if (prepared.world === world) return prepared; // Exact retries retain their original priority.
+  try {
+    if (inspectV9KnownRecordHeadroom(prepared.world).length) return { world, result: rejected(prepared.result.commandId, 'CAPACITY_EXCEEDED') };
+    return prepared;
+  } catch (error) {
+    return { world, result: error instanceof RangeError ? rejected(prepared.result.commandId, 'CAPACITY_EXCEEDED')
+      : special(prepared.result.commandId, 'INVALID_WORLD_RECORDS', error instanceof Error ? error.message : 'Invalid candidate') };
   }
 }

@@ -5,7 +5,7 @@ import { MAX_AUTO_STARTS_PER_DECISION } from '../sect-economy/types';
 import { advanceV9CultivationClock } from '../world/v9-cultivation-clock-bridge';
 import { withV9CultivationPause } from '../world/v9-cultivation-bridge';
 import { inspectV9KnownRecordHeadroom } from '../world/v9-record-headroom';
-import { tickV9LegacyProduction, tickV9SectStages, v9WorkerAvailable, v9WorkOwners } from '../world/v9-sect-bridge';
+import { prepareV9SectStagesWithoutOptionalGrowth, tickV9LegacyProduction, tickV9SectStages, v9WorkerAvailable, v9WorkOwners } from '../world/v9-sect-bridge';
 import type { WorldStateV9 } from '../world/v9-types';
 import { isPaused, tickClock } from './clock';
 import { canonicalUtf8ByteLength } from '../save-budget';
@@ -21,7 +21,7 @@ export interface UnregisteredAdvanceV9Result {
   stopped: null | { kind: 'record-capacity' | 'invalid-records'; details: readonly string[] };
   commandResults: readonly CommandResultV9[];
 }
-function tickAutomatic(world: WorldStateV9): WorldStateV9 {
+function prepareAutomatic(world: WorldStateV9, boundary: 'record-only' | 'complete-candidate'): WorldStateV9 {
   if (!world.sectEconomy.enabled || world.automaticProduction.activationReviewRequired || isPaused(world.clock)
     || world.clock.simulationTick < world.sectEconomy.nextDecisionTick) return world;
   const context = automaticWorkContext(world, Math.min(MAX_AUTO_STARTS_PER_DECISION, 36 - v9WorkOwners(world).length));
@@ -30,7 +30,7 @@ function tickAutomatic(world: WorldStateV9): WorldStateV9 {
   for (const intent of decision.intents) {
     if (!v9WorkerAvailable(next, intent.workerId) || v9WorkOwners(next).length >= 36) continue;
     const started = startAutomaticProduction(next, intent);
-    if (started.ok && inspectV9KnownRecordHeadroom(started.world).length === 0) next = started.world;
+    if (started.ok && (boundary === 'complete-candidate' || inspectV9KnownRecordHeadroom(started.world).length === 0)) next = started.world;
   }
   return next;
 }
@@ -59,7 +59,7 @@ export function advanceUnregisteredTicksV9(world: WorldStateV9, steps: number, c
       next = advanceV9CultivationClock(next);
       if (!isPaused(next.clock)) {
         const budget = createWorkPathBudget(next.clock.simulationTick);
-        next = tickAutomatic(next);
+        next = prepareAutomatic(next, 'record-only');
         next = tickV9SectStages(next, budget);
         next = tickV9LegacyProduction(next, budget);
       }
@@ -73,4 +73,22 @@ export function advanceUnregisteredTicksV9(world: WorldStateV9, steps: number, c
 }
 export function unregisteredV9DomainHash(world: WorldStateV9): string {
   const { speed: _speed, pauseReasons: _pauseReasons, ...clock } = world.clock; return stableHash({ ...world, clock });
+}
+
+/** Internal complete-candidate preparations, never publication/admission. No caller
+ * permission flag can claim recovery or bypass the complete capacity gate. */
+export function prepareNormalTickCandidateV9(world: WorldStateV9): WorldStateV9 {
+  let next = advanceV9CultivationClock({ ...world, clock: tickClock(world.clock) });
+  if (isPaused(next.clock)) return next;
+  const budget = createWorkPathBudget(next.clock.simulationTick);
+  next = prepareAutomatic(next, 'complete-candidate');
+  next = tickV9SectStages(next, budget);
+  return tickV9LegacyProduction(next, budget);
+}
+export function prepareNoOptionalGrowthTickCandidateV9(world: WorldStateV9): WorldStateV9 {
+  let next = advanceV9CultivationClock({ ...world, clock: tickClock(world.clock) });
+  if (isPaused(next.clock)) return next;
+  const budget = createWorkPathBudget(next.clock.simulationTick);
+  next = prepareV9SectStagesWithoutOptionalGrowth(next, budget);
+  return tickV9LegacyProduction(next, budget);
 }
