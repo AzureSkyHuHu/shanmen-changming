@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-2026-10-02：用户已授权在 dot 云端持续开发，并已将 GitHub 仓库改为公开。GitHub Pages 已发布普通 v7 入口与独立 v8 战役候选；原 dot 预览仍为私人访问。完整游戏尚未验收。
+2026-10-02：用户已授权在 dot 云端持续开发，并已将 GitHub 仓库改为公开。GitHub Pages 已发布普通 v7、独立 v8 战役候选与有限 v9 宗门经营候选；原 dot 预览仍为私人访问。完整游戏尚未验收。
 
 - [工程设计入口](docs/engineering-plan/README.md)
 - [总体需求](docs/engineering-plan/00-overview/requirements.md)
@@ -32,6 +32,6 @@
 - npm run check：依次运行模块边界、文案、测试与类型检查/生产构建
 - npm run build：创建生产构建
 
-2026-10-02 最新完整验证：2736项测试、1041中文键、双类型检查、边界/内容和生产构建通过。内部v9已串联真实经营与伤药治疗、取消和死亡归档；尚未注册到应用或存档。月结/生日历史时钟证据已加入，完整保存/恢复准入及界面仍待接入。普通新游戏仍v7，candidate.html为独立存档的v8战役入口。上一主线3a3d4fa的GitHub Actions与Pages部署已成功；后续提交看各自状态。完整1.0与全面浏览器验收未完成。
+2026-10-02 16:06 UTC：main `4aeda01e10bd0e9ce7d17b2cb9b6f39cc5202a59` 的 GitHub Actions 与 Pages 部署成功。本地冻结源码完整通过148文件2959项测试、1176中文键、双类型/边界/内容及默认和启用版生产构建。普通入口仍为v7；candidate.html为独立存档的v8战役候选；[management.html](https://azureskyhuhu.github.io/shanmen-changming/management.html)为有限v9经营候选，支持实际采集、营造、药理、丹房、制药和照护。三个入口存档隔离；经营候选手动保存、回访显式读取，不是自动续档。长页操作栏、区域跳转和存档弹窗已发布并进行真实浏览器复验，具体范围及剩余问题见[经营集成记录](docs/v9-management-integration.md)。完整1.0、真机移动端及长期性能验收未完成；部分桌面窄屏/150%缩放已实际复验，边界见集成记录。
 
 大型画像、背景和源图按要求留在 dot，仓库保留轻量运行素材。独立运行和素材恢复请看 [素材说明](docs/large-assets.md)。GitHub Actions 配置为检查通过后自动部署公开 Pages 预览；首次需在仓库 Pages 设置选择 GitHub Actions，实际部署状态以对应运行结果为准。原私人预览单独更新。详见 [Pages 设置](docs/pages-deployment.md)。

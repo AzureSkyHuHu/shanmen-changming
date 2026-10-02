@@ -20,7 +20,7 @@ function withSession(run: (session: ApplicationSessionV9) => void) {
   try { run(session); } finally { session.close(); }
 }
 
-const sectionIds = ['overview', 'roster', 'production', 'jobs', 'research', 'care', 'maintenance'];
+const sectionIds = ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'research', 'care', 'maintenance'];
 describe('v9 long-page navigation semantics', () => {
   it.each(['zh-CN', 'en'] as const)('renders links to unique focusable named sections, without hiding controls in %s', locale => withSession(session => {
     const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
@@ -70,6 +70,20 @@ describe('v9 long-page navigation semantics', () => {
     expect(html).toContain(t('managementV9.noJobs'));
   }));
 
+  it('blocks the shell clock and save controls during a child-owned review', () => withSession(session => {
+    const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
+    try {
+      expect(session.setReviewPaused(true).ok).toBe(true);
+      const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves }));
+      const bar = html.slice(html.indexOf('<div class="management-v9-command-bar"'), html.indexOf('<nav class="management-v9-section-nav"'));
+      expect(bar).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${t('managementV9.pause')}</button>`));
+      expect(bar).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${t('save.open')}</button>`));
+      expect(session.getSnapshot().holds.review).toBe(true);
+      const app = readFileSync(new URL('../../src/app/ManagementAppV9.tsx', import.meta.url), 'utf8');
+      expect(app).toContain("managementIntentGuardV9(snapshot, current, getReadOnly(), 'construction', review !== null)");
+    } finally { saves.stop(); }
+  }));
+
   it('uses wrapping, natural-height styles and measured anchor clearance without CSS visual reordering', () => {
     const css = readFileSync(new URL('../../src/app/management-v9-navigation.css', import.meta.url), 'utf8');
     const app = readFileSync(new URL('../../src/app/ManagementAppV9.tsx', import.meta.url), 'utf8');
@@ -81,6 +95,8 @@ describe('v9 long-page navigation semantics', () => {
     expect(app).toContain('observer?.disconnect()');
     expect(app).toContain("window.removeEventListener('resize', measure)");
     expect(app).toContain('managementIntentGuardV9(review.basis, current, getReadOnly()');
+    const baseCss = readFileSync(new URL('../../src/app/management-v9.css', import.meta.url), 'utf8');
+    expect(baseCss).toContain('.management-v9-panel .management-v9-feedback { color: #eee7d1; }');
   });
 });
 
