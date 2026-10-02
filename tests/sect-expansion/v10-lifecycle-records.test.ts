@@ -11,6 +11,7 @@ import { inspectV9LifecycleRecords } from '../../src/core/world/v9-lifecycle-rec
 import { historicalDeathsOfV10LifecycleEvidence, inspectV10LifecycleRecords, type V10LifecycleRecordEvidence } from '../../src/core/world/v10-lifecycle-records';
 import type { WorldStateV9 } from '../../src/core/world/v9-types';
 import { captureSectHistoricalIdentitiesV10, isArchivedSectWorkerReference } from '../../src/core/sect-expansion/history-identity';
+import { composeV10SectFrame, ownedV10SectRecords, projectV10SectFrame, v10SectContext, v10WorkOwners } from '../../src/core/world/v10-sect-frame';
 
 /** Record-only fixture, NOT a migration or whole-v10 admission implementation. */
 function records(source = createUnregisteredWorldV9('v10-lifecycle-records')): WorldStateV10 {
@@ -25,6 +26,20 @@ function records(source = createUnregisteredWorldV9('v10-lifecycle-records')): W
 }
 
 describe('source-bound v10 completed lifecycle record evidence', () => {
+  it('projects and composes one actual map, clock and ledger without persisting projections', () => {
+    const world = records(); const before = cloneJson(world);
+    const frame = projectV10SectFrame(world);
+    expect(frame.construction.map).toBe(world.map);
+    expect(frame.construction.ledger.inventory).toBe(world.inventory);
+    expect(frame.upgrade).toBe(world.sectExpansion.upgrade);
+    expect(v10SectContext(world).simulationTick).toBe(world.clock.simulationTick);
+    expect(v10WorkOwners(world)).toEqual([]);
+    expect(ownedV10SectRecords(frame)).toEqual(world.sectExpansion);
+    expect(composeV10SectFrame(world, frame)).toEqual(world);
+    expect(world).toEqual(before);
+    expect(Object.hasOwn(ownedV10SectRecords(frame).construction, 'people')).toBe(false);
+    expect(Object.hasOwn(ownedV10SectRecords(frame).construction, 'map')).toBe(false);
+  });
   it('rejects forged, v9, foreign-source and mutated-source evidence', () => {
     const world = records(); const token = inspectV10LifecycleRecords(world);
     expect(historicalDeathsOfV10LifecycleEvidence(token, world)).toEqual([]);
