@@ -75,7 +75,7 @@ function siteOccupied(frame: ConstructionFrame, job: ConstructionJob): boolean {
 }
 /** Internal prediction for a validated frame/context and, only at the research root, full authority.
  * This is a local candidate only, never proof of research, funds or completed work. */
-export function previewValidatedConstructionPlacement(frame: ConstructionFrame, context: ConstructionContext, request: SectPlacementRequest, researchAuthority?: SectResearchFrame): ConstructionResult {
+export function previewValidatedConstructionPlacement(frame: ConstructionFrame, context: ConstructionContext, request: SectPlacementRequest, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
   const geometry = deriveSectFootprint(request);
   if (!geometry.ok) return rejected(frame, 'INVALID_COMMAND');
   if (getSectBuildingDefinition(request.definitionId)!.levels[0]!.requiredResearch.length
@@ -87,7 +87,7 @@ export function previewValidatedConstructionPlacement(frame: ConstructionFrame, 
  * The owner validates/clones the whole candidate before publication. Only research root passes
  * its actual full authority; the standalone public wrapper can never authorize gated work.
  */
-export function applyValidatedConstructionCommand(frame: ConstructionFrame, context: ConstructionContext, command: ConstructionCommand, researchAuthority?: SectResearchFrame): ConstructionResult {
+export function applyValidatedConstructionCommand(frame: ConstructionFrame, context: ConstructionContext, command: ConstructionCommand, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
   const old = frame.receipts.find(receipt => receipt.command.commandId === command.commandId);
   if (old) return canonicalStringify(old.command) === canonicalStringify(command) ? accepted(frame, old.relatedId, true) : rejected(frame, 'IDENTITY_CONFLICT');
   if (command.expectedRevision !== frame.revision) return rejected(frame, 'STALE_REVISION');
@@ -179,7 +179,7 @@ function complete(frame: ConstructionFrame, context: ConstructionContext, job: C
  * Advances this authority clock once and preserves source on rejection. The owner still checks
  * cancellation headroom and the complete candidate before publishing. ONE caller-owned path
  * budget is shared with all work domains; it is never an authorization or validation bypass. */
-export function tickValidatedConstruction(frame: ConstructionFrame, context: ConstructionContext, budget: WorkPathBudget, researchAuthority?: SectResearchFrame): ConstructionResult {
+export function tickValidatedConstruction(frame: ConstructionFrame, context: ConstructionContext, budget: WorkPathBudget, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
   const activeCount = frame.jobs.filter(live).length;
   if (frame.revision === MAX || frame.map.navVersion > MAX - activeCount || (activeCount > 0 && (context.calendarTick > MAX - 1200 || context.simulationTick > MAX - 20))) return rejected(frame, 'CAPACITY_EXCEEDED');
   let next: ConstructionFrame = { ...frame, lastSimulationTick: context.simulationTick, lastCalendarTick: context.calendarTick, revision: frame.revision + 1 };

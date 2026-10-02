@@ -10,6 +10,7 @@ import { SECT_CARE_LIMITS, WOUND_POWDER_COST_V9, type SectCareCancellation, type
 import type { SectLedgerReservation } from '../sect-expansion/ledger';
 import type { SectProductionJob, SectProductionReceipt } from '../sect-expansion/production-types';
 import { SECT_RESEARCH_LIMITS, type SectResearchJob, type SectResearchReceipt } from '../sect-expansion/research-types';
+import type { SectProductionJobV10 } from '../sect-expansion/upgrade-types';
 import type { WorldStateV9 } from '../world/v9-types';
 import { navigationPathByteBudget, type SaveBudgetMap } from './bounds';
 import { createCanonicalByteCounter, jsonStringByteLength } from './canonical-bytes';
@@ -37,11 +38,27 @@ export interface SectObligationAssessmentV9 {
   totals: SectRecordMeasureV9 & { rows: SectReservationV9['rows']; counters: SectReservationV9['counters'] };
   shared: SectRecordMeasureV9; unknowns: string[]; excluded: readonly string[];
 }
+/** Structural fields read by the five-owner sizing algorithm, with no World
+ * identity or source-validity claim. Fixed version wrappers pass the actual full
+ * World, including its complete paired book; this is not a v10-to-v9 projection. */
+export interface SectRecordObligationSource {
+  readonly map: WorldStateV9['map'];
+  readonly disciples: readonly Pick<WorldStateV9['disciples'][number], 'id' | 'position' | 'traveling'>[];
+  readonly buildings: readonly Pick<WorldStateV9['buildings'][number], 'id' | 'blueprintId'>[];
+  readonly inventory: WorldStateV9['inventory'];
+  readonly cultivation: Pick<WorldStateV9['cultivation'], 'revision'>;
+  readonly clock: Pick<WorldStateV9['clock'], 'simulationTick' | 'calendarTick'>;
+  readonly sectExpansion: Omit<WorldStateV9['sectExpansion'], 'schemaVersion' | 'production'> & {
+    readonly production: Omit<WorldStateV9['sectExpansion']['production'], 'jobs'> & {
+      readonly jobs: readonly (SectProductionJob | SectProductionJobV10)[];
+    };
+  };
+}
 // Every object placed in a branch has a concrete persisted domain type. The last
 // member represents the worker's two real World fields, rather than a fictitious
 // duplicate World record. These witnesses are sizing envelopes, not valid saves.
 type Witness = ConstructionBlueprint | ConstructionBuilding | ConstructionJob | ConstructionReceipt
-  | SectProductionJob | SectProductionReceipt | SectResearchJob | SectResearchReceipt | SectCareJob | SectCareReceipt
+  | SectProductionJob | SectProductionJobV10 | SectProductionReceipt | SectResearchJob | SectResearchReceipt | SectCareJob | SectCareReceipt
   | SectLedgerReservation | { position: SectCell; traveling: boolean };
 type Candidate = { value: Witness; route?: true };
 type Entry = { label: string; candidates: Candidate[]; current?: Witness };
@@ -86,14 +103,14 @@ function owner(kind: SectReservationV9['kind'], id: string, workerId: string | n
 function entry(label: string, value: Witness, current?: Witness, route = false): Entry {
   return { label, candidates: [{ value, ...(route ? { route: true as const } : {}) }], ...(current === undefined ? {} : { current }) };
 }
-function worker(world: WorldStateV9, workerId: string): Entry {
+function worker(world: SectRecordObligationSource, workerId: string): Entry {
   const actor = world.disciples.find(actor => actor.id === workerId);
   // Planned starts may choose any genuine actor. The longest coordinate/boolean
   // representation is bounded without granting existence or worker eligibility.
   return entry('World.worker.position+traveling', { position: maximumCell(world.map), traveling: false },
     actor ? { position: actor.position, traveling: actor.traveling } : { position: { x: 0, y: 0 }, traveling: true });
 }
-function claimOf(world: WorldStateV9, reservationId: string): SectLedgerReservation {
+function claimOf(world: SectRecordObligationSource, reservationId: string): SectLedgerReservation {
   const found = world.sectExpansion.reservations.find(value => value.reservationId === reservationId);
   if (!found) throw new TypeError(`Missing paired reservation ${reservationId}`); return found;
 }
@@ -118,7 +135,7 @@ function claimAt(claim: SectLedgerReservation, stage: 'live' | 'complete' | 'can
   }
   return { ...claim, base: side(claim.base, 'base'), sect: side(claim.sect, 'sect') };
 }
-function constructionOwner(world: WorldStateV9, bp: ConstructionBlueprint, existing?: ConstructionJob): SectReservationV9 {
+function constructionOwner(world: SectRecordObligationSource, bp: ConstructionBlueprint, existing?: ConstructionJob): SectReservationV9 {
   const definition = getSectBuildingDefinition(bp.definitionId)?.levels[0]; if (!definition) throw new TypeError('Unknown construction definition');
   const map = world.map; const cell = maximumCell(map); const planned = existing === undefined;
   const job: ConstructionJob = existing ?? { jobId: `sect-construction:${MAX - 3}`, blueprintId: bp.blueprintId,
@@ -151,15 +168,17 @@ function constructionOwner(world: WorldStateV9, bp: ConstructionBlueprint, exist
   result.counters.constructionNextId = planned ? 3 : 0; result.counters.navVersion = planned ? 2 : 1;
   return result;
 }
-function productionOwner(world: WorldStateV9, job: SectProductionJob): SectReservationV9 {
+function productionOwner(world: SectRecordObligationSource, job: SectProductionJob | SectProductionJobV10): SectReservationV9 {
   const recipe = getSectRecipeDefinition(job.recipeId); if (!recipe) throw new TypeError('Unknown production recipe');
   const cell = maximumCell(world.map); const claim = claimOf(world, job.reservationId);
   const storageId = longest(world.buildings.filter(site => site.blueprintId === 'storage').map(site => site.id).concat(ENTITY));
-  const peak: SectProductionJob = { ...job, state: 'Committed', phase: longest(PRODUCTION_PHASES), blockedReason: longest(PRODUCTION_BLOCKED_REASONS),
+  // Spread the actual record. In v10 this preserves the complete immutable L2
+  // productiveSite (including upgradeJobId) and the recipe's own research gate.
+  const peak: SectProductionJob | SectProductionJobV10 = { ...job, state: 'Committed', phase: longest(PRODUCTION_PHASES), blockedReason: longest(PRODUCTION_BLOCKED_REASONS),
     activeTicks: recipe.workTicks, navigation: navigation(world.map), worksiteId: job.productiveSite.siteId, seatSiteId: job.productiveSite.siteId, storageId,
     workVisit: { tick: MAX, calendarTick: MAX, position: cell }, deliveryVisit: { tick: MAX, calendarTick: MAX, position: cell },
     workSpans: Array.from({ length: recipe.workTicks }, () => ({ firstTick: MAX, lastTick: MAX, firstCalendarTick: MAX, lastCalendarTick: MAX })) };
-  const terminal = (kind: 'completed' | 'cancelled'): SectProductionJob => ({ ...peak, state: kind === 'completed' ? 'Committed' : 'Cancelled', phase: kind === 'completed' ? 'Done' : 'Cancelled', navigation: emptyNavigation(), blockedReason: null,
+  const terminal = (kind: 'completed' | 'cancelled'): SectProductionJob | SectProductionJobV10 => ({ ...peak, state: kind === 'completed' ? 'Committed' : 'Cancelled', phase: kind === 'completed' ? 'Done' : 'Cancelled', navigation: emptyNavigation(), blockedReason: null,
     terminal: { kind, tick: MAX, calendarTick: MAX, position: cell, previousPhase: 'TravellingToStorage', consumed: recipe.inputs,
       released: kind === 'cancelled' ? recipe.inputs : [], outputs: kind === 'completed' ? recipe.outputs : [] } });
   const receipt: SectProductionReceipt = { command: { kind: 'production.cancel', commandId: COMMAND, expectedRevision: MAX - 1, jobId: job.transactionId }, revision: MAX, jobId: job.transactionId };
@@ -171,7 +190,7 @@ function productionOwner(world: WorldStateV9, job: SectProductionJob): SectReser
   ]);
   result.rows.productionReceipts = 1; result.counters.productionRevision = 1; return result;
 }
-function researchOwner(world: WorldStateV9, job: SectResearchJob): SectReservationV9 {
+function researchOwner(world: SectRecordObligationSource, job: SectResearchJob): SectReservationV9 {
   const definition = getSectResearchDefinition(job.researchId); if (!definition) throw new TypeError('Unknown research definition');
   const map = world.map; const cell = maximumCell(map); const claim = claimOf(world, job.reservationId);
   const peak: SectResearchJob = { ...job, phase: 'to-site', activeTicks: definition.workTicks, blocked: 'WORKSTATION_UNAVAILABLE', navigation: navigation(map),
@@ -186,7 +205,7 @@ function researchOwner(world: WorldStateV9, job: SectResearchJob): SectReservati
     branch(map, 'cancellation', [...common, entry('research.job', terminal('cancelled'), job), entry('paired-ledger', claimAt(claim, 'cancel', []), claim), entry('research.cancel-receipt', receipt)]),
   ]); result.rows.researchReceipts = 1; result.counters.researchRevision = 1; return result;
 }
-function careOwner(world: WorldStateV9, job: SectCareJob): SectReservationV9 {
+function careOwner(world: SectRecordObligationSource, job: SectCareJob): SectReservationV9 {
   const map = world.map; const cell = maximumCell(map); const claim = claimOf(world, job.reservationId);
   const peak: SectCareJob = { ...job, phase: 'to-storage', activeTicks: SECT_CARE_LIMITS.workTicks, navigation: navigation(map), blocked: 'STORAGE_UNAVAILABLE',
     visits: Array.from({ length: SECT_CARE_LIMITS.visits }, () => ({ tick: MAX, calendarTick: MAX, position: cell })),
@@ -210,7 +229,7 @@ function careOwner(world: WorldStateV9, job: SectCareJob): SectReservationV9 {
       entry('paired-ledger', claimAt(claim, 'cancel', []), claim), entry('care.cancel-receipt', receipt)]),
   ]); result.rows.careReceipts = 1; result.counters.careRevision = 1; result.counters.cultivationRevision = 1; return result;
 }
-function sharedWidthGrowth(world: WorldStateV9): SectRecordMeasureV9 {
+function sharedWidthGrowth(world: SectRecordObligationSource): SectRecordMeasureV9 {
   const records = world.sectExpansion;
   const current = { inventory: world.inventory, stock: records.stock, mapNavVersion: world.map.navVersion,
     constructionRevision: records.construction.revision, constructionNextId: records.construction.nextId,
@@ -226,44 +245,55 @@ function sharedWidthGrowth(world: WorldStateV9): SectRecordMeasureV9 {
   const used = measureProgressionRecord(current); const measured = measureProgressionRecord(maximum);
   return { bytes: Math.max(0, measured.bytes - used.bytes), decodedCharacters: Math.max(0, measured.decodedCharacters - used.decodedCharacters), decodedNodes: 0 };
 }
-/** Pure data-only derivation. Full v9 source validation belongs to the enclosing
- * query. No witness establishes payment, provenance, eligibility or import rights.
- * At each boundary it funds immediate cancellation/lifecycle recovery and finite
- * representation peaks. It does not fund indefinitely many optional waiting ticks. */
-export function deriveSectReservationsV9(world: WorldStateV9): SectObligationAssessmentV9 {
-  const result: SectObligationAssessmentV9 = { scope: 'sect-record-peaks-and-immediate-recovery', supported: false, owners: [],
+function emptyAssessment(): SectObligationAssessmentV9 {
+  return { scope: 'sect-record-peaks-and-immediate-recovery', supported: false, owners: [],
     totals: { ...zero(), rows: rows(), counters: counters() }, shared: zero(), unknowns: [], excluded: [
       'Elapsed ticks and construction/production/research revisions while indefinitely blocked or waiting',
       'Optional new production/research/care starts and maintenance renewals require remeasurement and future runtime admission',
       'Whole-save import, provenance, cancellation-release admission and guaranteed eventual completion are not certified',
       'Clock/revision source consistency and historical injury authenticity are not established by sizing',
     ] };
+}
+/** Internal data-only structural algorithm. The fixed caller must first perform
+ * its descriptor walk and exact version guard. This function supplies neither a
+ * capture/validation boundary nor a policy callback or reusable certificate.
+ * All sizing witnesses are synthetic maxima, never valid-game evidence. */
+export function deriveSectRecordObligations(world: SectRecordObligationSource): SectObligationAssessmentV9 {
+  const result = emptyAssessment();
+  navigationPathByteBudget(world.map);
+  const records = world.sectExpansion;
+  for (const bp of records.construction.blueprints) {
+    if (bp.status === 'planned') result.owners.push(constructionOwner(world, bp));
+    else if (bp.status === 'started') {
+      const job = records.construction.jobs.find(job => job.jobId === bp.jobId && job.terminal === null);
+      if (!job) throw new TypeError('Started blueprint lacks live construction owner'); result.owners.push(constructionOwner(world, bp, job));
+    }
+  }
+  for (const job of records.production.jobs) if (!job.terminal) result.owners.push(productionOwner(world, job));
+  for (const job of records.research.jobs) if (!job.terminal) result.owners.push(researchOwner(world, job));
+  for (const job of records.care.jobs) if (!job.terminal) result.owners.push(careOwner(world, job));
+  result.shared = sharedWidthGrowth(world); add(result.totals, result.shared);
+  for (const value of result.owners) {
+    add(result.totals, value);
+    for (const key of Object.keys(value.rows) as (keyof SectReservationV9['rows'])[]) result.totals.rows[key] += value.rows[key];
+    for (const key of Object.keys(value.counters) as (keyof SectReservationV9['counters'])[]) result.totals.counters[key] += value.counters[key];
+  }
+  for (const value of [...METRICS.map(key => result.totals[key]), ...Object.values(result.totals.rows), ...Object.values(result.totals.counters)]) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('Sect reservation exceeds safe finite range');
+  }
+  result.supported = true;
+  return result;
+}
+/** Historical fixed v9 wrapper: preserve descriptor/identity/error ordering and
+ * the exact accepted sizing surface. Full source validation is the enclosing
+ * query's responsibility; sizing never proves eventual completion or admission. */
+export function deriveSectReservationsV9(world: WorldStateV9): SectObligationAssessmentV9 {
+  const result = emptyAssessment();
   try {
     createCanonicalByteCounter().measure(world); // Accessors/cycles/sparse arrays fail before property reads; no mutable cache.
     if (world.simulationVersion !== '0.9.0' || world.runtimeProtocol !== 'fresh-management-v9-unregistered.3'
       || !resolveSectCatalogIdentity(world.sectExpansion.construction.catalogIdentity)) throw new TypeError('Unsupported internal v9 record identity');
-    navigationPathByteBudget(world.map);
-    const records = world.sectExpansion;
-    for (const bp of records.construction.blueprints) {
-      if (bp.status === 'planned') result.owners.push(constructionOwner(world, bp));
-      else if (bp.status === 'started') {
-        const job = records.construction.jobs.find(job => job.jobId === bp.jobId && job.terminal === null);
-        if (!job) throw new TypeError('Started blueprint lacks live construction owner'); result.owners.push(constructionOwner(world, bp, job));
-      }
-    }
-    for (const job of records.production.jobs) if (!job.terminal) result.owners.push(productionOwner(world, job));
-    for (const job of records.research.jobs) if (!job.terminal) result.owners.push(researchOwner(world, job));
-    for (const job of records.care.jobs) if (!job.terminal) result.owners.push(careOwner(world, job));
-    result.shared = sharedWidthGrowth(world); add(result.totals, result.shared);
-    for (const value of result.owners) {
-      add(result.totals, value);
-      for (const key of Object.keys(value.rows) as (keyof SectReservationV9['rows'])[]) result.totals.rows[key] += value.rows[key];
-      for (const key of Object.keys(value.counters) as (keyof SectReservationV9['counters'])[]) result.totals.counters[key] += value.counters[key];
-    }
-    for (const value of [...METRICS.map(key => result.totals[key]), ...Object.values(result.totals.rows), ...Object.values(result.totals.counters)]) {
-      if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('Sect reservation exceeds safe finite range');
-    }
-    result.supported = true;
+    return deriveSectRecordObligations(world);
   } catch (error) {
     result.owners = []; result.totals = { ...zero(), rows: rows(), counters: counters() }; result.shared = zero();
     result.unknowns.push(error instanceof Error ? error.message : 'Unsupported sect obligation');

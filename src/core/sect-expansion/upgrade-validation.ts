@@ -6,14 +6,17 @@ import { canonicalStringify, cloneJson, compareStable } from '../kernel/serializ
 import { constructionClaims, constructionEffectiveMap } from './construction-runtime';
 import { validateConstructionContext, validateConstructionRecords, validateWorldConstructionRecords } from './construction-record-validation';
 import type { ConstructionClaim, ConstructionContext, ConstructionPerson, ConstructionValidationIssue } from './construction-types';
-import { SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
-import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
+import { SECT_UPGRADE_DESCRIPTOR_NODE_BOUND_V10 } from './descriptor-bounds-v10';
+export { SECT_UPGRADE_DESCRIPTOR_NODE_BOUND_V10 } from './descriptor-bounds-v10';
+import { historicalDeathsOfV10LifecycleEvidence, type V10HistoricalDeathFact, type V10LifecycleRecordEvidence } from '../world/v10-lifecycle-records';
+import { projectV10SectFrame } from '../world/v10-sect-frame';
+import { captureSectHistoricalIdentitiesV10, isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { deriveSectFootprint, ownSectFields } from './layout';
 import { normalizeSectResourceLines, sectReservationLines } from './ledger';
 import { sectBuildingL1PaidRangeV10, validateSectMaintenanceL1RecordsV10, validateSectUpgradeResearchPrerequisitesV10 } from './maintenance-v10';
 export { sectBuildingL1PaidRangeV10 } from './maintenance-v10';
 import { SECT_UPGRADE_LIMITS_V10, type SectUpgradeCommandV10, type SectUpgradeFrameV10, type SectUpgradeJobV10,
-  type SectUpgradeRejectionV10, type SectUpgradeResearchRefV10, type SectUpgradeSiteProofV10, type SectUpgradeStateV10 } from './upgrade-types';
+  type WorldStateV10, type SectUpgradeRejectionV10, type SectUpgradeResearchRefV10, type SectUpgradeSiteProofV10, type SectUpgradeStateV10 } from './upgrade-types';
 
 const MAX = Number.MAX_SAFE_INTEGER;
 const integer = isNonNegativeInteger;
@@ -24,16 +27,6 @@ const id = (value: unknown): value is string => typeof value === 'string' && val
 const playerId = (value: unknown): value is string => id(value) && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
 const key = (position: SectCell): string => `${position.x},${position.y}`;
 const live = (job: { readonly terminal: unknown }): boolean => job.terminal === null;
-
-/** Independent added-record arithmetic. A visit is 6 nodes; a span 6; checkpoint 8;
- * fixed job/site/gate/nav/terminal/cost records are bounded by 192. Existing construction
- * budget already contains all 384 paired claims. Only 36 live routes may retain cells.
- * Care adds its own finite 41 visits/40 spans plus fixed records and 36 routes. L2 payment
- * tags and production proofs are counted separately. This is NOT whole-save headroom. */
-export const SECT_UPGRADE_DESCRIPTOR_NODE_BOUND_V10 = SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND
-  + 32 + 128 * (192 + 401 * 6 + 400 * 6 + 2 * 8) + 256 * 10 + 36 * 65536 * 3
-  + 16 + 128 * (256 + 41 * 6 + 40 * 4) + 256 * 10 + 36 * 65536 * 3
-  + 128 * 4 + 128 * 4;
 
 /** Descriptor-only capture gate. No getters run; aliases/cycles, symbols, exotic prototypes,
  * undefined and non-enumerable data reject. Proxy reflection itself is not sandboxed: a hostile
@@ -183,6 +176,25 @@ export function inspectSectUpgradeStartV10(frame: SectUpgradeFrameV10, context: 
  * legacy balances, six-owner closure and whole-envelope future headroom belong to the root. */
 export function validateSectUpgradeRecordsV10(frame: SectUpgradeFrameV10,
   identities?: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
+  return validateUpgradeRecords(frame, identities, []);
+}
+
+/** Fixed World-owned historical validation only. Proof binds this exact unchanged World;
+ * frame must equal its genuine projection. Neither an identity-only source nor a caller
+ * death list can authorize system receipts. This cannot execute pre-retirement cleanup. */
+export function validateWorldSectUpgradeRecordsV10(world: WorldStateV10, frame: SectUpgradeFrameV10,
+  evidence: V10LifecycleRecordEvidence): readonly ConstructionValidationIssue[] {
+  try {
+    const deaths = historicalDeathsOfV10LifecycleEvidence(evidence, world);
+    if (!isSectUpgradeDataTreeV10(frame) || !same(frame, projectV10SectFrame(world))) return [{ code: 'INVALID_UPGRADE_WORLD_PROJECTION', path: 'upgrade' }];
+    const identities = captureSectHistoricalIdentitiesV10(evidence, world);
+    return validateUpgradeRecords(frame, identities, deaths);
+  } catch { return [{ code: 'UPGRADE_DEATH_AUTHORITY_REQUIRED', path: 'upgrade' }]; }
+}
+
+/** Internal facts can only originate at the fixed source-bound wrapper above. */
+function validateUpgradeRecords(frame: SectUpgradeFrameV10, identities: SectHistoricalIdentitySource | undefined,
+  deaths: readonly V10HistoricalDeathFact[]): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path = 'upgrade'): readonly ConstructionValidationIssue[] => [{ code, path }];
   try {
     if (!isSectUpgradeDataTreeV10(frame) || !fields(frame, ['schemaVersion', 'construction', 'production', 'research', 'maintenance', 'care', 'upgrade'])
@@ -221,8 +233,20 @@ export function validateSectUpgradeRecordsV10(frame: SectUpgradeFrameV10,
     const costs = sectUpgradeCostsV10(); const half = costs.map(line => ({ ...line, quantity: 3 }));
     const revisions: { revision: number; tick: number; kind: 'command' | 'completion' }[] = [];
     const commandIds = new Set<string>(); let lastReceiptRevision = 0;
+    const deathFact = (job: SectUpgradeJobV10): V10HistoricalDeathFact | undefined => {
+      const cancellation = job.terminal?.cancellation;
+      return cancellation?.kind === 'death' ? deaths.find(death => death.deathId === cancellation.deathId && death.discipleId === job.workerId) : undefined;
+    };
+    const authenticatedSystemCancel = (command: SectUpgradeCommandV10, jobId: string): boolean => {
+      if (!fields(command, ['kind', 'commandId', 'expectedRevision', 'jobId']) || command.kind !== 'upgrade.cancel'
+        || !id(command.commandId) || !integer(command.expectedRevision) || command.jobId !== jobId) return false;
+      const job = domain.jobs.find(value => value.jobId === jobId);
+      const fact = job && deathFact(job);
+      return !!fact && command.commandId === `system/v10/death/${fact.deathId}/${jobId}`;
+    };
     for (const receipt of domain.receipts) {
-      if (!fields(receipt, ['command', 'revision', 'jobId']) || !isSectUpgradeCommandV10(receipt.command)
+      if (!fields(receipt, ['command', 'revision', 'jobId'])
+        || !(isSectUpgradeCommandV10(receipt.command) || authenticatedSystemCancel(receipt.command, receipt.jobId))
         || !integer(receipt.revision) || receipt.command.expectedRevision === MAX || receipt.revision !== receipt.command.expectedRevision + 1
         || receipt.revision > domain.revision || receipt.revision <= lastReceiptRevision || commandIds.has(receipt.command.commandId) || !id(receipt.jobId)) return fail('INVALID_UPGRADE_RECEIPT');
       commandIds.add(receipt.command.commandId); lastReceiptRevision = receipt.revision;
@@ -258,6 +282,17 @@ export function validateSectUpgradeRecordsV10(frame: SectUpgradeFrameV10,
       revisions.push({ revision: startRevision, tick: job.startedTick, kind: 'command' });
       const worker = authority.people.find(value => value.id === job.workerId);
       if (!worker && !isArchivedSectWorkerReference(identities, job.workerId, job.terminal)) return fail('INVALID_UPGRADE_WORKER_REFERENCE', job.jobId);
+      // This worker's first unavailable boundary mandates the pre-work death batch.
+      // A player reason/receipt cannot launder that same-tick cancellation; earlier
+      // requested terminals and another worker's global pause remain legal.
+      const unavailable = deaths.find(death => death.discipleId === job.workerId);
+      if (unavailable && (job.terminal === null || job.startedTick >= unavailable.unavailableTick
+        || job.storageVisit && job.storageVisit.tick >= unavailable.unavailableTick
+        || job.siteVisits.some(visit => visit.tick >= unavailable.unavailableTick)
+        || job.workSpans.some(span => span.lastTick >= unavailable.unavailableTick)
+        || job.terminal.tick > unavailable.unavailableTick
+        || job.terminal.tick === unavailable.unavailableTick
+          && (job.terminal.kind !== 'cancelled' || job.terminal.cancellation?.kind !== 'death'))) return fail('INVALID_UPGRADE_LIFETIME', job.jobId);
       const site = sectUpgradeSiteFromRecordsV10(frame, job.buildingId);
       if (!site || !fields(job.site, ['buildingId', 'definitionId', 'sourceJobId', 'position', 'level', 'firstMaintenanceCalendarTick'])
         || !same(job.site, site) || job.seatToken !== job.buildingId || job.entranceToken !== key(site.position)) return fail('INVALID_UPGRADE_SITE_SOURCE', job.jobId);
@@ -361,11 +396,17 @@ export function validateSectUpgradeRecordsV10(frame: SectUpgradeFrameV10,
             || claim.base.settlement.outputs.length || claim.sect.settlement.outputs.length) return fail('INVALID_UPGRADE_COMPLETION', job.jobId);
           revisions.push({ revision: terminal.upgradeRevision, tick: terminal.tick, kind: 'completion' });
         } else {
-          // A typed death reason is not authority. A future version-owned lifecycle evidence
-          // entry must join an exact death/mirror before system cancellation records can pass.
-          if (terminal.cancellation?.kind === 'death') return fail('UPGRADE_DEATH_AUTHORITY_REQUIRED', job.jobId);
-          if (terminal.resultLevel !== 1 || !fields(terminal.cancellation, ['kind']) || terminal.cancellation.kind !== 'requested'
-            || count >= 400 || !same(terminal.released, count >= 200 ? half : costs)
+          if (terminal.cancellation?.kind === 'death') {
+            const fact = deathFact(job);
+            if (!fact || !fields(terminal.cancellation, ['kind', 'deathId'])
+              || terminal.tick !== fact.unavailableTick || terminal.calendarTick !== fact.unavailableCalendarTick
+              || cancels[0]!.command.commandId !== `system/v10/death/${fact.deathId}/${job.jobId}`
+              || job.storageVisit && job.storageVisit.tick >= fact.unavailableTick
+              || job.siteVisits.some(visit => visit.tick >= fact.unavailableTick)
+              || job.workSpans.some(span => span.lastTick >= fact.unavailableTick)) return fail('UPGRADE_DEATH_AUTHORITY_REQUIRED', job.jobId);
+          } else if (!fields(terminal.cancellation, ['kind']) || terminal.cancellation.kind !== 'requested'
+            || !isSectUpgradeCommandV10(cancels[0]!.command)) return fail('INVALID_UPGRADE_CANCELLATION', job.jobId);
+          if (terminal.resultLevel !== 1 || count >= 400 || !same(terminal.released, count >= 200 ? half : costs)
             || cancels[0]!.revision !== terminal.upgradeRevision || cancels[0]!.revision <= startRevision
             || claim.base.settlement?.kind !== 'released' || claim.sect.settlement?.kind !== 'released'
             || claim.base.settlement.operationId !== `cancel:${job.jobId}` || claim.sect.settlement.operationId !== `cancel:${job.jobId}`) return fail('INVALID_UPGRADE_CANCELLATION', job.jobId);

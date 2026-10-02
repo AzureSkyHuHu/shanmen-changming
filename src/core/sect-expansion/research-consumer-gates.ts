@@ -15,7 +15,7 @@ const sameRef = (a: SectResearchGateRef | undefined, b: SectResearchGateRef | nu
   && a.researchId === b.researchId && a.completionJobId === b.completionJobId;
 /** Leaf lookup only. Caller must first validate local records and all research work/payment/DAG.
  * No full validator/completion query is called here, and expiry never revokes earned research. */
-function resolve(frame: SectResearchFrame, required: readonly string[], effect: SectResearchEffect,
+function resolve(frame: Pick<SectResearchFrame, 'construction' | 'research'>, required: readonly string[], effect: SectResearchEffect,
   tick: number, calendarTick: number): SectResearchGateRef | null {
   if (required.length !== 1 || required[0] !== 'basic-medicine.v9') return null;
   const definition = getSectResearchDefinition(required[0]);
@@ -26,7 +26,7 @@ function resolve(frame: SectResearchFrame, required: readonly string[], effect: 
   return job?.terminal && job.terminal.tick <= tick && job.terminal.calendarTick <= calendarTick
     ? { researchId: definition.id, completionJobId: job.jobId } : null;
 }
-export function constructionResearchGate(frame: SectResearchFrame, definitionId: SectBuildingId, tick: number, calendarTick: number): SectResearchGateRef | null {
+export function constructionResearchGate(frame: Pick<SectResearchFrame, 'construction' | 'research'>, definitionId: SectBuildingId, tick: number, calendarTick: number): SectResearchGateRef | null {
   if (definitionId !== 'alchemy.v9') return null; // L2 has no authenticated upgrade executor yet.
   const level = getSectBuildingDefinition(definitionId)?.levels[0];
   return level?.level === 1 ? resolve(frame, level.requiredResearch, { kind: 'unlock-building-level', definitionId, level: 1 }, tick, calendarTick) : null;
@@ -36,7 +36,7 @@ export function productionResearchGate(frame: SectResearchFrame, recipeId: SectR
   const recipe = getSectRecipeDefinition(recipeId);
   return recipe ? resolve(frame, recipe.requiredResearch, { kind: 'unlock-recipe', recipeId }, tick, calendarTick) : null;
 }
-export function constructionResearchGateMatches(frame: SectResearchFrame, bp: ConstructionBlueprint, tick: number, calendarTick: number): boolean {
+export function constructionResearchGateMatches(frame: Pick<SectResearchFrame, 'construction' | 'research'>, bp: ConstructionBlueprint, tick: number, calendarTick: number): boolean {
   return sameRef(bp.researchGate, constructionResearchGate(frame, bp.definitionId, bp.placedTick, bp.placedCalendarTick))
     && sameRef(bp.researchGate, constructionResearchGate(frame, bp.definitionId, tick, calendarTick));
 }

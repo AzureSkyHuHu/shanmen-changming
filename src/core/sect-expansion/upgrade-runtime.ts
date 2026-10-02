@@ -1,6 +1,7 @@
 import { BLOCKED_PATH_RETRY_TICKS, emptyNavigation, isWalkable, sameCell } from '../agents/navigation';
 import { advanceWorkNavigationWithBudget, type WorkPathBudget } from '../agents/work-navigation';
 import { canonicalStringify, cloneJson, compareStable } from '../kernel/serialization';
+import { readV10PreWorkDeaths, type V10CultivationTransitionEvidence } from '../world/v10-cultivation-preparation';
 import { constructionEffectiveMap } from './construction-runtime';
 import { validateConstructionContext } from './construction-record-validation';
 import type { ConstructionContext } from './construction-types';
@@ -10,7 +11,7 @@ import { inspectSectUpgradeStartV10, isSectUpgradeCommandV10, isSectUpgradeDataT
   sectUpgradeAllLocalClaimsV10, sectUpgradeCostsV10, sectUpgradeGateFromRecordsV10, sectUpgradeSiteFromRecordsV10,
   sectUpgradeWorkerEligibleV10, validateSectUpgradeRecordsV10 } from './upgrade-validation';
 import type { SectUpgradeBlockV10, SectUpgradeCommandV10, SectUpgradeFrameV10, SectUpgradeJobV10,
-  SectUpgradeLivePhaseV10, SectUpgradeRejectionV10, SectUpgradeResultV10 } from './upgrade-types';
+  SectUpgradeCancellationV10, SectUpgradeLivePhaseV10, SectUpgradeRejectionV10, SectUpgradeResultV10 } from './upgrade-types';
 
 export { createSectUpgradeStateV10, isSectUpgradeCommandV10, sectUpgradeClaimsV10 } from './upgrade-validation';
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -29,8 +30,8 @@ function baseAdmission(frame: SectUpgradeFrameV10, context: ConstructionContext)
 /** Internal fixed stage only. Complete source World, duty/build/teaching/lifecycle locks,
  * external claims, legacy balances, six-owner closure and whole-save future obligations are
  * authenticated by the v10 root. Successful return is an isolated DOMAIN CANDIDATE, not admission.
- * No deathId/trusted flag/callback overload exists; forced death remains root-owned and closed
- * until a version-authenticated exact lifecycle transition port is supplied. */
+ * Player commands never authorize forced death; its separate fixed batch below requires
+ * the exact transient proof produced by the real cultivation reducer. */
 export function applyValidatedSectUpgradeCommandV10(frame: SectUpgradeFrameV10, context: ConstructionContext,
   command: SectUpgradeCommandV10): SectUpgradeResultV10 {
   const invalid = baseAdmission(frame, context); if (invalid) return rejected(frame, invalid);
@@ -65,16 +66,10 @@ export function applyValidatedSectUpgradeCommandV10(frame: SectUpgradeFrameV10, 
     const job = frame.upgrade.jobs.find(value => value.jobId === command.jobId);
     if (!job) return rejected(frame, 'UNKNOWN_JOB');
     if (job.terminal !== null) return rejected(frame, 'TRANSACTION_FINISHED');
-    const worker = frame.construction.people.find(value => value.id === job.workerId);
-    if (!worker || !isWalkable(constructionEffectiveMap(frame.construction), worker.position)) return rejected(frame, 'UNSAFE_POSITION');
     jobId = job.jobId;
-    const claim = frame.construction.ledger.reservations.find(value => value.reservationId === job.reservationId)!;
-    const release = releaseSectReservation(frame.construction.ledger, { reservationId: job.reservationId, ownerTransactionId: jobId }, `cancel:${jobId}`);
-    if (!release.ok) return rejected(frame, 'INVALID_RESERVATION');
-    next = replace({ ...frame, construction: { ...frame.construction, ledger: release.context } }, { ...job, phase: 'cancelled', navigation: emptyNavigation(), blocked: null,
-      terminal: { kind: 'cancelled', previousPhase: job.phase as SectUpgradeLivePhaseV10, resultLevel: 1, cancellation: { kind: 'requested' },
-        tick: context.simulationTick, calendarTick: context.calendarTick, position: { ...worker.position }, consumed: sectReservationLines(claim, 'consumed'),
-        released: sectReservationLines(claim, 'remainingReservation'), upgradeRevision: revision } });
+    const cancellation = cancelAtBoundary(frame, context, job, revision, { kind: 'requested' });
+    if (!cancellation.ok) return rejected(frame, cancellation.code);
+    next = cancellation.frame;
   }
   next = { ...next, upgrade: { ...next.upgrade, revision,
     receipts: [...next.upgrade.receipts, { command: cloneJson(command), revision, jobId }] } };
@@ -82,6 +77,57 @@ export function applyValidatedSectUpgradeCommandV10(frame: SectUpgradeFrameV10, 
     || next.construction.map.navVersion !== frame.construction.map.navVersion) return rejected(frame, 'INVALID_FRAME');
   return accepted(next, jobId);
 }
+/** Shared private settlement primitive. No proof factory or caller-selectable policy escapes. */
+function cancelAtBoundary(frame: SectUpgradeFrameV10, context: ConstructionContext, job: SectUpgradeJobV10,
+  revision: number, cancellation: SectUpgradeCancellationV10): SectUpgradeResultV10 {
+  const worker = frame.construction.people.find(value => value.id === job.workerId);
+  if (!worker || !isWalkable(constructionEffectiveMap(frame.construction), worker.position)) return rejected(frame, 'UNSAFE_POSITION');
+  const claim = frame.construction.ledger.reservations.find(value => value.reservationId === job.reservationId);
+  if (!claim) return rejected(frame, 'INVALID_RESERVATION');
+  const release = releaseSectReservation(frame.construction.ledger,
+    { reservationId: job.reservationId, ownerTransactionId: job.jobId }, `cancel:${job.jobId}`);
+  if (!release.ok) return rejected(frame, 'INVALID_RESERVATION');
+  const next = replace({ ...frame, construction: { ...frame.construction, ledger: release.context } },
+    { ...job, phase: 'cancelled', navigation: emptyNavigation(), blocked: null,
+      terminal: { kind: 'cancelled', previousPhase: job.phase as SectUpgradeLivePhaseV10, resultLevel: 1, cancellation,
+        tick: context.simulationTick, calendarTick: context.calendarTick, position: { ...worker.position },
+        consumed: sectReservationLines(claim, 'consumed'), released: sectReservationLines(claim, 'remainingReservation'), upgradeRevision: revision } });
+  // This helper returns an unpublished candidate; only the enclosing command/batch clones.
+  return { ok: true, frame: next, repeated: false, jobId: job.jobId };
+}
+
+/** Fixed pre-work lifecycle batch. Authenticate the EXACT reducer frame/context once before
+ * making any candidate changes, derive affected jobs and system IDs internally, and discard
+ * the entire batch on any failure. Completed-record evidence cannot execute this stage.
+ * Call before legacy/sect death reconciliation or estate retirement; root publication still
+ * requires full candidate records, shared owner closure and whole-save capacity admission. */
+export function cancelValidatedSectUpgradesForLifecycleV10(frame: SectUpgradeFrameV10, context: ConstructionContext,
+  evidence: V10CultivationTransitionEvidence): SectUpgradeResultV10 {
+  let deaths;
+  try { deaths = readV10PreWorkDeaths(evidence, frame, context); }
+  catch { return rejected(frame, 'INVALID_CONTEXT'); }
+  const invalid = baseAdmission(frame, context); if (invalid) return rejected(frame, invalid);
+  const jobs = frame.upgrade.jobs.filter(job => job.terminal === null && deaths.some(death => death.discipleId === job.workerId))
+    .slice().sort((a, b) => a.startedTick - b.startedTick || compareStable(a.jobId, b.jobId));
+  if (frame.upgrade.revision > MAX - jobs.length || frame.upgrade.receipts.length + jobs.length > 256) return rejected(frame, 'CAPACITY_EXCEEDED');
+  let next = frame;
+  for (const original of jobs) {
+    const death = deaths.find(death => death.discipleId === original.workerId)!;
+    const commandId = `system/v10/death/${death.deathId}/${original.jobId}`;
+    if (commandId.length > 128) return rejected(frame, 'INVALID_COMMAND');
+    if ([...next.upgrade.receipts, ...next.construction.receipts, ...next.production.receipts, ...next.research.receipts, ...next.care.receipts]
+      .some(receipt => receipt.command.commandId === commandId)) return rejected(frame, 'IDENTITY_CONFLICT');
+    const revision = next.upgrade.revision + 1;
+    const result = cancelAtBoundary(next, context, original, revision, { kind: 'death', deathId: death.deathId });
+    if (!result.ok) return rejected(frame, result.code);
+    next = { ...result.frame, upgrade: { ...result.frame.upgrade, revision, receipts: [...result.frame.upgrade.receipts,
+      { command: { kind: 'upgrade.cancel', commandId, expectedRevision: next.upgrade.revision, jobId: original.jobId }, revision, jobId: original.jobId }] } };
+  }
+  if (next.upgrade.revision !== frame.upgrade.revision + jobs.length || next.upgrade.nextId !== frame.upgrade.nextId
+    || next.construction.map.navVersion !== frame.construction.map.navVersion) return rejected(frame, 'INVALID_FRAME');
+  return accepted(next);
+}
+
 function block(frame: SectUpgradeFrameV10, job: SectUpgradeJobV10, reason: Exclude<SectUpgradeBlockV10, null>): SectUpgradeFrameV10 {
   return job.blocked === reason ? frame : replace(frame, { ...job, blocked: reason });
 }

@@ -2,7 +2,6 @@ import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
 import { isManagementV9Identity } from '../../content/sect-v9/world-content';
 import { MAX_CULTIVATION_HISTORY } from '../cultivation/rules';
 import { RESOURCE_IDS } from '../economy/types';
-import { CALENDAR_TICKS_PER_MONTH } from '../kernel/clock';
 import { inspectUnregisteredWorldV9Records } from '../kernel/validation';
 import { assessAutomaticWorkBudget, SAVE_FILE_LIMIT_BYTES, type AutomaticSaveBudgetAssessment } from '../save-budget/admission';
 import { assessBuildHistoryObligations, type BuildHistoryObligationAssessment } from '../save-budget/build-obligations';
@@ -20,7 +19,8 @@ import { SECT_RESEARCH_LIMITS } from '../sect-expansion/research-types';
 import { assessProgressionNumeric, type ProgressionNumericAssessment } from './progression-numeric';
 import { deriveV9BuildObligationFacts } from './v9-record-headroom';
 import { projectV9SectFrame } from './v9-sect-bridge';
-import { V9_CULTIVATION_CLOCK_LIMIT, type V9CultivationClockTransition } from './v9-cultivation-clock-types';
+import { V9_CULTIVATION_CLOCK_LIMIT } from './v9-cultivation-clock-types';
+import { derivePhaseAwareManagementClockReservation, deriveWholeMonthManagementClockReservation, type ManagementClockReservation } from '../save-budget/management-clock-reservation';
 import type { WorldStateV9 } from './v9-types';
 
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -43,73 +43,10 @@ export interface ManagementCapacityV9 {
   clock: ManagementClockReservationV9 | null;
   sourceRecordIssues: string[]; unknowns: string[]; excludedProofs: readonly string[];
 }
-export interface ManagementClockReservationV9 {
-  supported: boolean; currentRows: number; reservedRows: number;
-  /** Finite accepted progression horizon only. No indefinite waiting is included. */
-  calendarTicks: number; monthRows: number; ageSyncRows: number; lifecycleTriggerRows: number;
-  additionalActions: number; additionalCultivationRevisions: number;
-  bytes: number; decodedCharacters: number; decodedNodes: number;
-  currentDecodedNodes: number; structuralNodeLimit: number;
-  perTransition: { bytes: number; decodedCharacters: number; decodedNodes: number };
-  progressionOwnerIds: string[]; lifecycleOwnerIds: string[]; unknowns: string[];
-}
-function periodicBoundariesAfter(tick: number, horizon: number, residue: number): number {
-  const offset = ((residue - tick % CALENDAR_TICKS_PER_MONTH) + CALENDAR_TICKS_PER_MONTH) % CALENDAR_TICKS_PER_MONTH;
-  const first = offset === 0 ? CALENDAR_TICKS_PER_MONTH : offset;
-  return horizon < first ? 0 : 1 + Math.floor((horizon - first) / CALENDAR_TICKS_PER_MONTH);
-}
-/** The .3 bridge emits one row and one action/revision per actual month or
- * off-month birthday group; simultaneous birthdays and month ticks coalesce.
- * Progression already reserves one expiry action for each alive lifecycle owner
- * and one action/revision per committed teaching/seclusion month. Only additional
- * off-month groups in that finite horizon need additional scalar headroom here.
- * A lifecycle trigger row does not reserve the arbitrary months leading to it. */
+export type ManagementClockReservationV9 = ManagementClockReservation;
 function deriveManagementClockReservationV9(world: WorldStateV9, progression: ProgressionReservationAssessment, phaseAware: boolean): ManagementClockReservationV9 {
-  const witness: V9CultivationClockTransition = { kind: 'age-sync', tick: MAX, beforeRevision: MAX - 1, rootActionId: `action:${MAX - 1}` };
-  const maximum = measureProgressionRecord(witness);
-  const emptyNodes = measureProgressionRecord({ transitions: [] }).decodedNodes;
-  const current = measureProgressionRecord(world.cultivationClock);
-  const result: ManagementClockReservationV9 = { supported: false, currentRows: world.cultivationClock.transitions.length, reservedRows: 0,
-    calendarTicks: 0, monthRows: 0, ageSyncRows: 0, lifecycleTriggerRows: 0, additionalActions: 0, additionalCultivationRevisions: 0,
-    bytes: 0, decodedCharacters: 0, decodedNodes: 0, currentDecodedNodes: current.decodedNodes,
-    structuralNodeLimit: emptyNodes + V9_CULTIVATION_CLOCK_LIMIT * maximum.decodedNodes,
-    perTransition: { bytes: maximum.bytes + 1, decodedCharacters: maximum.decodedCharacters + 1, decodedNodes: maximum.decodedNodes },
-    progressionOwnerIds: [], lifecycleOwnerIds: [], unknowns: [] };
-  if (!progression.supported) { result.unknowns.push('Clock row reservation requires a supported progression derivation'); return result; }
-  const horizon = progression.totals.counterReserve.calendarTicks;
-  if (!Number.isSafeInteger(horizon) || horizon < 0 || (!phaseAware && horizon % CALENDAR_TICKS_PER_MONTH !== 0)) {
-    result.unknowns.push('Clock row reservation has no finite whole-month progression horizon'); return result;
-  }
-  result.calendarTicks = horizon;
-  result.progressionOwnerIds = progression.owners.filter(owner => owner.counterReserve.calendarTicks > 0).map(owner => `${owner.kind}:${owner.id}`);
-  result.monthRows = periodicBoundariesAfter(world.clock.calendarTick, horizon, 0);
-  if (result.monthRows !== progression.totals.counterReserve.calendarMonths) {
-    result.unknowns.push('Clock month rows differ from already-funded progression months'); return result;
-  }
-  const residues = new Set<number>();
-  for (const actor of world.disciples) {
-    const profile = world.cultivation.disciples.find(profile => profile.discipleId === actor.id);
-    if (!profile) { result.unknowns.push('Clock obligation lacks an active cultivation identity'); return result; }
-    if (profile.lifeState !== 'alive') continue;
-    const residue = ((actor.birthCalendarTick % CALENDAR_TICKS_PER_MONTH) + CALENDAR_TICKS_PER_MONTH) % CALENDAR_TICKS_PER_MONTH;
-    if (residue !== 0) residues.add(residue);
-  }
-  for (const residue of residues) result.ageSyncRows += periodicBoundariesAfter(world.clock.calendarTick, horizon, residue);
-  result.lifecycleOwnerIds = progression.owners.filter(owner => owner.kind === 'disciple-lifecycle'
-    && world.cultivation.disciples.some(profile => profile.discipleId === owner.id && profile.lifeState === 'alive')).map(owner => owner.id);
-  // Per-owner terminal trigger rows may coalesce with each other or a horizon
-  // row. Keep that deliberate conservative duplicate: no terminal discharge or
-  // equality of future death times is assumed by this read-only query.
-  result.lifecycleTriggerRows = result.lifecycleOwnerIds.length;
-  result.reservedRows = result.monthRows + result.ageSyncRows + result.lifecycleTriggerRows;
-  result.additionalActions = result.ageSyncRows; result.additionalCultivationRevisions = result.ageSyncRows;
-  result.bytes = result.reservedRows * result.perTransition.bytes;
-  result.decodedCharacters = result.reservedRows * result.perTransition.decodedCharacters;
-  result.decodedNodes = result.reservedRows * result.perTransition.decodedNodes;
-  if (![result.reservedRows, result.bytes, result.decodedCharacters, result.decodedNodes].every(value => Number.isSafeInteger(value) && value >= 0)) {
-    result.unknowns.push('Clock reservation exceeds finite safe range'); return result;
-  }
-  result.supported = true; return result;
+  return phaseAware ? derivePhaseAwareManagementClockReservation(world, progression)
+    : deriveWholeMonthManagementClockReservation(world, progression);
 }
 /** Read-only internal query, intentionally not re-exported from kernel, save-budget
  * or registered World APIs. It accepts no capability flags or supplied byte counts.
