@@ -12,6 +12,7 @@ import { reserveSectResources } from '../../src/core/sect-expansion/ledger';
 import { applySectProductionCommand, createSectProductionFrame, sectProductionClaims, tickSectProduction } from '../../src/core/sect-expansion/production';
 import { SECT_PRODUCTION_LIMITS, type SectProductionCommand, type SectProductionFrame, type SectProductionResult } from '../../src/core/sect-expansion/production-types';
 import { SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND, validateSectProductionFrame } from '../../src/core/sect-expansion/production-validation';
+import { applySectResearchProductionCommand, createSectResearchFrame, tickSectResearch } from '../../src/core/sect-expansion/research';
 import { createWorld } from '../../src/core/world/create-world';
 import type { WorldState } from '../../src/core/world/types';
 
@@ -367,4 +368,30 @@ describe('isolated manual v9 candidate production, without World/save registrati
     expect(SECT_PRODUCTION_DESCRIPTOR_NODE_BOUND).toBeGreaterThan(36 * 65536 * 3 + 128 * 240 * 5);
     rejection(frame, startCommand(frame), 'CAPACITY_EXCEEDED');
   });
+  it('preserves the public two-domain command and every production phase after runtime extraction', () => {
+    let publicFrame = initial(); let combined = createSectResearchFrame(publicFrame);
+    const cmd = startCommand(publicFrame, 'extract.spirit-stone.v9');
+    publicFrame = accept(applySectProductionCommand(publicFrame, context(publicFrame), cmd));
+    const started = applySectResearchProductionCommand(combined, context(publicFrame), cmd);
+    if (!started.ok) throw new Error(started.code); combined = started.frame;
+    expect({ schemaVersion: combined.schemaVersion, construction: combined.construction, production: combined.production }).toEqual(publicFrame);
+    for (let i = 0; i < 500 && publicFrame.production.jobs[0]!.terminal === null; i++) {
+      const ctx = context(publicFrame, { simulationTick: publicFrame.construction.lastSimulationTick + 1, calendarTick: publicFrame.construction.lastCalendarTick + 1 });
+      publicFrame = accept(tickSectProduction(publicFrame, ctx, createWorkPathBudget(ctx.simulationTick)));
+      const result = tickSectResearch(combined, ctx, createWorkPathBudget(ctx.simulationTick));
+      if (!result.ok) throw new Error(result.code); combined = result.frame;
+      expect({ schemaVersion: combined.schemaVersion, construction: combined.construction, production: combined.production }).toEqual(publicFrame);
+    }
+    expect(publicFrame.production.jobs[0]!.terminal?.kind).toBe('completed');
+  });
+  it('preserves owner-closure rejection before receipt validation in the public two-domain facade', () => {
+    const frame = start(initial());
+    const reserved = reserveSectResources(frame.construction.ledger, { reservationId: 'alien:1', ownerTransactionId: 'alien:2' }, [], 'on-completion');
+    if (!reserved.ok) throw new Error(reserved.rejection.code);
+    const missingReceipt = { ...frame, production: { ...frame.production, receipts: [] } };
+    const orphan = { ...missingReceipt, construction: { ...missingReceipt.construction, ledger: reserved.context } };
+    expect(validateSectProductionFrame(orphan)).toEqual([{ code: 'ORPHAN_RESERVATION', path: 'alien:1' }]);
+    expect(validateSectProductionFrame(missingReceipt)).toEqual([{ code: 'MISSING_RECEIPT', path: frame.production.jobs[0]!.transactionId }]);
+  });
+
 });
