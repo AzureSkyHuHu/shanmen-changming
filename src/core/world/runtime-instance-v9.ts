@@ -1,3 +1,4 @@
+import { restoreHistoryArchive } from '../history';
 import { isPaused } from '../kernel/clock';
 import { isCommandV9, prepareUnregisteredCommandCandidateV9 } from '../kernel/commands-v9';
 import { isNonNegativeInteger } from '../kernel/numeric';
@@ -72,6 +73,31 @@ function prepareSource(input: unknown, metrics: Metrics): Prepared {
     const ownership = new WeakSet<object>(); ownFrozenTree(world, ownership);
     return { ok: true, root: world as PrivateWorld, assessment, ownership };
   } catch { return { ok: false, error: 'invalid-source', stopped: invalidStop() }; }
+}
+
+/** Internal preparation only: preserve the archive module's authenticated,
+ * recursively immutable archive rather than erasing its identity on adoption.
+ * Every non-history field is still freshly descriptor-detached. External World
+ * entrances and snapshot exports deliberately do NOT use this adapter. */
+function detachInternalCandidate(candidate: WorldStateV9): WorldStateV9 {
+  if (candidate === null || typeof candidate !== 'object' || Object.getPrototypeOf(candidate) !== Object.prototype) {
+    throw new TypeError('Expected a plain internal v9 candidate');
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(candidate);
+  if (!Object.hasOwn(descriptors, 'history')) throw new TypeError('Expected own candidate history');
+  const history = descriptors.history;
+  if (!history || !history.enumerable || !Object.hasOwn(history, 'value')) throw new TypeError('Expected candidate history data');
+  const remaining: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key !== 'string') throw new TypeError('Expected candidate JSON keys');
+    const descriptor = descriptors[key]!;
+    if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new TypeError('Expected candidate JSON data');
+    if (key !== 'history') Object.defineProperty(remaining, key, { value: descriptor.value, enumerable: true, writable: true, configurable: true });
+  }
+  const detached = detachData(remaining);
+  // restoreHistoryArchive alone authenticates this identity; Object.isFrozen,
+  // a supplied marker, and the candidate's apparent origin grant no authority.
+  return { ...detached, history: restoreHistoryArchive(history.value) } as WorldStateV9;
 }
 
 /** Construction is the only external World entrance besides validated replace.
@@ -149,9 +175,9 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
           for (const prepare of [prepareNormalTickCandidateV9, prepareNoOptionalGrowthTickCandidateV9]) {
             try {
               if (prepare === prepareNormalTickCandidateV9) measured.normalCandidates++; else measured.noOptionalCandidates++;
-              // Strict candidates may borrow static kernel/catalog data. Detach
-              // before claiming ownership rather than freezing a borrowed tree.
-              const candidate = detachData(prepare(boundary)); measured.fullQueries++;
+              // Detach ordinary candidate data; only the history module's
+              // authenticated immutable archive can retain its identity.
+              const candidate = detachInternalCandidate(prepare(boundary)); measured.fullQueries++;
               const assessment = assessManagementCapacityV9(candidate);
               const checked = decision(boundary, candidate, previous.assessment, assessment);
               if (!checked.ok) { failure = checked; continue; }
@@ -183,7 +209,7 @@ export function createPrivateRuntimeV9(input: unknown): RuntimeCreationV9 {
         if (isCommandV9(captured) && captured.kind === 'cultivation.command' && captured.payload.command.kind === 'teaching.begin') {
           return immutable({ ...outcome(measured), result: refused(candidate.result.commandId, 'UNSUPPORTED_CONTINUATION'), published: false });
         }
-        const previous = exactFor(measured); const next = detachData(candidate.world); measured.fullQueries++;
+        const previous = exactFor(measured); const next = detachInternalCandidate(candidate.world); measured.fullQueries++;
         const assessment = assessManagementCapacityV9(next); const checked = decision(boundary, next, previous.assessment, assessment);
         if (!checked.ok) return immutable({ ...outcome(measured), result: refused(candidate.result.commandId, checked.code!), published: false });
         // Prepare output before publication: even an unexpected export failure

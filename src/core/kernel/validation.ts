@@ -205,7 +205,10 @@ function validateWorldSchema(value: unknown, version: 1 | 2 | 3 | 4 | 5 | 6 | 7 
   if (!economyInspection.ok) return economyInspection.errors;
   const economyRecords = economyInspection.records;
   const economyClosureErrors = version === 9
-    ? inspectV9SectOwnerClosure(value as unknown as WorldStateV9, economyRecords, v9Lifecycle!)
+    // Reuse this call's authenticated immutable archive, as the lifecycle stage
+    // does above. Sect-only receipt IDs still require World collision lookups;
+    // querying the raw source would restore the whole archive for every miss.
+    ? inspectV9SectOwnerClosure({ ...value, history: archive } as unknown as WorldStateV9, economyRecords, v9Lifecycle!)
     : closeLegacyWorldEconomyReservations(economyRecords);
   if (economyClosureErrors.length) return economyClosureErrors;
   const { transactionIds, manualRootActions, settlementEventIds, liveReceipts, liveEvents } = economyRecords;

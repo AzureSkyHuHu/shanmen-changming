@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { restoreHistoryArchive } from '../../src/core/history';
+import * as capacityQueries from '../../src/core/world/management-capacity-v9';
+import * as simulationCandidates from '../../src/core/kernel/simulation-v9';
 import { createCultivationStateV3, previewBreakthroughV3 } from '../../src/core/cultivation/v3';
 import { CALENDAR_TICKS_PER_MONTH as MONTH, setPauseReason } from '../../src/core/kernel/clock';
 import { dispatchUnregisteredCommandV9 } from '../../src/core/kernel/commands-v9';
@@ -393,5 +396,82 @@ describe('bounded audit coverage for stopped and closed facades', () => {
     expect(instance.command.call(hostile, hostile).error).toBe('closed');
     expect(instance.snapshot()).toMatchObject({ error: 'closed', world: null });
     expect(instance.invalidate().error).toBe('closed'); expect(instance.close().error).toBe('closed'); expect(traps).toBe(0);
+  });
+});
+
+describe('candidate-only authenticated archive preservation', () => {
+  it('keeps sealed history across active ticks while still copying every ordinary candidate subtree', () => {
+    const source = cloneJson(heavy); const instance = runtime(source);
+    const input = fixtureCommand(source, { kind: 'production.start', payload: { recipeId: 'craft.plank', workerId: 'entity:2' } }, 'instance.archive.start');
+    const spy = vi.spyOn(capacityQueries, 'assessManagementCapacityV9');
+    try {
+      const strictStart = dispatchCapacityLimitedCommandV9(source, input); spy.mockClear();
+      expect(instance.command(input).result).toEqual(strictStart.result);
+      const started = spy.mock.calls.at(-1)![0]; expect(restoreHistoryArchive(started.history)).toBe(started.history);
+      expect(started.history.commandReceipts.count).toBe(source.history.commandReceipts.count + 1);
+      expect(snapshot(instance)).toEqual(strictStart.world);
+      let oracle = strictStart.world; let previous = started;
+      for (let index = 0; index < 3; index++) {
+        const strict = advanceCapacityLimitedTicksV9(oracle, 1); spy.mockClear();
+        const actual = instance.advance(1); expect(actual.metrics).toMatchObject({ fullQueries: 1, fastQueries: 0 });
+        const current = spy.mock.calls.at(-1)![0]; expect(current.history).toBe(previous.history);
+        expect(current.builds).not.toBe(previous.builds); expect(current.cultivation).not.toBe(previous.cultivation);
+        expect(snapshot(instance)).toEqual(strict.world); oracle = strict.world; previous = current;
+      }
+      const beforeRetry = instance.snapshot(); spy.mockClear();
+      expect(instance.command(input)).toMatchObject({ published: false, result: strictStart.result });
+      expect(spy).not.toHaveBeenCalled(); expect(instance.snapshot().world).toBe(beforeRetry.world);
+    } finally { spy.mockRestore(); }
+  });
+  it('authenticates real archive growth and preserves archived exact retries plus payload conflicts', () => {
+    let oracle = cloneJson(heavy); const instance = runtime(oracle); const startCount = oracle.history.commandReceipts.count;
+    const first = training(oracle, 'a.instance.archive.first'); const secondId = 'a.instance.archive.second';
+    const spy = vi.spyOn(capacityQueries, 'assessManagementCapacityV9');
+    try {
+      oracle = command(instance, oracle, first); const firstOwned = spy.mock.calls.at(-1)![0];
+      expect(restoreHistoryArchive(firstOwned.history)).toBe(firstOwned.history);
+      expect(oracle.commandReceipts[first.commandId]).toBeUndefined(); // Real sorted-tail retirement.
+      const second = training(oracle, secondId); oracle = command(instance, oracle, second);
+      const secondOwned = spy.mock.calls.at(-1)![0]; expect(secondOwned.history).not.toBe(firstOwned.history);
+      expect(restoreHistoryArchive(secondOwned.history)).toBe(secondOwned.history);
+      expect(oracle.history.commandReceipts.count).toBe(startCount + 2);
+      const before = instance.snapshot(); oracle = command(instance, oracle, first);
+      oracle = command(instance, oracle, training(oracle, first.commandId, 'rest'));
+      expect(instance.snapshot().world).toBe(before.world);
+      expect(instance.command(training(oracle, first.commandId, 'rest')).result?.rejection?.code).toBe('COMMAND_CONFLICT');
+    } finally { spy.mockRestore(); }
+  });
+  it('never shares an imported or exported archive across instance or replacement boundaries', () => {
+    const source = cloneJson(heavy); const baseline = canonicalStringify(source); const a = runtime(source); const b = runtime(source);
+    const input = fixtureCommand(source, { kind: 'production.start', payload: { recipeId: 'craft.plank', workerId: 'entity:2' } }, 'a.instance.archive.isolation');
+    const spy = vi.spyOn(capacityQueries, 'assessManagementCapacityV9');
+    try {
+      a.command(input); const privateA = spy.mock.calls.at(-1)![0];
+      b.command(input); const privateB = spy.mock.calls.at(-1)![0];
+      expect(privateA.history).not.toBe(privateB.history); expect(privateA.history).not.toBe(source.history);
+      const staleA = snapshot(a); const staleB = snapshot(b);
+      expect(staleA).toEqual(staleB); expect(staleA.history).not.toBe(privateA.history); expect(staleA.history).not.toBe(staleB.history);
+      expect(Reflect.set(staleA.history.commandReceipts.pages[0]!, '0', [])).toBe(false);
+      expect(Reflect.set(source.history.commandReceipts, 'count', 0)).toBe(true);
+      expect(canonicalStringify(source)).not.toBe(baseline); expect(snapshot(a)).toBe(staleA); expect(snapshot(b)).toBe(staleB);
+      a.advance(1); expect(snapshot(a).clock.simulationTick).toBe(staleA.clock.simulationTick + 1);
+      expect(snapshot(b)).toBe(staleB);
+      const replaced = a.replace(staleB); expect(replaced.ok).toBe(true); const replacement = spy.mock.calls.at(-1)![0];
+      expect(replacement.history).not.toBe(privateB.history); expect(replacement.history).not.toBe(staleB.history);
+      a.advance(1); const after = spy.mock.calls.at(-1)![0]; expect(restoreHistoryArchive(after.history)).toBe(after.history);
+      expect(after.history).not.toBe(privateB.history); expect(snapshot(b)).toBe(staleB);
+      expect(snapshot(a)).toEqual(advanceCapacityLimitedTicksV9(staleB, 1).world);
+    } finally { spy.mockRestore(); }
+  });
+  for (const field of ['history', 'builds'] as const) it(`rejects a candidate ${field} getter before invocation and safely uses the same-source fallback`, () => {
+    const source = fixtureStartConstruction(fixturePlace(fundedRuntimeFixture(), 'library.v9', 1)); const instance = runtime(source);
+    const expected = advanceCapacityLimitedTicksV9(source, 1); const prepared = prepareNormalTickCandidateV9(source); let reads = 0;
+    Object.defineProperty(prepared, field, { enumerable: true, get() { reads++; throw new Error('Candidate getter must not run'); } });
+    const spy = vi.spyOn(simulationCandidates, 'prepareNormalTickCandidateV9').mockReturnValueOnce(prepared);
+    try {
+      const actual = instance.advance(1); expect(actual.stopped).toBeNull(); expect(actual.advancedTicks).toBe(1);
+      expect(actual.metrics).toMatchObject({ normalCandidates: 1, noOptionalCandidates: 1, fullQueries: 1 });
+      expect(snapshot(instance)).toEqual(expected.world); expect(reads).toBe(0);
+    } finally { spy.mockRestore(); }
   });
 });
