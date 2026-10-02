@@ -5,8 +5,16 @@ import { REALMS } from '../cultivation/types';
 import type { LegacyWorldStateV7 as WorldState } from './legacy-types';
 const EXPEDITION_COMBAT_CATALOG = LEGACY_V7_CONTENT.combat;
 
+/** Version-neutral collection projection; source validity remains with its selected root. */
+export interface BuildInstanceOwnershipSource {
+  readonly builds: {
+    readonly equipment: readonly { readonly instanceId: string }[];
+    readonly disciples: readonly { readonly sources: readonly { readonly sourceInstanceId: string }[] }[];
+    readonly receipts: readonly { readonly operations: readonly { readonly source: { readonly sourceInstanceId: string } }[] }[];
+  };
+}
 /** Include removed source instances retained by the immutable build receipt history. */
-export function buildOwnedInstanceIds(world: WorldState): string[] {
+export function buildOwnedInstanceIds(world: BuildInstanceOwnershipSource): string[] {
   return [...new Set([...world.builds.equipment.map((item) => item.instanceId),
     ...world.builds.disciples.flatMap((d) => d.sources.map((source) => source.sourceInstanceId)),
     ...world.builds.receipts.flatMap((receipt) => receipt.operations.map((operation) => operation.source.sourceInstanceId))])];
