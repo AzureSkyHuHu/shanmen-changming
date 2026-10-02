@@ -13,6 +13,13 @@ import { ownSectFields } from '../sect-expansion/layout';
 import { lookupCommandReceipt, lookupEvent } from './history-access';
 import { V9_CULTIVATION_CLOCK_LIMIT, type V9CultivationClockTransition } from './v9-cultivation-clock-types';
 import type { WorldStateV9 } from './v9-types';
+import type { WorldStateBase } from './types';
+import type { WorldDiscipleV8 } from './v8-types';
+
+/** Version-independent record shape; callers retain their own World admission. */
+export type CultivationClockRecordSource = WorldStateBase<WorldDiscipleV8>
+  & Pick<WorldStateV9, 'cultivation' | 'cultivationClock' | 'legacy'>
+  & { sectExpansion: Pick<WorldStateV9['sectExpansion'], 'care'> };
 
 const integer = isNonNegativeInteger;
 const same = (a: unknown, b: unknown): boolean => canonicalStringify(a) === canonicalStringify(b);
@@ -23,11 +30,17 @@ interface RevisionOwner {
 }
 /** Read only after lifecycle inspection. Redundant month/afterRevision values are derived. */
 export function v9CultivationMonthTransition(world: WorldStateV9, month: number): V9CultivationClockTransition | undefined {
+  return cultivationMonthTransitionFromRecords(world, month);
+}
+export function cultivationMonthTransitionFromRecords(world: CultivationClockRecordSource, month: number): V9CultivationClockTransition | undefined {
   return world.cultivationClock.transitions.find(record => record.kind === 'month' && record.tick === month * CALENDAR_TICKS_PER_MONTH);
 }
 /** Every fresh accepted schema-3 command increments, even an accepted no-op talent
  * grant or same-mode training.set. Exact retries retain the original single receipt. */
 export function v9CanonicalCultivationCommands(world: WorldStateV9): CultivationCommand[] {
+  return canonicalCultivationCommandsFromRecords(world);
+}
+export function canonicalCultivationCommandsFromRecords(world: CultivationClockRecordSource): CultivationCommand[] {
   return world.cultivation.receipts.map(receipt => {
     let parsed: unknown; try { parsed = JSON.parse(receipt.fingerprint); } catch { return fail('malformed command fingerprint'); }
     if (!isCultivationCommand(parsed) || canonicalStringify(parsed) !== receipt.fingerprint
@@ -41,6 +54,10 @@ export function v9CanonicalCultivationCommands(world: WorldStateV9): Cultivation
  * authenticate edits cryptographically, or reconstruct every historical injury.
  * All loops are over bounded retained rows/identities, never an alleged revision/tick. */
 export function inspectV9CultivationClockRecords(world: WorldStateV9): void {
+  inspectCultivationClockSourceRecords(world);
+}
+/** Shared bounded algorithm only. This grants no lifecycle or version authority. */
+export function inspectCultivationClockSourceRecords(world: CultivationClockRecordSource): void {
   canonicalUtf8ByteLength(world);
   const state = world.cultivation; const rows = world.cultivationClock?.transitions; const now = world.clock.simulationTick;
   if (!ownSectFields(world.cultivationClock, ['transitions']) || !Array.isArray(rows) || !isLedgerDataArray(rows)
@@ -48,7 +65,7 @@ export function inspectV9CultivationClockRecords(world: WorldStateV9): void {
     || state.receipts.length > MAX_CULTIVATION_HISTORY || state.authorityReceipts.length > MAX_CULTIVATION_HISTORY
     || state.events.length > MAX_CULTIVATION_HISTORY || world.sectExpansion.care.jobs.length > SECT_CARE_LIMITS.records) fail('record bounds');
   const owners: RevisionOwner[] = [];
-  const eventOwners = new Map<string, RevisionOwner>(); const commands = v9CanonicalCultivationCommands(world);
+  const eventOwners = new Map<string, RevisionOwner>(); const commands = canonicalCultivationCommandsFromRecords(world);
   const eventKey = (kind: string, discipleId: string, relatedId: string | null): string => JSON.stringify([kind, discipleId, relatedId]);
   const eventSources = new Map<string, CultivationEvent[]>();
   for (const event of state.events) {

@@ -1,4 +1,6 @@
 import { historicalDeathsOfV9LifecycleEvidence, type V9LifecycleRecordEvidence } from '../world/v9-lifecycle-records';
+import { historicalDeathsOfV10LifecycleEvidence, type V10LifecycleRecordEvidence } from '../world/v10-lifecycle-records';
+import type { WorldStateV10 } from './upgrade-types';
 import { CALENDAR_TICKS_PER_MONTH } from '../kernel/clock';
 import { validateWorldStateV8 } from '../kernel/validation';
 import { canonicalUtf8ByteLength } from '../save-budget';
@@ -53,6 +55,13 @@ class SectHistoricalIdentitySource {
       { tick: fact.tick, calendarMinimum: fact.calendarMinimum, calendarMaximum: fact.calendarMaximum }])));
     admittedHistoricalSources.add(source); return source;
   }
+  static fromV10Lifecycle(evidence: V10LifecycleRecordEvidence, world: WorldStateV10): SectHistoricalIdentitySource {
+    const facts = historicalDeathsOfV10LifecycleEvidence(evidence, world);
+    const source = new SectHistoricalIdentitySource(new Map(facts.filter(fact => fact.archived && fact.diedTick !== null)
+      .map(fact => [fact.discipleId, { tick: fact.unavailableTick,
+        calendarMinimum: fact.unavailableCalendarTick, calendarMaximum: fact.unavailableCalendarTick }])));
+    admittedHistoricalSources.add(source); return source;
+  }
   static permits(source: SectHistoricalIdentitySource | undefined, workerId: string,
     terminal: { readonly tick: number; readonly calendarTick: number } | null): boolean {
     if (!source || typeof source !== 'object' || !admittedHistoricalSources.has(source) || !(#deaths in source) || terminal === null) return false;
@@ -77,3 +86,7 @@ export const isArchivedSectWorkerReference = (source: SectHistoricalIdentitySour
 
 /** Only the version-owned lifecycle stage can mint this historical-only source. */
 export const captureSectHistoricalIdentitiesV9 = (evidence: V9LifecycleRecordEvidence): SectHistoricalIdentitySource => SectHistoricalIdentitySource.fromV9Lifecycle(evidence);
+
+/** Archived references only; exact death cancellation needs separate World-bound evidence. */
+export const captureSectHistoricalIdentitiesV10 = (evidence: V10LifecycleRecordEvidence, world: WorldStateV10): SectHistoricalIdentitySource =>
+  SectHistoricalIdentitySource.fromV10Lifecycle(evidence, world);

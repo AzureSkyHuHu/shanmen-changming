@@ -1,7 +1,7 @@
 import { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 export { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
-import { sectBuildingPaidAt, sectBuildingPaidRange } from './maintenance-periods';
+import { sectBuildingPaidAt, sectBuildingPaidRange, type SectMaintenancePeriodSource } from './maintenance-periods';
 import type { SectMaintenanceFrame } from './maintenance-types';
 import { getSectResearchDefinition } from '../../content/sect-v9/catalog';
 import type { SectResearchDefinition } from '../../content/sect-v9/types';
@@ -25,6 +25,8 @@ const same = (left: unknown, right: unknown): boolean => canonicalStringify(left
 const array = (value: unknown, maximum: number): value is unknown[] => isLedgerDataArray(value) && (value as unknown[]).length <= maximum;
 const cell = (value: unknown): boolean => fields(value, ['x', 'y']) && integer(value.x) && integer(value.y) && value.x <= 255 && value.y <= 255;
 const key = (p: { readonly x: number; readonly y: number }): string => `${p.x},${p.y}`;
+type SectResearchRecordSource = Pick<SectResearchFrame, 'construction' | 'research'>;
+export type SectMaintainedResearchRecordSource = SectResearchRecordSource & Pick<SectMaintenanceFrame, 'maintenance'>;
 function plainTree(value: unknown, depth = 0, budget = { left: SECT_RESEARCH_DESCRIPTOR_NODE_BOUND }): boolean {
   if (--budget.left < 0 || depth > 24) return false;
   if (value === null || typeof value === 'boolean') return true;
@@ -40,7 +42,7 @@ export function isSectResearchCommand(value: unknown): value is SectResearchComm
   return value.kind === 'research.cancel' && fields(value, ['commandId', 'expectedRevision', 'kind', 'jobId']) && id(value.jobId);
 }
 /** Both registered nodes require the same genuinely constructed, ungated library L1. */
-export function sectResearchSites(frame: SectResearchFrame, definition: SectResearchDefinition): readonly SectResearchSiteProof[] {
+export function sectResearchSites(frame: Pick<SectResearchFrame, 'construction'>, definition: SectResearchDefinition): readonly SectResearchSiteProof[] {
   return frame.construction.buildings.filter(building => definition.workstation.definitionId === 'library.v9' && building.definitionId === 'library.v9' && building.level === 1
     && building.level >= definition.workstation.minimumLevel && frame.construction.blueprints.some(bp => bp.jobId === building.sourceJobId && bp.definitionId === 'library.v9' && bp.researchGate === undefined)).map(building => {
     const shape = deriveSectFootprint({ definitionId: building.definitionId, anchor: building.anchor, rotation: building.rotation });
@@ -92,7 +94,7 @@ export function validateSectResearchFrame(input: unknown): readonly SectResearch
   return [];
 }
 
-function paidAt(_frame: SectResearchFrame, site: SectResearchSiteProof, tick: number, calendar: number, maintenance?: SectMaintenanceFrame): boolean {
+function paidAt(_frame: SectResearchRecordSource, site: SectResearchSiteProof, tick: number, calendar: number, maintenance?: SectMaintenancePeriodSource): boolean {
   return maintenance ? sectBuildingPaidAt(maintenance, site.buildingId, tick, calendar) : calendar < site.firstMaintenanceCalendarTick;
 }
 /** Narrow local research stage. Construction and production descriptors/records are already checked. */
@@ -107,7 +109,14 @@ export function validateMaintainedSectResearchRecords(frame: SectMaintenanceFram
 export function validateWorldMaintainedSectResearchRecords(frame: SectMaintenanceFrame, identities: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
   return validateResearchRecords(frame, frame, identities);
 }
-function validateResearchRecords(frame: SectResearchFrame, maintenance?: SectMaintenanceFrame, identities?: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
+/** Fixed one-source leaf for later version owners. Construction, the complete maintenance
+ * history and every library payment must already be authenticated. All research evidence,
+ * payment, DAG and receipt checks are identical to the v9 wrappers. This is not admission. */
+export function validateMaintainedSectResearchSourceRecords(frame: SectMaintainedResearchRecordSource,
+  identities?: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
+  return validateResearchRecords(frame, frame, identities);
+}
+function validateResearchRecords(frame: SectResearchRecordSource, maintenance?: SectMaintenancePeriodSource, identities?: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
   const fail = (code: string, path: string): readonly SectResearchValidationIssue[] => [{ code, path }];
   const authority = frame.construction;
   const domain = frame.research;
