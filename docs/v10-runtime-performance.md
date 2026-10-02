@@ -8,3 +8,7 @@
 - This strict cold-boundary path exceeds a50ms 20Hz frame budget before rendering. It is a baseline blocker for activating player-facing v10, not a browser/phone/large-population performance verdict
 - Correctness gate remains unchanged. Next optimize only private-owned redundant work or proved scalar idle transitions, retaining the strict path as differential oracle and untrusted-source admission
 - Existing v9 public gameplay remains in place. No v10 performance or full-game acceptance claim
+
+Private-owner baseline (same isolated source,21:24UTC):20 separate single-tick advances after3warmups, each checked against the full raw candidate with snapshot/oracle outside timing. Creation71.950ms; advance p50 128.578ms,p95 135.581ms,max152.443ms; all exact. Reproduce with `node tools/benchmark-v10-runtime.mjs --private`. This is the pre-idle-integration baseline, not optimized runtime performance.
+
+Idle-integrated owner measurement21:40UTC: fresh20samples p50 .207ms,p95 .360ms,max.407ms,creation68.68ms,all exact. New `--active` scenario uses actual gather command and40 real setup ticks before sampling20 single ticks: p5099.577ms,p95123.274ms,max126.721ms,creation62.10ms,all exact. Neither fixture injects active work or resources. Active-work cost remains a blocker; browser and larger worlds are unmeasured.
