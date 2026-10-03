@@ -348,3 +348,28 @@ retain old wrappers and their exact first-error order, then distinguish original
 provenance from historical/current placement. Cross-domain cancellation/reuse in
 the same tick cannot be ordered using unrelated domain revisions. True vacated-
 ground construction still requires the later new-owner command integration.
+
+## Fixed provenance boundary extracted — 2026-10-03 10:43 UTC
+
+Two internal partial inspection entry points now share existing record mechanics:
+`inspectConstructionProvenanceForRelocationOwner` and
+`inspectRelocationProvenanceForOwner`. Only the original-position permanent
+occupancy policy is omitted in these named leaves. Shape, descriptor budgets,
+geometry, accounting, source chains, work, receipts and current-worker checks
+remain. They do not authenticate vacated-ground reuse or any World; empty issues
+must not be treated as complete spatial admission.
+
+All old construction wrappers keep their permanent-origin policy at exactly the
+same point within each blueprint's validation. The old relocation entry still
+calls the old construction validator. No public identity, runtime command,
+archived-worker exception or caller-supplied validation callback was introduced.
+
+Root checks: both type configurations; final 45 policy tests in 3.12 s. Earlier
+nine-file related run passed 307 tests in 68.59 s before test-only coverage
+additions, plus boundaries/content/1206 locale keys and default build in 793 ms.
+The final test additions directly cover the World wrapper using factory-captured
+identity evidence, relocation's own missing-worker guard using a distinct real
+worker, and cancellation terminal position. Independent source review found no
+new production defect. Tests explicitly demonstrate that a spatially invalid
+origin overlap can pass a partial leaf and still be rejected by the old complete
+runtime, preventing that narrow result from being mistaken for admission.

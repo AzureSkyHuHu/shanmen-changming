@@ -265,3 +265,32 @@ before completing the build chain. Existing local compiler and Vite binaries
 completed both type configurations and the default build (864 ms) without a
 network request. This records separately completed stages, not an uninterrupted
 successful npm aggregate exit.
+
+### Real work-to-idle and interruption follow-up — 2026-10-03 10:35 UTC
+
+On the same published build, ordinary UI commands started planting grain,
+processing planks and gathering wood with three distinct available workers.
+The first selector attempt used a label locator that did not match; the visible
+combobox was then used. No game state or resources were injected. The second
+capture began with three real active jobs and four disciples at speed 1x:
+
+- 3591 frames / 1200 ticks, simulation 3244 -> 4444, zero multi-tick frames
+- Wall duration 60004.20 ms; rAF span 60003.50 ms
+- rAF interval p50 / p95 / maximum 16.70 / 16.70 / 50 ms
+- Session call p50 / p95 / maximum 0 / 9.70 / 21.40 ms, total 3496.20 ms
+- Pending 8313 -> 9547 microseconds, maximum 49985; exact residual and tick mismatch both 0
+- 694 active-work frames in the first 20 seconds; no active work in later segments
+- One delivered long task of 57 ms, not hidden or described as zero
+
+All three jobs completed and delivered their ordinary yields. Stock changed from
+wood24/grain24/planks0 to wood25/grain28/planks2. This is explicitly a short
+three-job work-to-idle sample, not sustained load or large-scale acceptance.
+
+Starting while the game was paused ended immediately with the paused reason and
+zero samples, without advancing tick5765 or resuming play. A subsequent running
+capture was interrupted by opening the save dialog: 17 frames / 5 ticks ended
+with the Session-hold reason. Closing the dialog resumed ordinary play without
+restarting diagnostics; the final report remained unchanged. No save/import/load
+was performed; existing slot revisions were still 4/1/4. Foreground loss,
+long-duration heaps, real mobile hardware and v10 remain separate outstanding
+checks. Root performed no concurrent test/build workload during either capture.

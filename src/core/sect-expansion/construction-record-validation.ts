@@ -64,7 +64,15 @@ export function validateUngatedConstructionRecords(input: unknown): readonly Con
 export function validateWorldConstructionRecords(input: unknown, identities: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
   return validateRecords(input, 'research-consumer-records', identities);
 }
-function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-records', identities?: SectHistoricalIdentitySource): readonly ConstructionValidationIssue[] {
+/** Internal partial record inspection for the future relocation owner. Original
+ * geometry and accounting are checked, but origins are not permanent occupancy.
+ * An empty result is NOT spatial admission: the owner must separately authenticate
+ * every historical/current claim interval. No archived-worker exception is added. */
+export function inspectConstructionProvenanceForRelocationOwner(input: unknown): readonly ConstructionValidationIssue[] {
+  return validateRecords(input, 'research-consumer-records', undefined, 'historical-origins');
+}
+function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-records', identities?: SectHistoricalIdentitySource,
+  spatialMeaning: 'permanent-origins' | 'historical-origins' = 'permanent-origins'): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path: string): readonly ConstructionValidationIssue[] => [{ code, path }];
   if (!plainTree(input, 0, { left: scope === 'ungated' ? CONSTRUCTION_DESCRIPTOR_NODE_BOUND : CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND }) || !fields(input, ['schemaVersion', 'catalogIdentity', 'revision', 'nextId', 'lastSimulationTick', 'lastCalendarTick', 'map', 'legacyStations', 'people', 'ledger', 'blueprints', 'jobs', 'buildings', 'receipts'])) return fail('INVALID_SHAPE', 'frame');
   const frame = input as unknown as ConstructionFrame;
@@ -123,7 +131,9 @@ function validateRecords(input: unknown, scope: 'ungated' | 'research-consumer-r
       || ((bp.status === 'completed' || bp.status === 'cancelled') && bp.endedTick === null) || (bp.status === 'completed' && bp.jobId === null)) return fail('INVALID_BLUEPRINT_STATE', bp.blueprintId);
     const geometry = deriveSectFootprint({ definitionId: bp.definitionId, anchor: bp.anchor, rotation: bp.rotation });
     if (!geometry.ok || !geometry.footprint.cells.every(inMap) || !inMap(geometry.footprint.entrance)) return fail('INVALID_GEOMETRY', bp.blueprintId);
-    if (bp.status !== 'cancelled') {
+    // Keep this check inside the established per-blueprint position: moving it
+    // after structural validation would change frozen wrappers' first error.
+    if (spatialMeaning === 'permanent-origins' && bp.status !== 'cancelled') {
       for (const p of [...geometry.footprint.cells, geometry.footprint.entrance]) {
         const key = `${p.x},${p.y}`;
         if (occupiedClaims.has(key)) return fail('OVERLAPPING_CLAIMS', bp.blueprintId);

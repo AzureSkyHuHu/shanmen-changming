@@ -3,7 +3,7 @@ import type { SectCell } from '../../content/sect-v9/types';
 import { cardinalDistance, MOVEMENT_TICKS_PER_CELL } from '../agents/navigation';
 import { isNonNegativeInteger } from '../kernel/numeric';
 import { canonicalStringify, cloneJson } from '../kernel/serialization';
-import { validateConstructionRecords } from './construction-record-validation';
+import { inspectConstructionProvenanceForRelocationOwner, validateConstructionRecords } from './construction-record-validation';
 import type { ConstructionValidationIssue } from './construction-types';
 import { CONSTRUCTION_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import { deriveSectFootprint, ownSectFields } from './layout';
@@ -73,11 +73,22 @@ export function isSectRelocationCommand(value: unknown): value is SectRelocation
  * unchanged. This does NOT authenticate research/upgrade/maintenance, terrain history, travel
  * routes, lifecycle or other domain owners. No public command or World codec calls this stage. */
 export function validateSectRelocationRecords(input: unknown): readonly ConstructionValidationIssue[] {
+  return inspectRecords(input, 'permanent-origins');
+}
+/** Internal partial record inspection only. The complete future owner must join
+ * historical and current spatial claims before accepting any state or command.
+ * This does not authenticate vacated-ground placement, lifecycle or a World. */
+export function inspectRelocationProvenanceForOwner(input: unknown): readonly ConstructionValidationIssue[] {
+  return inspectRecords(input, 'historical-origins');
+}
+function inspectRecords(input: unknown, spatialMeaning: 'permanent-origins' | 'historical-origins'): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path = 'relocation'): readonly ConstructionValidationIssue[] => [{ code, path }];
   try {
     if (!dataTree(input) || !fields(input, ['construction', 'relocation'])) return fail('INVALID_RELOCATION_SHAPE');
     const frame = input as unknown as SectRelocationRecordFrame;
-    const constructionIssues = validateConstructionRecords(frame.construction);
+    const constructionIssues = spatialMeaning === 'permanent-origins'
+      ? validateConstructionRecords(frame.construction)
+      : inspectConstructionProvenanceForRelocationOwner(frame.construction);
     if (constructionIssues.length) return constructionIssues;
     const source = frame.construction; const state = frame.relocation;
     if (!fields(state, ['schemaVersion', 'protocol', 'catalogIdentity', 'revision', 'nextId', 'jobs', 'receipts'])
