@@ -17,7 +17,7 @@ import { SECT_PRODUCTION_LIMITS } from '../sect-expansion/production-types';
 import { SECT_RESEARCH_LIMITS } from '../sect-expansion/research-types';
 import { type ProgressionNumericAssessment } from './progression-numeric';
 import { deriveV10RecordReservations } from './v10-record-headroom';
-import { captureV10RecordData } from './v10-sect-records';
+import { captureFrozenV10RecordData } from './v10-frozen-record-capture';
 import { projectV10SectFrame } from './v10-sect-frame';
 import { V9_CULTIVATION_CLOCK_LIMIT } from './v9-cultivation-clock-types';
 import { type ManagementClockReservation } from '../save-budget/management-clock-reservation';
@@ -75,7 +75,7 @@ export function assessManagementCapacityV10(input: WorldStateV10): ManagementCap
     const counter = createCanonicalByteCounter(); counter.measure(input);
     result.measuredEnvelopeBytes = measureWorldSaveBytes(input, { saveVersion: 10, counter });
     result.actualFits = result.measuredEnvelopeBytes <= SAVE_FILE_LIMIT_BYTES;
-    const world = captureV10RecordData(input) as WorldStateV10;
+    const world = captureFrozenV10RecordData(input) as WorldStateV10;
     const measured = measureWorldSaveBytes(world, { saveVersion: 10, counter });
     result.measuredEnvelopeBytes = measured; result.actualFits = measured <= SAVE_FILE_LIMIT_BYTES;
     const protocol = MANAGEMENT_V10_PROTOCOL;

@@ -50,6 +50,23 @@ describe('source-bound v10 completed lifecycle record evidence', () => {
     world.seed += '.changed';
     expect(() => historicalDeathsOfV10LifecycleEvidence(token, world)).toThrow('Changed v10 lifecycle evidence source');
   });
+  it('rechecks mutable descendants of a shallow-frozen source on every evidence read', () => {
+    const world = Object.freeze(records()); const token = inspectV10LifecycleRecords(world);
+    expect(historicalDeathsOfV10LifecycleEvidence(token, world)).toEqual([]);
+    expect(historicalDeathsOfV10LifecycleEvidence(token, world)).toEqual([]);
+    expect(Object.isFrozen(world.clock)).toBe(false);
+    world.clock.speed = 3;
+    expect(() => historicalDeathsOfV10LifecycleEvidence(token, world)).toThrow('Changed v10 lifecycle evidence source');
+    expect(Object.isFrozen(world.clock)).toBe(false);
+  });
+  it('rejects a getter introduced after evidence creation without executing it', () => {
+    const world = Object.freeze(records()); const token = inspectV10LifecycleRecords(world);
+    expect(historicalDeathsOfV10LifecycleEvidence(token, world)).toEqual([]);
+    let reads = 0;
+    Object.defineProperty(world.clock, 'speed', { enumerable: true, get: () => { reads++; return 1; } });
+    expect(() => historicalDeathsOfV10LifecycleEvidence(token, world)).toThrow();
+    expect(reads).toBe(0);
+  });
   it('retains exact pending-expiry and finalized-death anchors from genuine reducers', () => {
     const initial: WorldStateV9 = createUnregisteredWorldV9('v10-real-expiry-fixture');
     // Explicit near-expiry initial birthday fixture, not a claim of simulating a lifetime.
