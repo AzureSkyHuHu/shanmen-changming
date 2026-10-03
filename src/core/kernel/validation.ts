@@ -24,7 +24,7 @@ import { isAutomaticJobId } from '../economy/automatic-production';
 import type { AutomaticProductionState } from '../economy/automatic-types';
 import { validateAutomaticProductionShape, validateAutomaticProductionReferences } from '../world/validate-automatic';
 import { iterateArchivedCommandReceipts, iterateArchivedEvents, restoreHistoryArchive, type HistoryArchive } from '../history';
-import { RECENT_WORLD_EVENTS, RECENT_WORLD_RECEIPTS } from '../world/history-access';
+import { RECENT_WORLD_EVENTS, RECENT_WORLD_RECEIPTS, restoreWorldHistory } from '../world/history-access';
 import { validateSectEconomyState } from '../sect-economy/state';
 import { projectLegacyWorldV4Controller } from './migrate-v4';
 import { CULTIVATION_EVENT_KINDS, type CultivationState } from '../cultivation/types';
@@ -97,6 +97,16 @@ export interface V10RecordInspection {
  * Capacity may measure this same immutable data before invoking its inspection. */
 export function captureV10RecordInspection(input: unknown): V10RecordInspection {
   const data = captureFrozenV10RecordData(input);
+  return Object.freeze({ data, inspect: (): string[] => [...inspectCapturedV10Records(data)] });
+}
+/** INTERNAL owned-candidate composition. Always detach first, then authenticate
+ * this copy's archive. Freezing the restored wrapper is sufficient: the captured
+ * children and the archive module's newly owned archive are already deep-frozen.
+ * No supplied inspection, assessment or frozen-object claim is accepted. The
+ * complete record validator still runs on every argument-free inspect call. */
+export function captureRestoredV10RecordInspection(input: unknown): V10RecordInspection {
+  const captured = captureFrozenV10RecordData(input) as WorldStateV10;
+  const data = Object.freeze(restoreWorldHistory(captured));
   return Object.freeze({ data, inspect: (): string[] => [...inspectCapturedV10Records(data)] });
 }
 function inspectCapturedV10Records(value: unknown): string[] {

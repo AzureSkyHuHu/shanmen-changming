@@ -34,3 +34,41 @@
 已发布原生模态滚动修正实际通过：窄屏内层可滚到种子/页尾，背景scrollY保持0；入口与存档互换仍锁背景；关闭最后模态恢复页面滚动并返回焦点。
 
 两次页面操作工具报告42–45秒，随后相同状态交互恢复约0.4秒；日志另有浏览器扩展元数据错误。尚未建立持续的应用卡顿复现，不能将工具耗时直接归因为游戏代码。当前Node性能专项与真实浏览器响应是不同证据。
+
+## Resume and two further routes — 2026-10-03 05:12 UTC
+
+The paused campaign tab later entered the read-only lease fence while left in the
+background. Revision 5 remained present. The implementation renews every five
+seconds with a fifteen-second TTL and correctly rejects a late renewal; the
+precise reason the heartbeat was delayed was not observed. v8 and v9 use separate
+IndexedDB namespaces. With explicit permission to replace this test scene, an
+ordinary campaign-3 read (no forced takeover) restored revision 5, write access
+and a paused session at tick17837/year2 month3. The original campaign1 and the
+separate baseline campaign2 remained unchanged.
+
+The same three-person party (Lin Qing, Shen Yan and the recruited sword disciple)
+then completed all three encounters and actual return settlement for 瘴泽之印 and
+鸣雷之印. Each route prepaid twelve meals for four travel/return months; nine
+herbs and fourteen stone actually entered storage after return. All three party
+members returned, none permanently died, and departure locks were released.
+
+- 瘴泽: selected team 三曜净阵 and sword disciple's 借痕续命. Queued 回春 while
+  paused, resumed it, then observed Shen Yan's HP rise from93 to115 in the boss
+  fight. A specific cleanse proc was not directly verified. The manual sword
+  cast first correctly reported out-of-range; a later attempt arrived after the
+  encounter had ended and did not establish a successful manual cast.
+- 鸣雷: an actual initial snapshot showed the sword disciple casting 贯日剑诀.
+  One candidate refresh changed the legal offer list and remaining count2→1.
+  Selected team 异法护灯 and 余盈护灯, whose legal-holder list contained only
+  Shen Yan. Issued boss focus and ally guard before resuming the boss fight.
+- After the second route: campaign3 revision6 saved05:02:58 UTC. After the third:
+  revision7 saved05:10:18 UTC. Both saves reported success. The map showed3/5
+  routes completed, 镇岳 newly available and the finale still locked.
+- At the third return: wood44, stone50, herbs31, grain20, meals26, planks0.
+  Shen Yan's automatic food plan resumed after returning. No resource injection
+  or hidden-state mutation was used.
+
+A fourth-route attempt has now departed with the same party and is paused at
+镇岳's first encounter, with nine carried meals. It has not been completed or
+saved over revision7 yet. This remains a bounded campaign playthrough, not full
+content, balance, failure/recovery, long-run or actual-mobile-device acceptance.

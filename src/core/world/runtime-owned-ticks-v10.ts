@@ -3,11 +3,9 @@
 import { isPaused } from '../kernel/clock';
 import { prepareOwnedNoOptionalGrowthTickStagesV10, prepareOwnedNormalTickStagesV10 } from '../kernel/simulation-v10';
 import type { WorldStateV10 } from '../sect-expansion/upgrade-types';
-import { assessManagementCapacityV10, type ManagementCapacityV10 } from './management-capacity-v10';
-import { restoreWorldHistory } from './history-access';
+import { captureAndAssessOwnedV10, type CapturedOwnedAssessmentV10, type ManagementCapacityV10 } from './management-capacity-v10';
 import { inspectReservedDischargeRecordsV10 } from './reserved-discharges-v10';
 import { actualDimensionsFitV10, hasTeachingV10 } from './teaching-continuation-v10';
-import { captureV10RecordData } from './v10-sect-records';
 
 export interface OwnedTickBoundaryV10 {
   /** Deeply frozen descriptor snapshot owned by this factory. */
@@ -75,12 +73,13 @@ export function createOwnedTickPipelineV10(): OwnedTickPipelineV10 {
     } };
     freezeOwned(result); return result;
   }
-  function captureOwned(input: unknown): WorldStateV10 {
-    const captured = captureV10RecordData(input) as WorldStateV10;
-    // Authenticate THIS detached archive, not a temporary validator copy or a
-    // caller's Object.isFrozen flag. The retained source itself owns its indexes.
-    const world = restoreWorldHistory(captured);
-    freezeOwned(world); return world;
+  function captureOwned(input: unknown): CapturedOwnedAssessmentV10 {
+    const captured = captureAndAssessOwnedV10(input);
+    // These exact immutable objects came from our fixed complete composition,
+    // never from a supplied result or Object.isFrozen claim. Avoid walking them
+    // again while freezing the later boundary/diagnostic wrapper.
+    owned.add(captured.world); owned.add(captured.assessment);
+    return captured;
   }
   function advance(preparation: 'normal' | 'no-optional-growth'): OwnedTickBoundaryV10 | null {
     if (busy || retained === null) return null;
@@ -94,8 +93,7 @@ export function createOwnedTickPipelineV10(): OwnedTickPipelineV10 {
       if (prepared === source) return null;
       // Isolate even the real producer's output before assessment/publication.
       // Nothing, including failed paths, RNG or receipts, is installed early.
-      const world = captureOwned(prepared);
-      const assessment = assessManagementCapacityV10(world);
+      const { world, assessment } = captureOwned(prepared);
       if (!ordinaryAssessment(assessment) || hasTeachingV10(world)
         || world.clock.simulationTick !== source.clock.simulationTick + 1
         || world.clock.calendarTick !== source.clock.calendarTick + 1) return null;
@@ -114,8 +112,7 @@ export function createOwnedTickPipelineV10(): OwnedTickPipelineV10 {
       if (busy) return null;
       busy = true; retained = null;
       try {
-        const world = captureOwned(input);
-        const assessment = assessManagementCapacityV10(world);
+        const { world, assessment } = captureOwned(input);
         if (!ordinaryAssessment(assessment) || hasTeachingV10(world)) return null;
         const result = boundary(world, assessment, 'capture', world.clock.simulationTick);
         retained = result; return result;

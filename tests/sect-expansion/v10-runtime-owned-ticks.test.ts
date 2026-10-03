@@ -93,16 +93,20 @@ function exactNext(source: WorldStateV10, mode: 'normal' | 'no-optional-growth' 
 describe('per-owner actual fixed-v10 tick pipeline', () => {
   it('fully captures once and executes one actual reducer plus one complete query per step', () => {
     const source = fresh(); const pipeline = createOwnedTickPipelineV10();
-    const query = vi.spyOn(capacity, 'assessManagementCapacityV10');
+    const query = vi.spyOn(capacity, 'captureAndAssessOwnedV10');
     const prepare = vi.spyOn(tickPreparation, 'prepareOwnedNormalTickStagesV10');
     const fallback = vi.spyOn(tickPreparation, 'prepareOwnedNoOptionalGrowthTickStagesV10');
     const publicNormal = vi.spyOn(tickPreparation, 'prepareNormalTickCandidateV10');
     const publicFallback = vi.spyOn(tickPreparation, 'prepareNoOptionalGrowthTickCandidateV10');
     const records = vi.spyOn(dischargeRecords, 'inspectReservedDischargeRecordsV10');
     const captured = pipeline.capture(source); expect(captured).not.toBeNull(); expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.results[0]!.value.world).toBe(captured!.world);
+    expect(query.mock.results[0]!.value.assessment).toBe(captured!.assessment);
     const next = pipeline.advanceNormal(); expect(next).not.toBeNull();
     expect(prepare).toHaveBeenCalledTimes(1); expect(prepare).toHaveBeenCalledWith(captured!.world);
     expect(query).toHaveBeenCalledTimes(2); expect(fallback).not.toHaveBeenCalled();
+    expect(query.mock.results[1]!.value.world).toBe(next!.world);
+    expect(query.mock.results[1]!.value.assessment).toBe(next!.assessment);
     expect(records).toHaveBeenCalledTimes(1); expect(records).toHaveBeenCalledWith(captured!.world, next!.world);
     expect(pipeline.advanceNoOptional()).not.toBeNull();
     expect(prepare).toHaveBeenCalledTimes(1); expect(fallback).toHaveBeenCalledTimes(1);

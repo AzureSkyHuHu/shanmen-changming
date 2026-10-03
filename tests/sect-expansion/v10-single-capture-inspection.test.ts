@@ -53,9 +53,10 @@ describe('fixed v10 captured-record inspection lifetime', () => {
       'validateLegacyWorldStateV3', 'validateLegacyWorldStateV4', 'validateLegacyWorldStateV5',
       'validateLegacyWorldStateV6', 'validateLegacyWorldStateV7', 'validateWorldStateV8',
       'inspectUnregisteredWorldV9Records', 'inspectUnregisteredWorldV10Records', 'isWorldState'] as const;
-    expect(Object.keys(validation).filter(name => name !== 'captureV10RecordInspection').sort()).toEqual([...existing].sort());
+    expect(Object.keys(validation).filter(name => !['captureV10RecordInspection', 'captureRestoredV10RecordInspection'].includes(name)).sort()).toEqual([...existing].sort());
     for (const name of existing) expect(kernel[name]).toBe(validation[name]);
     expect(Object.hasOwn(kernel, 'captureV10RecordInspection')).toBe(false);
+    expect(Object.hasOwn(kernel, 'captureRestoredV10RecordInspection')).toBe(false);
     expect(Object.hasOwn(kernel, 'V10RecordInspection')).toBe(false);
   });
   it('exposes only a deeply frozen detached data tree and a frozen handle', () => {

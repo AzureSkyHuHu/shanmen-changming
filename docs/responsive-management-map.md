@@ -51,3 +51,22 @@ production build passed. Independent source review found no blocking regression;
 actual label/entrance-marker bounds, hidden-host recovery, pointer transforms and
 GPU cost remain explicit browser checks. This candidate has not been published
 or accepted in the real browser yet.
+
+## Published, limited real-browser checkpoint — 2026-10-03 04:43 UTC
+
+Commit `ac6c99074470d9240ed45e592edd5a21d8a7ed0c` completed Actions
+`37093603594` and Pages deployment at 04:31:19 UTC. Validation passed 199 files,
+4140 tests in 3415.03 seconds and both production builds.
+
+In a separate fresh, paused cloud-browser v9 session, the desktop Canvas backing
+size matched its CSS box (1122 × 423). Zooming out revealed the whole map;
+selecting the northern spirit node from the DOM list brought it into view.
+After resizing the native browser to a 485-pixel document viewport, the Canvas
+matched its CSS box at 459 × 425. Document scrollWidth and clientWidth were both
+485, with no horizontal page overflow. Resetting the view worked; clicking the
+visible mine in the real Canvas selected the mine's pressed DOM button.
+
+This is bounded desktop/narrow-window evidence, not real-phone acceptance.
+Placement corner accuracy, hidden-host recovery, rapid initial-load controls,
+1920-pixel/short-landscape/150% variants and actual-device GPU cost remain open.
+Existing saved slots were not loaded or overwritten for this check.
