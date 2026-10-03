@@ -373,3 +373,35 @@ worker, and cancellation terminal position. Independent source review found no
 new production defect. Tests explicitly demonstrate that a spatially invalid
 origin overlap can pass a partial leaf and still be rejected by the old complete
 runtime, preventing that narrow result from being mistaken for admission.
+
+## Historical/current spatial slice — 2026-10-03 11:00 UTC
+
+The internal spatial module now builds bounded occupancy intervals from the
+original construction and relocation records. All queries re-run fixed record
+inspection and return detached discriminated results. It checks ended and live
+soft targets, immutable origin-to-building handoff, cancellation/wait retention,
+static terrain/road/legacy geometry, current physical layout and connectivity.
+Only the same authenticated source may overlap itself during a move. Soft target
+reservations do not become hard navigation blockers or consume blueprint slots.
+
+Tick completions precede external commands; unrelated domain command revisions
+are never compared. A geometrically relevant cross-domain same-tick cancellation
+and reuse without ordering evidence is rejected as AMBIGUOUS_SPATIAL_BOUNDARY.
+Review found a real omission: relocation's own revision order could contradict
+that fixed phase order and falsely allow early reuse. A dedicated consistency
+check now rejects that contradiction; its regression begins with a real successful
+handoff and changes only the two same-tick revisions, retaining provenance validity.
+
+The declared proof scope remains bounded spatial records, not complete World
+admission. Historical per-command intermediate navigation connectivity, people,
+terrain changes, other domain owners and lifecycle/archives need later owner
+integration. The manually assembled new-building-on-vacated-ground fixture is
+explicitly marked as record evidence; the old construction runtime still cannot
+perform that complete gameplay loop.
+
+Root final checks: both type configurations; 31 focused tests in 10.97 s; six
+related files with 167 tests in 37.04 s; boundaries, 1206 locale keys, content and
+default build (803 ms). Initial execution stopped at a test receipt literal's
+TypeScript inference error; explicit ConstructionReceipt context fixed it without
+casting away the frame type. Independent review closed the phase/revision defect.
+No runtime/UI/public-identity activation is included.
