@@ -198,3 +198,13 @@ rejected-restart reset behavior; both reporting defects were repaired.
 These results do not supply real browser capture, enabled/disabled full-state
 comparison, actual hardware performance acceptance, or public deployment. The
 existing compact-layout main CI remains a separate in-progress release.
+
+### State-equivalence follow-up — 2026-10-03 08:10 UTC
+
+Two bounded tests now compare independent same-seed real v9 and v10 Sessions:
+full detached exports (including RNG/receipts), all four cached DTOs, publication
+counts and exact timing remainder. Real gathering, an advancing anchor, zero/
+multi-tick calls, manual stop, overlay/foreground holds, resume and repeated
+cleanup match the direct Session path. Seven logical ticks per Session are
+covered. Both passed in the combined six-file/55-test run (6.87 seconds); this
+is deterministic regression evidence, not real browser throughput measurement.

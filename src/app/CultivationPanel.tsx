@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import type { BreakthroughPreview, TrainingMode } from '../core/cultivation/types';
 import type { ApplicationSession, BreakthroughProposal, DeepReadonly, SessionProjection } from '../application/session';
 import type { TextKey, TranslationParams } from '../i18n';
+import { knowledgeLabel } from './knowledge-label';
 import './cultivation.css';
 
 type Translator = (key: TextKey, parameters?: TranslationParams) => string;
@@ -63,7 +64,7 @@ export function CultivationPanel({ session, world, readOnly, t }: PanelProps) {
     const nameKey = world.disciples.find((entry) => entry.id === id)?.nameKey;
     return nameKey ? t(nameKey as TextKey) : t('cultivation.ui.sectBeneficiary');
   };
-  const knowledgeName = (id: string) => t('cultivation.ui.knownKnowledge', { id });
+  const knowledgeName = (id: string) => knowledgeLabel(id, t);
   const selectedHeir = heirChoice === null ? selected.heirId ?? '' : heirChoice;
   const validHeir = selected.heirChoices.includes(selectedHeir) ? selectedHeir : '';
   const chosenKnowledge = selected.teachingChoices.find((entry) => entry.knowledgeId === knowledgeChoice) ?? selected.teachingChoices[0];

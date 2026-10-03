@@ -87,3 +87,15 @@ are recorded separately, and exact remote CI/deployment remain required.
 Final CSS-only focused run: 2 files / 31 tests passed in 3.13 seconds; both
 strict types and enabled-v8/v9 Pages build passed (788 ms), with diagnostics and
 v10 still disabled. This is not post-publication visual verification.
+
+### Knowledge display follow-up — 2026-10-03 08:10 UTC
+
+The earlier observed raw `knowledge.sun-piercing` selector label was resolved
+through the existing campaign knowledge catalog's bilingual name keys. Selector
+values, command IDs, saves and teaching behavior remain unchanged. Unknown IDs
+use a localized generic manual label instead of leaking an internal identifier.
+Seven added tests cover all supported manuals, Chinese/English rendering, safe
+fallbacks, stable selector values and non-mutation. Together with cultivation
+Session and diagnostic regressions, 6 files / 55 tests passed in 6.87 seconds;
+strict types, boundaries, 1206 locale keys and enabled-v8/v9 Pages build passed.
+Actual post-publication language-switch/selector verification is still pending.

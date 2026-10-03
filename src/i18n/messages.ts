@@ -816,6 +816,7 @@ export const messageSpecifications = {
   'cultivation.ui.student': noParameters,
   'cultivation.ui.noTeaching': noParameters,
   'cultivation.ui.knownKnowledge': {"parameters": {"id": {"type": "string", "format": "text"}}},
+  'cultivation.ui.unknownKnowledge': noParameters,
   'cultivation.ui.teachingProgress': {"parameters": {"name": {"type": "string", "format": "text"}, "knowledge": {"type": "string", "format": "text"}, "completed": {"type": "number", "format": "integer"}, "required": {"type": "number", "format": "integer"}}},
   'cultivation.ui.learningProgress': {"parameters": {"name": {"type": "string", "format": "text"}, "knowledge": {"type": "string", "format": "text"}}},
   'cultivation.ui.beginTeaching': noParameters,

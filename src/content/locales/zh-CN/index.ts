@@ -801,6 +801,7 @@ export const zhCN = {
   'cultivation.ui.student': "受教弟子",
   'cultivation.ui.noTeaching': "当前没有已学且可合法传授给空闲弟子的知识。",
   'cultivation.ui.knownKnowledge': "已学知识：{id}",
+  'cultivation.ui.unknownKnowledge': "未识别的典籍",
   'cultivation.ui.teachingProgress': "向{name}传授{knowledge}：{completed} / {required} 个月",
   'cultivation.ui.learningProgress': "正在向{name}学习{knowledge}",
   'cultivation.ui.beginTeaching': "开始传授",

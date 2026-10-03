@@ -814,6 +814,7 @@ export const en = {
   'cultivation.ui.student': "Student",
   'cultivation.ui.noTeaching': "No learned knowledge can currently be taught to an available disciple.",
   'cultivation.ui.knownKnowledge': "Learned knowledge: {id}",
+  'cultivation.ui.unknownKnowledge': "Unrecognized manual",
   'cultivation.ui.teachingProgress': "Teaching {knowledge} to {name}: {completed} / {required} months",
   'cultivation.ui.learningProgress': "Learning {knowledge} from {name}",
   'cultivation.ui.beginTeaching': "Begin teaching",
