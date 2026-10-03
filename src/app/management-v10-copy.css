@@ -1,0 +1,8 @@
+.management-v10-copy { margin-block: 1.25rem; padding: 1rem; border: 1px solid #8e6841; border-radius: .6rem; background: #fff9ed; color: #372a1d; }
+.management-v10-copy h3, .management-v10-copy h4 { color: #372a1d; }
+.management-v10-copy > button, .management-v10-copy > .management-v9-field { margin-block: .5rem; }
+.management-v10-copy select { width: 100%; min-width: 0; max-width: 100%; }
+.management-v10-copy p, .management-v10-copy li { overflow-wrap: anywhere; line-height: 1.6; }
+.management-v10-copy .management-v9-review:focus { outline: 3px solid #965326; outline-offset: 3px; }
+.management-v10-copy-storage { padding: 0; margin: 0; border: 0; min-width: 0; }
+.management-v10-copy-storage:disabled { opacity: .65; }

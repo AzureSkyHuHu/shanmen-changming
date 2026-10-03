@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import type { ManagementSaveControllerV10, ManagementSaveStatusV10, LoadReviewV10 } from '../application/management-v10-save-controller';
+import type { ManagementCopyEntryV10 } from '../application/management-v10-copy-entry';
+import { ManagementCopyPanelV10 } from './ManagementCopyPanelV10';
 import type { ImportFileSource } from '../application/save-controller';
 import type { RuntimeReadonlyV10 } from '../core/world/runtime-view-types-v10';
 import { createTranslator, translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
@@ -19,7 +21,7 @@ type Feedback = (key: TextKey | null, importAction?: boolean) => void;
 /** Private catalog: stable keys, the same parameter validator and per-key Chinese
  * fallback as the registered UI. No persistence identities are translated. */
 export const managementStorageMessagesV10 = {
-  'storageV10.isolation': ['独立 v10 本地存档。不会读取或改写普通入口、v8 或 v9 的存档数据库。', 'Independent v10 local saves. The normal, v8 and v9 save databases are not read or changed.'],
+  'storageV10.isolation': ['独立 v10 本地存档。下列保存、读取和导入只操作 v10；v9 来源仅在另行点击复制流程后读取。', 'Independent v10 local saves. The save, load and import controls below use v10 only; v9 sources are read only through the separately requested copy flow.'],
   'storageV10.stopped': ['存档控制器尚未启动或已停止；当前不会接受新的存档操作。', 'The save controller is not running; new save operations are not accepted.'],
   'storageV10.importHint': ['仅接受通过严格校验的 v10 JSON 文件，最大 4 MiB。导入会写入所选位置并替换当前会话；旧 v9 文件须使用另行提供的复制转换流程。', 'Only strictly validated v10 JSON files up to 4 MiB are accepted. Import writes the chosen slot and replaces this session. Old v9 files require a separate copy-conversion flow.'],
   'storageV10.loaded': ['最近一次成功读取已替换会话，并保留文件中的暂停状态。关闭窗口不会自动解除原有暂停。', 'The last successful load replaced the session with its saved pause state. Closing this window does not clear existing pauses.'],
@@ -243,23 +245,39 @@ export function createManagementStorageActionsV10(controller: ManagementStorageC
 
 /** Pure adapter construction: no DB, subscriptions, controller start/stop, Session
  * holds, default-route registration or migration are performed here. */
-export function createManagementStorageSlotV10(controller: ManagementStorageControllerV10): ManagementStorageSlotV10 {
+export function createManagementStorageSlotV10(controller: ManagementStorageControllerV10, copy?: ManagementCopyEntryV10): ManagementStorageSlotV10 {
   let previous: Status | null = null; let cached: ManagementStorageStatusV10 | null = null; let feedback: TextKey | null = null;
-  let feedbackSource: Status | null = null;
+  let feedbackSource: Status | null = null; let copyState = copy?.getSnapshot();
   let showImportFeedback = true;
   const listeners = new Set<() => void>();
   const getSnapshot = () => {
     const status = controller.getSnapshot();
-    if (!cached || previous !== status) { previous = status; cached = managementStorageStatusV10(status, feedbackSource === status ? feedback : null, showImportFeedback); }
+    const nextCopy = copy?.getSnapshot();
+    if (!cached || previous !== status || copyState !== nextCopy) { previous = status; copyState = nextCopy;
+      cached = Object.freeze({ ...managementStorageStatusV10(status, feedbackSource === status ? feedback : null, showImportFeedback), busy: status.busy || !!nextCopy?.busy }); }
     return cached;
   };
   const setFeedback: Feedback = (key, importAction) => { feedback = key; if (importAction !== undefined) showImportFeedback = importAction;
     feedbackSource = controller.getSnapshot(); cached = null; for (const listener of [...listeners]) listener(); };
   return {
     getSnapshot,
-    subscribe(listener) { listeners.add(listener); const stop = controller.subscribe(listener); return () => { listeners.delete(listener); stop(); }; },
-    renderBody({ session, locale }) { return <ManagementStorageBodyV10 controller={controller} session={session} locale={locale} feedback={setFeedback} />; },
+    subscribe(listener) { listeners.add(listener); const stop = controller.subscribe(listener); const stopCopy = copy?.subscribe(listener); return () => { listeners.delete(listener); stop(); stopCopy?.(); }; },
+    renderBody({ session, locale }) { return copy ? <ManagementStorageWithCopyV10 controller={controller} copy={copy} session={session} locale={locale} feedback={setFeedback} />
+      : <ManagementStorageBodyV10 controller={controller} session={session} locale={locale} feedback={setFeedback} />; },
   };
+}
+
+function ManagementStorageWithCopyV10({ controller, copy, session, locale, feedback }: {
+  controller: ManagementStorageControllerV10; copy: ManagementCopyEntryV10; session: Session; locale: Locale; feedback: Feedback;
+}) {
+  const status = useSyncExternalStore(copy.subscribe, copy.getSnapshot, copy.getSnapshot);
+  const saves = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  const active = status.busy || status.phase === 'selecting' || status.phase === 'review';
+  return <><ManagementCopyPanelV10 controller={copy} locale={locale} disabled={saves.mode !== 'browser' || saves.busy || snapshot.closed || snapshot.holds.storageBusy} />
+    <fieldset className="management-v10-copy-storage" disabled={active}>
+      <ManagementStorageBodyV10 controller={controller} session={session} locale={locale} feedback={feedback} />
+    </fieldset></>;
 }
 
 export function ManagementStorageBodyV10({ controller, session, locale, feedback }: {

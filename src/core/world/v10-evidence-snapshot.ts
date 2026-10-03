@@ -52,43 +52,51 @@ export function createV10EvidenceSnapshotReader(): V10EvidenceSnapshotReader {
     active.add(value); visitedObjects++;
     let immutable = Object.isFrozen(value);
     const keys = Reflect.ownKeys(value);
-    const children: { key: string; value: unknown }[] = [];
+    let bytes: number; let body: string;
     // Capture every descriptor at this node before descending. Never use property
     // reads, array.map from the input, toJSON, or caller-defined serialization.
     if (array) {
+      const children: unknown[] = [];
       const length = Object.getOwnPropertyDescriptor(value, 'length');
       if (!length || !Object.hasOwn(length, 'value') || !Number.isSafeInteger(length.value) || length.value < 0
         || keys.length !== length.value + 1) throw new TypeError('Expected a plain dense JSON array');
       for (let index = 0; index < length.value; index++) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new TypeError('Expected a dense data-only JSON array');
-        children.push({ key: String(index), value: descriptor.value });
+        children.push(descriptor.value);
       }
+      bytes = 2 + Math.max(0, children.length - 1);
+      const parts: string[] = [];
+      for (const child of children) {
+        const result = visit(child, active);
+        bytes += result.bytes; immutable = immutable && result.immutable;
+        parts.push(result.canonical);
+      }
+      active.delete(value);
+      if (!Number.isSafeInteger(bytes)) throw new RangeError('Encoded JSON byte count exceeds safe integer range');
+      body = parts.join(',');
     } else {
+      const fields: { key: string; value: unknown; text: string }[] = [];
       for (const key of keys) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (typeof key !== 'string' || !descriptor?.enumerable) throw new TypeError('Expected ordinary enumerable JSON properties');
         if (!Object.hasOwn(descriptor, 'value')) throw new TypeError('JSON accessors cannot be snapshotted or cached');
-        children.push({ key, value: descriptor.value });
+        fields.push({ key, value: descriptor.value, text: '' });
       }
-    }
-    let bytes = 2 + Math.max(0, children.length - 1);
-    const parts: { key: string; text: string }[] = [];
-    for (const child of children) {
-      const result = visit(child.value, active);
-      bytes += result.bytes; immutable = immutable && result.immutable;
-      if (array) parts.push({ key: child.key, text: result.canonical });
-      else {
-        bytes += jsonStringByteLength(child.key) + 1;
-        parts.push({ key: child.key, text: `${JSON.stringify(child.key)}:${result.canonical}` });
+      bytes = 2 + Math.max(0, fields.length - 1);
+      for (const field of fields) {
+        const result = visit(field.value, active);
+        bytes += result.bytes; immutable = immutable && result.immutable;
+        bytes += jsonStringByteLength(field.key) + 1;
+        field.text = `${JSON.stringify(field.key)}:${result.canonical}`;
       }
+      active.delete(value);
+      if (!Number.isSafeInteger(bytes)) throw new RangeError('Encoded JSON byte count exceeds safe integer range');
+      // Visit in descriptor order as the existing byte preflight does; sort only
+      // the resulting object fields to match canonicalStringify's code-unit order.
+      fields.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+      body = fields.map(field => field.text).join(',');
     }
-    active.delete(value);
-    if (!Number.isSafeInteger(bytes)) throw new RangeError('Encoded JSON byte count exceeds safe integer range');
-    // Visit in descriptor order as the existing byte preflight does; sort only
-    // the resulting object fields to match canonicalStringify's code-unit order.
-    if (!array) parts.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
-    const body = parts.map(part => part.text).join(',');
     const result: SnapshotNode = { canonical: array ? `[${body}]` : `{${body}}`, bytes, immutable };
     if (immutable) retain(value, result);
     return result;
