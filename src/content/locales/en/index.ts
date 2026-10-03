@@ -647,7 +647,7 @@ export const en = {
   'save.write': "Save manually",
   'save.load': "Load",
   'save.occupiedHint': "Load an existing campaign before saving to it. Other campaigns are protected.",
-  'save.loadWarning': "Loading replaces current unsaved progress. Continue?",
+  'save.loadWarning': "Loading will replace the current session with the selected save. Any unsaved changes will be lost. Continue?",
   'save.confirmLoad': "Confirm load",
   'save.keepPlaying': "Keep current progress",
   'save.export': "Export current progress",

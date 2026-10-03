@@ -60,7 +60,8 @@ export function CampaignRouteMap(props: CampaignRouteMapProps) {
           {route.final && <span className="campaign-final-mark" aria-label={t('campaign.ui.finalRoute')}>✦</span>}
         </button></li>)}</ol></nav>
       <article className="campaign-route-detail" id={`${prefix}-detail`} aria-labelledby={`${prefix}-route-name`}>
-        <div className="campaign-landscape" aria-hidden="true"><img src={`${import.meta.env.BASE_URL}assets/campaign/jade-mountain-route-v1.png`} alt="" loading="lazy" decoding="async" /></div>
+        {/* The public build excludes the optional original artwork. Keep this decoration asset-free. */}
+        <div className="campaign-landscape" aria-hidden="true" />
         <div className="campaign-route-copy"><p className="section-eyebrow">{t(`campaign.ui.state.${selected.state}`)}</p><h3 id={`${prefix}-route-name`}>{t(selected.nameKey)}</h3>
           <p>{t(selected.descriptionKey)}</p>
           <h4>{t('campaign.ui.counterplay')}</h4><p className="campaign-counterplay">{t(selected.counterplayKey)}</p>

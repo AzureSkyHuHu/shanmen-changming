@@ -20,6 +20,15 @@ describe('Chinese-first text resolution', () => {
     expect(translate('en', 'settings.language.label')).toBe('Language');
   });
 
+  it.each([
+    ['zh-CN', '读取将以所选存档替换当前进度；如有未保存的更改，将会丢失。是否继续？', '当前未保存的进度'],
+    ['en', 'Loading will replace the current session with the selected save. Any unsaved changes will be lost. Continue?', 'current unsaved progress'],
+  ] as const)('warns about possible unsaved changes without asserting they exist in %s', (locale, expected, oldAssertion) => {
+    const warning = translate(locale, 'save.loadWarning');
+    expect(warning).toBe(expected);
+    expect(warning).not.toContain(oldAssertion);
+  });
+
   it('falls back independently for absent, empty and whitespace-only English', () => {
     const english: Record<string, unknown> = { ...en };
     delete english['app.subtitle'];

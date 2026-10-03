@@ -634,7 +634,7 @@ export const zhCN = {
   'save.write': "手动保存",
   'save.load': "读取",
   'save.occupiedHint': "已有战役须先读取；不会直接覆盖陌生存档。",
-  'save.loadWarning': "读取将替换当前未保存的进度。是否继续？",
+  'save.loadWarning': "读取将以所选存档替换当前进度；如有未保存的更改，将会丢失。是否继续？",
   'save.confirmLoad': "确认读取",
   'save.keepPlaying': "保留当前进度",
   'save.export': "导出当前进度",

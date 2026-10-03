@@ -3,20 +3,18 @@ import { RESOURCE_IDS } from '../economy/types';
 import { iterateArchivedProduction } from '../history';
 import { closeWorldEconomyOwnerLinks, type WorldEconomyRecords } from '../kernel/world-economy-records';
 import { jsonStringByteLength, SAVE_FILE_LIMIT_BYTES } from '../save-budget';
-import { validateWorldConstructionRecords } from '../sect-expansion/construction-record-validation';
 import { validateCareOwnerClosureV10, validateCareRecordsV10 } from '../sect-expansion/care-validation-v10';
 import { v10CarePatientEligible } from '../sect-expansion/care-runtime-v10';
-import { captureSectHistoricalIdentitiesV10 } from '../sect-expansion/history-identity';
 import { ownSectFields } from '../sect-expansion/layout';
-import { validateSectMaintenanceL1RecordsV10, validateSectMaintenanceRecordsV10, validateSectUpgradeResearchPrerequisitesV10 } from '../sect-expansion/maintenance-v10';
+import { validateSectMaintenanceRecordsV10 } from '../sect-expansion/maintenance-v10';
 import { validateSectProductionRecordsV10, validateSectProductionReceiptsV10 } from '../sect-expansion/production-runtime-v10';
 import { validateSectResearchConsumerGatesV10 } from '../sect-expansion/research-consumer-gates-v10';
-import { sectUpgradeAllLocalClaimsV10, sectUpgradeClaimsConflictV10, validateWorldSectUpgradeRecordsV10 } from '../sect-expansion/upgrade-validation';
+import { inspectWorldSectUpgradePrefixV10, sectUpgradeAllLocalClaimsV10, sectUpgradeClaimsConflictV10 } from '../sect-expansion/upgrade-validation';
 import type { WorldStateV10 } from '../sect-expansion/upgrade-types';
 import { isCultivationWorkerAvailable } from './cultivation-bridge';
 import { lookupCommandReceipt, lookupEvent } from './history-access';
 import type { V10LifecycleRecordEvidence } from './v10-lifecycle-records';
-import { projectV10SectFrame, v10SectContext, v10WorkOwners } from './v10-sect-frame';
+import { v10SectContext, v10WorkOwners } from './v10-sect-frame';
 
 /** Fixed descriptor capture for internal v10 RECORD inspection. The byte/node ceiling
  * bounds this traversal only; it is NOT an envelope measurement, future reserve or save
@@ -81,14 +79,10 @@ export function inspectV10SectOwnerClosure(world: WorldStateV10, economy: WorldE
   const records = world.sectExpansion;
   if (!ownSectFields(records, ['schemaVersion', 'construction', 'stock', 'reservations', 'production', 'research', 'maintenance', 'care', 'upgrade']) || records.schemaVersion !== 2
     || !ownSectFields(records.construction, ['schemaVersion', 'catalogIdentity', 'revision', 'nextId', 'blueprints', 'jobs', 'buildings', 'receipts'])) return ['Invalid v10 owned records'];
-  const identities = captureSectHistoricalIdentitiesV10(lifecycle, world);
-  const frame = projectV10SectFrame(world);
   const issueStrings = (issues: readonly { code: string; path: string }[]): string[] => issues.map(issue => `${issue.code}:${issue.path}`);
-  const construction = validateWorldConstructionRecords(frame.construction, identities);
-  if (construction.length) return issueStrings(construction);
-  const l1 = validateSectMaintenanceL1RecordsV10(frame); if (l1.length) return issueStrings(l1);
-  const research = validateSectUpgradeResearchPrerequisitesV10(frame, identities); if (research.length) return issueStrings(research);
-  const upgrade = validateWorldSectUpgradeRecordsV10(world, frame, lifecycle); if (upgrade.length) return issueStrings(upgrade);
+  const prefix = inspectWorldSectUpgradePrefixV10(world, lifecycle);
+  if (prefix.issues.length) return issueStrings(prefix.issues);
+  const { identities, frame } = prefix;
   const maintenance = validateSectMaintenanceRecordsV10(frame); if (maintenance.length) return issueStrings(maintenance);
   const production = validateSectProductionRecordsV10(frame, identities); if (production.length) return issueStrings(production);
   const receipts = validateSectProductionReceiptsV10(frame); if (receipts.length) return issueStrings(receipts);

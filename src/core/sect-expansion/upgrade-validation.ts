@@ -192,6 +192,50 @@ export function validateWorldSectUpgradeRecordsV10(world: WorldStateV10, frame: 
   } catch { return [{ code: 'UPGRADE_DEATH_AUTHORITY_REQUIRED', path: 'upgrade' }]; }
 }
 
+/** Fixed complete prefix for the captured World record root. Derive the actual
+ * projection and identities here; no supplied frame, prerequisite result, death
+ * list, callback or skip flag is accepted. This is not whole-World admission.
+ * Later maintenance, production, consumers, care and owner closure still run.
+ * Keep the standalone wrappers above and their distinct error order unchanged. */
+export function inspectWorldSectUpgradePrefixV10(world: WorldStateV10, evidence: V10LifecycleRecordEvidence): {
+  readonly frame: SectUpgradeFrameV10;
+  readonly identities: SectHistoricalIdentitySource;
+  readonly issues: readonly ConstructionValidationIssue[];
+} {
+  // These stages deliberately precede the upgrade wrapper's catch boundary,
+  // exactly as they did in the enclosing World owner closure.
+  const identities = captureSectHistoricalIdentitiesV10(evidence, world);
+  const frame = projectV10SectFrame(world);
+  const result = (issues: readonly ConstructionValidationIssue[]) => ({ frame, identities, issues });
+  const construction = validateWorldConstructionRecords(frame.construction, identities);
+  if (construction.length) return result(construction);
+  const maintenance = validateSectMaintenanceL1RecordsV10(frame); if (maintenance.length) return result(maintenance);
+  const research = validateSectUpgradeResearchPrerequisitesV10(frame, identities); if (research.length) return result(research);
+  try {
+    // Preserve both exact-source reauthentication points and the independent
+    // six-domain descriptor/projection check. Only repeated checks over this
+    // same synchronous frame are omitted, not either descriptor contract.
+    const deaths = historicalDeathsOfV10LifecycleEvidence(evidence, world);
+    if (!isSectUpgradeDataTreeV10(frame) || !same(frame, projectV10SectFrame(world)))
+      return result([{ code: 'INVALID_UPGRADE_WORLD_PROJECTION', path: 'upgrade' }]);
+    const upgradeIdentities = captureSectHistoricalIdentitiesV10(evidence, world);
+    return result(validateUpgradeAfterWorldPrefix(frame, upgradeIdentities, deaths));
+  } catch { return result([{ code: 'UPGRADE_DEATH_AUTHORITY_REQUIRED', path: 'upgrade' }]); }
+}
+
+/** Private continuation of this module's fixed complete World prefix only. */
+function validateUpgradeAfterWorldPrefix(frame: SectUpgradeFrameV10, identities: SectHistoricalIdentitySource,
+  deaths: readonly V10HistoricalDeathFact[]): readonly ConstructionValidationIssue[] {
+  const fail = (code: string, path = 'upgrade'): readonly ConstructionValidationIssue[] => [{ code, path }];
+  try {
+    if (!fields(frame, ['schemaVersion', 'construction', 'production', 'research', 'maintenance', 'care', 'upgrade'])
+      || frame.schemaVersion !== 2) return fail('INVALID_SHAPE', 'frame');
+    const authority = frame.construction; const tick = authority.lastSimulationTick;
+    if (authority.lastCalendarTick !== tick || authority.buildings.some(building => building.level !== 1)) return fail('INVALID_CLOCK_OR_ORIGIN');
+    return validateUpgradeDomainRecords(frame, identities, deaths, authority, tick);
+  } catch { return fail('INVALID_UPGRADE_RECORDS'); }
+}
+
 /** Internal facts can only originate at the fixed source-bound wrapper above. */
 function validateUpgradeRecords(frame: SectUpgradeFrameV10, identities: SectHistoricalIdentitySource | undefined,
   deaths: readonly V10HistoricalDeathFact[]): readonly ConstructionValidationIssue[] {
@@ -205,6 +249,16 @@ function validateUpgradeRecords(frame: SectUpgradeFrameV10, identities: SectHist
     if (authority.lastCalendarTick !== tick || authority.buildings.some(building => building.level !== 1)) return fail('INVALID_CLOCK_OR_ORIGIN');
     const maintenance = validateSectMaintenanceL1RecordsV10(frame); if (maintenance.length) return maintenance;
     const research = validateSectUpgradeResearchPrerequisitesV10(frame, identities); if (research.length) return research;
+    return validateUpgradeDomainRecords(frame, identities, deaths, authority, tick);
+  } catch { return fail('INVALID_UPGRADE_RECORDS'); }
+}
+
+/** Shared unchanged upgrade-specific checks, reachable only after one of this
+ * module's fixed complete prerequisite compositions. Never export this body. */
+function validateUpgradeDomainRecords(frame: SectUpgradeFrameV10, identities: SectHistoricalIdentitySource | undefined,
+  deaths: readonly V10HistoricalDeathFact[], authority: SectUpgradeFrameV10['construction'], tick: number): readonly ConstructionValidationIssue[] {
+  const fail = (code: string, path = 'upgrade'): readonly ConstructionValidationIssue[] => [{ code, path }];
+  try {
     // L1's gate is an immutable historical construction prerequisite, never inferred from
     // later herbal compatibility. Check it even before this frame has any upgrade jobs.
     const basicMedicine = frame.research.jobs.find(job => job.researchId === 'basic-medicine.v9' && job.terminal?.kind === 'completed');

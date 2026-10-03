@@ -16,3 +16,11 @@
 /* Equipped actions remain separate from selection and never cover the playfield. */
 .battle-skills{padding:12px 20px 18px;background:var(--battle-paper);border-top:1px solid #c2c5a7}.battle-skills-heading{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 16px;margin-bottom:10px}.battle-skills h3{margin:0;font-size:13px;color:var(--battle-jade)}.battle-skills p{margin:0;font-size:11px;color:#64705a;line-height:1.6}.battle-skill-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:9px}.battle-skill{display:grid;align-content:start;gap:6px;padding:10px;background:#f8f0d9;border:1px solid #bbc2a0;border-radius:8px;font-size:11px;line-height:1.5;min-width:0}.battle-skill>small,.battle-skill>span{color:#526a58;overflow-wrap:anywhere}.battle-panel .battle-skill-button{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;text-align:left;font-size:13px;min-height:44px}.battle-skill-button>small{padding:1px 5px;border:1px solid currentColor;border-radius:4px;font-size:10px}.battle-skill-verb{margin-left:auto;font-size:11px}.battle-skill[data-ultimate=true]{border-color:#b69b59;background:#f7edcb}.battle-panel .battle-skill[data-ultimate=true] .battle-skill-button{background:#76623d}.battle-panel .battle-skill-button:disabled{opacity:1;color:#68705b;background:#d8d8bf;border-color:#b8bca2}.battle-panel .battle-skill[data-ultimate=true] .battle-skill-button:disabled{color:#756746;background:#e3d8b5}.battle-skill .battle-skill-readiness{color:#775a45;font-weight:600}.battle-skill[data-ready=true] .battle-skill-readiness{color:#37634a}
 @media(max-width:760px){.battle-skills{padding:12px 14px 15px}.battle-skill-list{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}}
+
+/* Paper headings must outrank the enclosing expedition's light h3/h4 colors,
+   regardless of stylesheet order. Keep the dark expedition and battle banners alone. */
+.battle-panel .battle-inspector h3,
+.battle-panel .battle-status-list h4,
+.battle-panel .battle-roster h3,
+.battle-panel .battle-fields h3,
+.battle-panel .battle-skills h3 { color: var(--battle-ink); }

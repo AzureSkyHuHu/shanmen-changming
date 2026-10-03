@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +10,27 @@ import { translate, type Locale } from '../../src/i18n';
 // These checks cover markup and presentation inputs only. Real layout, zoom,
 // Canvas hit targets and dialog focus restoration still require browser QA.
 describe('public shell presentation contracts', () => {
+  it('keeps ordinary load, takeover and cancel confirmation paths for both shared warning consumers', () => {
+    // Source contracts only: this does not claim native dialog interaction or
+    // focus acceptance. The wording fix must not bypass either confirmation.
+    const app = readFileSync(new URL('../../src/app/App.tsx', import.meta.url), 'utf8');
+    expect(app).toContain('onClick={() => setConfirmation({ slotId, takeover: false })}');
+    expect(app).toContain('onClick={() => setConfirmation({ slotId: status.boundSlot!, takeover: true })}');
+    expect(app).toContain("t(confirmation.takeover ? 'save.takeoverWarning' : 'save.loadWarning')");
+    expect(app).toContain('void loadCampaign(confirmation.slotId, confirmation.takeover); setConfirmation(null);');
+    expect(app).toContain("t(confirmation.takeover ? 'save.confirmTakeover' : 'save.confirmLoad')");
+    expect(app).toContain("onClick={() => setConfirmation(null)}>{t('save.keepPlaying')}");
+
+    const management = readFileSync(new URL('../../src/app/ManagementSavePanelV9.tsx', import.meta.url), 'utf8');
+    expect(management).toContain('onClick={() => beginLoad(slotId, false)}');
+    expect(management).toContain('onClick={() => beginLoad(slotId, true)}');
+    expect(management).toContain("t(intent.takeover ? 'save.takeoverWarning' : 'save.loadWarning')");
+    expect(management).toContain('onClick={confirmLoad}');
+    expect(management).toContain('void controller.load(chosen.slotId, chosen.takeover, chosen.slotRevision)');
+    expect(management).toContain("t(intent.takeover ? 'save.confirmTakeover' : 'save.confirmLoad')");
+    expect(management).toContain("onClick={() => setIntent(null)}>{t('save.keepPlaying')}");
+  });
+
   it.each(['zh-CN', 'en'] as const)('resolves one preview notice in the active entry locale %s', locale => {
     const requestedLocales: Locale[] = [];
     const html = renderToStaticMarkup(createElement(App, {
