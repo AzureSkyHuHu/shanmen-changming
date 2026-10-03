@@ -61,3 +61,37 @@ clock/position setup. Neither is evidence of a running relocation state machine.
 Navigation/terrain at historical ticks, other-domain ownership, runtime atomic
 completion, maintenance/upgrade composition and whole-save capacity are not yet
 provided. The public v9/v10 engines do not accept relocation.
+
+## Detached runtime stage — 2026-10-03 09:18 UTC
+
+Four additional files provide a local runtime envelope, commands, continuous
+fixed ticks and effective-space/availability/claim queries. Construction's
+snapshot clocks remain the only clocks; there is no second runtime clock copy.
+The caller supplies the existing shared WorkPathBudget and fixed-value external
+claims, not validation callbacks or serialized authority flags.
+
+Type-only issues were corrected with real unknown-value narrowing. Independent
+review found and closed a soft-reservation admission gap: valid local histories
+with matching receipts could otherwise reserve overlapping target footprints
+with distinct doors. Runtime admission now checks pairwise active target
+footprint/entrance geometry, without treating temporary people/terrain blockers
+as invalid history. Array descriptor checks, navigation integer ranges and
+combined construction/relocation navVersion headroom are explicit.
+
+An early runtime test target (6,1) was illegal on the real starter map: its 2×2
+footprint occupied the x=7 road and legacy housing (7,2). The runtime correctly
+rejected it. Tests use legal (4,1) instead, and explicitly retain the original
+road rejection; no spatial constraint was relaxed.
+
+Final focused record/runtime run: 60 tests (37 records, 23 runtime), 20.39
+seconds. Six related files passed 198 tests in 31.39 seconds. Both strict types,
+boundaries, content/1206 locale keys and default build (852 ms) passed. Runtime
+tests execute local commands/ticks and navigation rather than writing completed
+relocation histories by hand. They remain detached-domain evidence.
+
+Future owner obligations: populate true external worker/building-seat/entrance
+claims and external job count; consume relocation claims in all other domains;
+authenticate full World, research/upgrade/maintenance histories and identity;
+compose death/away lifecycle, future completion/cancellation save budgets,
+codec/restore and other navigation invalidation. Successful local return alone
+never grants save, command, Session, UI or public-release admission.
