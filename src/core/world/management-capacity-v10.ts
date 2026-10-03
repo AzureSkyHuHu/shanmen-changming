@@ -1,7 +1,7 @@
 import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
 import { isManagementV10Identity } from '../../content/sect-v10/world-content';
 import { MAX_CULTIVATION_HISTORY, MAX_CULTIVATORS } from '../cultivation/rules';
-import { inspectUnregisteredWorldV10Records } from '../kernel/validation';
+import { captureV10RecordInspection } from '../kernel/validation';
 import { assessAutomaticWorkBudget, SAVE_FILE_LIMIT_BYTES, type AutomaticSaveBudgetAssessment } from '../save-budget/admission';
 import { type BuildHistoryObligationAssessment } from '../save-budget/build-obligations';
 import { createCanonicalByteCounter } from '../save-budget/canonical-bytes';
@@ -17,7 +17,6 @@ import { SECT_PRODUCTION_LIMITS } from '../sect-expansion/production-types';
 import { SECT_RESEARCH_LIMITS } from '../sect-expansion/research-types';
 import { type ProgressionNumericAssessment } from './progression-numeric';
 import { deriveV10RecordReservations } from './v10-record-headroom';
-import { captureFrozenV10RecordData } from './v10-frozen-record-capture';
 import { projectV10SectFrame } from './v10-sect-frame';
 import { V9_CULTIVATION_CLOCK_LIMIT } from './v9-cultivation-clock-types';
 import { type ManagementClockReservation } from '../save-budget/management-clock-reservation';
@@ -75,13 +74,14 @@ export function assessManagementCapacityV10(input: WorldStateV10): ManagementCap
     const counter = createCanonicalByteCounter(); counter.measure(input);
     result.measuredEnvelopeBytes = measureWorldSaveBytes(input, { saveVersion: 10, counter });
     result.actualFits = result.measuredEnvelopeBytes <= SAVE_FILE_LIMIT_BYTES;
-    const world = captureFrozenV10RecordData(input) as WorldStateV10;
+    const inspection = captureV10RecordInspection(input);
+    const world = inspection.data as WorldStateV10;
     const measured = measureWorldSaveBytes(world, { saveVersion: 10, counter });
     result.measuredEnvelopeBytes = measured; result.actualFits = measured <= SAVE_FILE_LIMIT_BYTES;
     const protocol = MANAGEMENT_V10_PROTOCOL;
     if (world.simulationVersion !== protocol.simulationVersion || world.runtimeProtocol !== protocol.runtimeProtocol
       || world.contentVersion !== protocol.contentVersion || !isManagementV10Identity(world.contentIdentity)) throw new TypeError('Requires exact management v10 identity');
-    result.sourceRecordIssues = inspectUnregisteredWorldV10Records(world);
+    result.sourceRecordIssues = inspection.inspect();
     // Invalid synthetic pressure inputs may still have useful sizing diagnostics;
     // they can never produce supported/fits=true, regardless of their byte count.
     if (world.pendingCommands.length || world.clock.mode !== 'management' || world.expedition.run !== null) result.unknowns.push('Persisted queues and departures are outside the fixed v10 scope');

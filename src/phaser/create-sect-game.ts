@@ -3,10 +3,12 @@ import { asSectRendererSource, sectPlacementCellAt, sectRenderEntityKey, sectVis
   type LegacySectRendererSession, type SectRenderExpansion, type SectRendererSnapshot, type SectRendererSource } from './sect-renderer-contract';
 import { translate, type Locale, type TextKey } from '../i18n';
 import { BUILDING_ART, CHARACTER_ART, CHARACTER_FRAME, SCENERY_ART } from './art-manifest';
+import { clampSectViewportZoom, SECT_VIEWPORT_ZOOM, SECT_WORLD_SIZE, sectViewportContains, sectViewportFrame,
+  type SectViewportFrame, type SectViewportRect } from './sect-viewport';
 
 const TILE = 64;
 const ORIGIN = { x: 128, y: 68 };
-const SIZE = { width: 1152, height: 768 };
+const SIZE = SECT_WORLD_SIZE;
 const DEFAULT_ZOOM = 1.1;
 interface EntityView {
   container: Phaser.GameObjects.Container;
@@ -43,8 +45,10 @@ class SectScene extends Phaser.Scene {
   private zoom = DEFAULT_ZOOM;
   private cameraTarget = { x: SIZE.width / 2, y: SIZE.height / 2 };
   private previousSelection = '';
+  private viewportFrame: SectViewportFrame | null = null;
 
-  constructor(private readonly source: SectRendererSource, private locale: Locale, private readonly initialZoom = DEFAULT_ZOOM) { super('sect-world'); this.zoom = initialZoom; }
+  constructor(private readonly source: SectRendererSource, private locale: Locale, private readonly initialZoom = DEFAULT_ZOOM,
+    private readonly responsiveViewport = false) { super('sect-world'); this.zoom = initialZoom; }
 
   preload(): void {
     for (const asset of CHARACTER_ART) this.load.spritesheet(asset.key, asset.sheet, { frameWidth: CHARACTER_FRAME.width, frameHeight: CHARACTER_FRAME.height });
@@ -53,7 +57,9 @@ class SectScene extends Phaser.Scene {
 
   create(): void {
     this.ready = true;
-    this.cameras.main.setBounds(0, 0, SIZE.width, SIZE.height).setRoundPixels(true).setZoom(this.zoom).centerOn(this.cameraTarget.x, this.cameraTarget.y);
+    this.cameras.main.setBounds(0, 0, SIZE.width, SIZE.height).setRoundPixels(true);
+    this.applyCamera();
+    if (this.responsiveViewport) this.scale.on(Phaser.Scale.Events.RESIZE, this.resizeViewport, this);
     this.terrain = this.add.graphics().setDepth(-1000);
     this.decorations = this.add.container(0, 0).setDepth(-500);
     this.placementArt = this.add.graphics().setDepth(10000);
@@ -65,6 +71,7 @@ class SectScene extends Phaser.Scene {
     this.stop = subscribeSectRenderer(this.source, () => this.sync());
     const dispose = () => {
       this.stop?.(); this.stop = null; this.ready = false;
+      if (this.responsiveViewport) this.scale.off(Phaser.Scale.Events.RESIZE, this.resizeViewport, this);
       this.events.off(Phaser.Scenes.Events.SHUTDOWN, dispose);
       this.events.off(Phaser.Scenes.Events.DESTROY, dispose);
       for (const view of this.entityViews.values()) view.container.destroy();
@@ -73,6 +80,7 @@ class SectScene extends Phaser.Scene {
       this.input.off('pointerdown', placementClick);
       this.placementArt?.destroy(); this.placementArt = null;
       this.mapSignature = ''; this.previousSelection = ''; this.placementSignature = '';
+      this.viewportFrame = null;
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, dispose);
     this.events.once(Phaser.Scenes.Events.DESTROY, dispose);
@@ -80,12 +88,49 @@ class SectScene extends Phaser.Scene {
   }
   setLocale(locale: Locale): void { this.locale = locale; if (this.ready) this.sync(); }
   setZoom(zoom: number): void {
-    this.zoom = Math.max(0.85, Math.min(2.2, zoom));
-    if (this.ready) this.cameras.main.setZoom(this.zoom).centerOn(this.cameraTarget.x, this.cameraTarget.y);
+    this.zoom = this.responsiveViewport ? clampSectViewportZoom(zoom) : Math.max(0.85, Math.min(2.2, zoom));
+    if (this.ready) { this.applyCamera(); if (this.responsiveViewport) this.focusResponsiveSelection(); }
   }
   resetView(): void {
     this.cameraTarget = { x: SIZE.width / 2, y: SIZE.height / 2 };
-    this.setZoom(this.initialZoom);
+    this.zoom = this.initialZoom;
+    if (this.ready) this.applyCamera();
+  }
+
+  private applyCamera(width?: number, height?: number): void {
+    const camera = this.cameras.main;
+    if (!this.responsiveViewport) { camera.setZoom(this.zoom).centerOn(this.cameraTarget.x, this.cameraTarget.y); return; }
+    const frame = sectViewportFrame(width ?? this.scale.gameSize.width, height ?? this.scale.gameSize.height, this.zoom, this.cameraTarget);
+    // Phaser may already have resized the canvas/camera to zero. Keep logical
+    // zoom and world-space target intact, then reapply them at the next valid size.
+    if (!frame) return;
+    this.viewportFrame = frame;
+    camera.setSize(frame.width, frame.height).setZoom(frame.zoom)
+      .setBounds(frame.bounds.x, frame.bounds.y, frame.bounds.width, frame.bounds.height)
+      .centerOn(frame.center.x, frame.center.y);
+  }
+
+  private resizeViewport(gameSize: Phaser.Structs.Size): void {
+    if (!this.ready || !Number.isFinite(gameSize.width) || !Number.isFinite(gameSize.height) || gameSize.width < 1 || gameSize.height < 1) return;
+    this.applyCamera(gameSize.width, gameSize.height);
+    this.focusResponsiveSelection();
+  }
+
+  private focusResponsiveSelection(force = false): void {
+    const selection = this.source.getSnapshot().selection;
+    if (!selection || !this.viewportFrame) return;
+    const key = sectRenderEntityKey(selection);
+    const entity = this.entityViews.get(key), expansion = this.expansionViews.get(key);
+    const view = entity ?? expansion;
+    if (!view) return;
+    const width = expansion ? expansion.hit.width : selection.kind === 'disciple' ? 80 : 120;
+    const height = expansion ? expansion.hit.height : selection.kind === 'disciple' ? 130 : 170;
+    const object: SectViewportRect = { x: view.container.x - width / 2,
+      y: view.container.y - (expansion ? height / 2 + 10 : height - 40), width, height: height + (expansion ? 40 : 0) };
+    if (force || !sectViewportContains(this.viewportFrame, object)) {
+      this.cameraTarget = { x: view.container.x, y: view.container.y - (expansion ? 0 : 45) };
+      this.applyCamera();
+    }
   }
 
   private drawMap(projection: SectRendererSnapshot): void {
@@ -381,7 +426,9 @@ class SectScene extends Phaser.Scene {
     });
     for (const [id, view] of this.entityViews) if (!present.has(id)) { view.container.destroy(); this.entityViews.delete(id); }
     const selection = projection.selection ? sectRenderEntityKey(projection.selection) : '';
-    if (this.zoom > 1.25 && selection && selection !== this.previousSelection) {
+    if (this.responsiveViewport && selection && selection !== this.previousSelection) {
+      this.focusResponsiveSelection(this.zoom > 1.25);
+    } else if (!this.responsiveViewport && this.zoom > 1.25 && selection && selection !== this.previousSelection) {
       const view = this.entityViews.get(selection) ?? this.expansionViews.get(selection);
       if (view) { this.cameraTarget = { x: view.container.x, y: view.container.y - 45 }; this.cameras.main.centerOn(this.cameraTarget.x, this.cameraTarget.y); }
     }
@@ -390,13 +437,16 @@ class SectScene extends Phaser.Scene {
 }
 
 export interface SectRenderer { setLocale(locale: Locale): void; setZoom(zoom: number): void; resetView(): void; destroy(): void }
-export function mountSectWorld(parent: HTMLElement, source: SectRendererSource | LegacySectRendererSession, locale: Locale): SectRenderer {
-  const scene = new SectScene(asSectRendererSource(source), locale, parent.clientWidth < 620 ? 1.8 : DEFAULT_ZOOM);
+export interface SectRendererOptions { readonly responsiveViewport?: boolean; readonly zoom?: number }
+export function mountSectWorld(parent: HTMLElement, source: SectRendererSource | LegacySectRendererSession, locale: Locale, options: SectRendererOptions = {}): SectRenderer {
+  const responsive = options.responsiveViewport === true;
+  const scene = new SectScene(asSectRendererSource(source), locale, responsive ? SECT_VIEWPORT_ZOOM.initial : parent.clientWidth < 620 ? 1.8 : DEFAULT_ZOOM, responsive);
+  if (responsive && options.zoom !== undefined) scene.setZoom(options.zoom);
   const game = new Phaser.Game({
-    type: Phaser.AUTO, parent, width: SIZE.width, height: SIZE.height,
+    type: Phaser.AUTO, parent, width: responsive ? Math.max(1, parent.clientWidth) : SIZE.width, height: responsive ? Math.max(1, parent.clientHeight) : SIZE.height,
     scene: [scene], backgroundColor: '#91aca0', pixelArt: true, roundPixels: true,
     banner: false, autoFocus: false, audio: { noAudio: true },
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    scale: { mode: responsive ? Phaser.Scale.RESIZE : Phaser.Scale.FIT, autoCenter: responsive ? Phaser.Scale.NO_CENTER : Phaser.Scale.CENTER_BOTH },
   });
   let destroyed = false;
   return { setLocale: (next) => { if (!destroyed) scene.setLocale(next); }, setZoom: (zoom) => { if (!destroyed) scene.setZoom(zoom); },

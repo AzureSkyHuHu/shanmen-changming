@@ -80,8 +80,27 @@ export function inspectUnregisteredWorldV9Records(value: WorldStateV9): string[]
 /** Fixed internal v10 RECORD root only. No codec, runtime or application barrel exports
  * this inspection. A successful result proves neither full envelope fit nor future capacity. */
 export function inspectUnregisteredWorldV10Records(input: unknown): string[] {
+  try { return captureV10RecordInspection(input).inspect(); }
+  catch { return ['Invalid internal v10 records']; }
+}
+/** INTERNAL detached data plus a fixed, argument-free inspection of THAT data.
+ * Data is deeply frozen at runtime, not merely readonly in this interface. This
+ * handle is never accepted by an admission API and grants no validation authority. */
+export interface V10RecordInspection {
+  readonly data: unknown;
+  readonly inspect: () => string[];
+}
+/** Always perform the complete bounded descriptor capture, even for frozen inputs.
+ * The lexical source cannot be replaced through arguments, this, a supplied handle
+ * or a callback. Each inspection reruns the complete record validator (including
+ * archive authentication) and returns fresh diagnostics; no result is cached.
+ * Capacity may measure this same immutable data before invoking its inspection. */
+export function captureV10RecordInspection(input: unknown): V10RecordInspection {
+  const data = captureFrozenV10RecordData(input);
+  return Object.freeze({ data, inspect: (): string[] => [...inspectCapturedV10Records(data)] });
+}
+function inspectCapturedV10Records(value: unknown): string[] {
   try {
-    const value = captureFrozenV10RecordData(input);
     if (!ownSectFields(value, ['seed', 'simulationVersion', 'contentVersion', 'clock', 'randomStreams', 'sequences', 'map', 'disciples', 'buildings',
       'sectEconomy', 'history', 'automaticProduction', 'inventory', 'reservations', 'transactions', 'activeProductionTransactionIds', 'commandReceipts',
       'pendingCommands', 'events', 'unlocks', 'diagnostics', 'cultivation', 'builds', 'expedition', 'contentIdentity', 'campaign', 'legacy', 'runtimeProtocol', 'sectExpansion', 'cultivationClock'])) return ['Invalid internal v10 root fields'];

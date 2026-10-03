@@ -97,6 +97,8 @@
 .management-v9-map-first .management-v9-map-layout { grid-template-columns: minmax(0, 1fr); gap: .6rem; margin-bottom: 1rem; }
 .management-v9-map-first .management-v9-world { border-color: #b8c6a7; border-radius: .7rem; box-shadow: 0 .6rem 2rem #071c1835; }
 .management-v9-map-first .world-canvas { min-height: 23rem; height: clamp(23rem, 56vh, 39rem); }
+/* The opt-in Phaser viewport owns canvas dimensions; retain the short first fold. */
+.management-v9-map-first .world-stage-responsive .world-canvas { overflow: hidden; }
 .management-v9-map-first .management-v9-placement { margin: 0; border: 0; border-radius: 0 0 .5rem .5rem; box-shadow: none; }
 .management-v9-map-first .management-v9-placement-fields { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 1rem; align-items: end; }
 .management-v9-map-first .management-v9-placement-fields .management-v9-field { margin: .6rem 0; }

@@ -98,3 +98,21 @@ Integration checkpoint, 2026-10-03 02:40 UTC: strict types and module boundaries
 passed. The new preflight suite plus canonical-byte suite passed 35 tests in
 2.33 seconds. Genuine reused-workload timing and broader regression remain
 pending for this exact patch.
+
+## Genuine comparison and broader regression — 2026-10-03 03:27 UTC
+
+Producer `9e66508a8c524d482315d470a8cdbabd53f87365`, tree `581cf63d801a602988ab682b39556d6ad3d78ad7`. Reused all nine fully re-admitted earned fixtures; setup was not rerun. Twenty unprofiled measured samples after three warmups per lane.
+
+| Scenario | Owner p50 / p95 ms | Session p50 / p95 ms |
+| --- | --- | --- |
+| upgrade-precheckpoint | 57.780 / 75.099 | 58.734 / 64.363 |
+| upgrade-half-checkpoint | 61.516 / 66.202 | 61.463 / 78.589 |
+| upgrade-final-checkpoint | 62.862 / 74.708 | 62.910 / 79.743 |
+| l2-production-working | 60.247 / 65.377 | 60.726 / 79.765 |
+| l2-production-work-complete | 60.983 / 76.092 | 61.419 / 73.340 |
+| l2-production-delivery | 61.879 / 76.497 | 63.331 / 87.768 |
+| l2-maintenance-renewal | 64.129 / 69.120 | 65.457 / 74.244 |
+| alternative-care-working | 63.713 / 76.566 | 64.775 / 74.040 |
+| alternative-care-complete | 66.348 / 80.783 | 66.979 / 78.387 |
+
+All complete Worlds and four Session DTOs matched their oracles. Seven broader runtime/instance/reserved-discharge/codec/Session/save-controller suites passed 194 tests in 796.34 seconds, followed by a successful production build. The 50 ms tick budget remains unmet; no public v10 activation, phone/36-person/3× or full-game acceptance claim.

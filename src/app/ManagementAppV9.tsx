@@ -157,7 +157,7 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
     </div></details>
     </div>
     <div className="management-v9-map-layout">
-      <section className="management-v9-world" aria-label={t('live.worldLabel')}><PhaserWorld source={source} locale={locale} /></section>
+      <section className="management-v9-world" aria-label={t('live.worldLabel')}><PhaserWorld source={source} locale={locale} responsiveViewport /></section>
       <details className="management-v9-placement-disclosure" open={placementOpen || review !== null} onToggle={event => {
         // Keep a live preview reachable without remounting its fields or stealing focus.
         if (review && !event.currentTarget.open) event.currentTarget.open = true;
