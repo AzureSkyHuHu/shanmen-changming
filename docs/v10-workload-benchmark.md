@@ -24,6 +24,20 @@ node tools/benchmark-v10-workloads.mjs --run --scenario=upgrade-half-checkpoint 
 
 Without `--run`, the launcher prints usage and does not load or prepare a World. Nothing is added to default tests, builds, content validation, public entry points, persistence or deployment. Progress is written to stderr; a completed JSON report goes to stdout. An assertion, rejected command, capacity failure or missing boundary aborts rather than substituting a synthetic fixture or success row.
 
+### Reusing exact earned checkpoints for profiling
+
+The original run above is unchanged. Explicit `--capture-fixtures=ABSOLUTE_NEW_DIRECTORY`
+and `--fixtures=ABSOLUTE_DIRECTORY` modes now support one genuine capture and later
+full readmission of the exact saved sources. Both require `--baseline-report=PATH`
+to the completed 0030 report, whose file and nine canonical World hashes are pinned.
+No manifest supplies admission, sampling policy or executable callbacks. Output
+must remain outside the repository; capture/reuse requires a clean frozen commit.
+
+See [the profiling procedure](v10-profiling.md) for exact commands, full save and
+record checks, fixture provenance, the separate opt-in CPU profiler and the
+distinction between diagnostic profiler times and unprofiled budget measurements.
+The tooling author has not run these new paths; integration execution is pending.
+
 ## Provenance and setup cost
 
 The sole origin is `createUnregisteredWorldV10('v10-workloads-earned-from-genesis-1')`. No saved fixture is imported, no v9 World is cast/lifted, and no inventory, clock, actor, level, research, cost or admission field is edited. The real four-person starter roster includes a 14-year-old and three eligible adults; this is not four adult workers or 36-person evidence.

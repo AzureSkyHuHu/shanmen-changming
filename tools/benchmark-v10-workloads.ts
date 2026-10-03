@@ -28,9 +28,9 @@ export const SCENARIO_NAMES = Object.freeze([
   'l2-production-working', 'l2-production-work-complete', 'l2-production-delivery',
   'l2-maintenance-renewal', 'alternative-care-working', 'alternative-care-complete',
 ] as const);
-type ScenarioName = typeof SCENARIO_NAMES[number];
+export type ScenarioName = typeof SCENARIO_NAMES[number];
 type CommandBody<T> = T extends unknown ? Omit<T, 'commandId' | 'sequence' | 'issuedTick'> : never;
-type Scenario = { name: ScenarioName; mode: 'continuous' | 'repeated-boundary'; source: WorldStateV10;
+export type Scenario = { name: ScenarioName; mode: 'continuous' | 'repeated-boundary'; source: WorldStateV10;
   primeTicks: number; description: string; verify: (before: WorldStateV10, after: WorldStateV10) => void };
 type Progress = (message: string) => void;
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -57,7 +57,7 @@ function strictTick(source: WorldStateV10): WorldStateV10 {
   return result.world;
 }
 
-function prepareScenarios(progress: Progress) {
+export function prepareScenarios(progress: Progress) {
   let commandSequence = 0; let reducerTicks = 0;
   const milestones: { label: string; simulationTick: number; elapsedMs: number }[] = [];
   const setupStart = performance.now();
@@ -239,7 +239,7 @@ function prepareScenarios(progress: Progress) {
     milestones, finalEarnedCareWorldSha256: hash(healed), origin: 'createUnregisteredWorldV10(seed); genuine commands and every actual reducer tick' } };
 }
 
-function sourceEvidence(world: WorldStateV10) {
+export function sourceEvidence(world: WorldStateV10) {
   const capacity = assessManagementCapacityV10(world);
   check(capacity.supported && capacity.fits && capacity.actualFits, 'Scenario lacks complete capacity');
   return { seed: world.seed, simulationTick: world.clock.simulationTick, calendarTick: world.clock.calendarTick,
@@ -253,7 +253,7 @@ function sourceEvidence(world: WorldStateV10) {
     careJobs: world.sectExpansion.care.jobs.map(job => ({ id: job.jobId, activeTicks: job.activeTicks, doseProductionJobId: job.doseProductionJobId })) };
 }
 
-function benchmarkOwner(scenario: Scenario) {
+export function benchmarkOwner(scenario: Scenario) {
   const rawMs: number[] = []; const creationMs: number[] = []; const primeMs: number[] = []; const snapshotMs: number[] = [];
   const metrics: object[] = []; const ticks: number[] = []; let finalHash = '';
   const sourceHash = hash(scenario.source);
@@ -301,7 +301,7 @@ function benchmarkOwner(scenario: Scenario) {
     metrics, measuredResultTicks: ticks, finalWorldSha256: hash(expected), allExact: true };
 }
 
-function benchmarkSession(scenario: Scenario) {
+export function benchmarkSession(scenario: Scenario) {
   const rawMs: number[] = []; const creationMs: number[] = []; const cachedProjectionMs: number[] = [];
   const verify = (session: ApplicationSessionV10, before: WorldStateV10, expected: WorldStateV10) => {
     const exported = session.exportWorld(); check(exported.ok, `${scenario.name}: Session export failed`);
