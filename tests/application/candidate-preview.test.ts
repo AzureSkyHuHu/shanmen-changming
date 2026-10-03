@@ -117,7 +117,7 @@ describe('candidate preview build gate', () => {
     expect(html).not.toContain(translate('zh-CN', 'candidate.locked'));
     const dialog = html.slice(html.indexOf('<dialog'), html.indexOf('</dialog>'));
     expect(dialog).toContain(translate('zh-CN', 'candidate.banner'));
-    expect(dialog).toContain(translate('en', 'candidate.banner'));
+    expect(dialog).not.toContain(translate('en', 'candidate.banner'));
     // Static markup checks do not claim modal focus, Canvas or browser interaction acceptance.
   });
 });

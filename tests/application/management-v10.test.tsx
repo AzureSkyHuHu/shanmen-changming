@@ -11,8 +11,8 @@ import { ManagementAppV10, ManagementSectPanelsV10, createManagementHoldsV10, cr
   createManagementTranslatorV10, managementMessagesV10, managementMessageSpecificationsV10, managementBoundaryV10,
   managementBlockedV10, managementHasResourcesV10, managementResultV10, managementReasonV10, projectManagementRendererV10,
   ManagementBuildReviewDetailsV10, attachManagementDraftEscapeV10, restoreManagementDraftFocusV10, managementCareReasonV10,
-  managementReviewFocusOwnerV10, managementBuildEquipmentLabelV10,
-  resumeManagementV10, type ManagementSnapshotV10, type ManagementReviewV10 } from '../../src/app/ManagementAppV10';
+  managementReviewFocusOwnerV10, managementBuildEquipmentLabelV10, focusManagementReviewV10,
+  resumeManagementV10, type ManagementSnapshotV10, type ManagementReviewV10, type ManagementStorageStatusV10 } from '../../src/app/ManagementAppV10';
 import { validateLocales } from '../../src/i18n/validation';
 
 const sessions: ApplicationSessionV10[] = [];
@@ -159,6 +159,105 @@ describe('private v10 management component', () => {
     expect(source).not.toMatch(/exportWorld\(|\.snapshot\(|indexedDB\.|as\s+(?:unknown\s+as\s+)?(?:WorldState|ApplicationSessionV9)/);
     expect(source).not.toContain('ManagementSaveControllerV9'); expect(source).not.toContain('commitImport(');
     const css = readFileSync(new URL('../../src/app/management-v10.css', import.meta.url), 'utf8'); expect(css).toContain('max-width: 32rem'); expect(css).toContain('max-height: 20rem');
+  });
+});
+
+// SSR/source contracts do not prove Canvas, native disclosure, zoom or browser
+// focus behavior. The integration owner must still perform those interactions.
+describe('v10 map-first presentation', () => {
+  it.each(['zh-CN', 'en'] as const)('retains test-build identity, full ledgers and map-before-placement order in %s', locale => {
+    const session = fresh(); const before = session.getSnapshot(); const t = createManagementTranslatorV10(locale);
+    const html = renderToStaticMarkup(createElement(ManagementAppV10, { session, initialLocale: locale }));
+    expect(html).toContain('class="management-v9 management-v9-map-first management-v10"');
+    const scope = /<details class="management-v9-scope">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
+    expect(scope).toContain(t('managementV10.candidate')); expect(scope).toContain(t('managementV10.scope'));
+    expect(scope).toContain(locale === 'en' ? 'v10 management test build' : 'v10 经营测试版');
+    expect(scope).not.toMatch(/私有|Private/);
+    expect(html).toContain(t('managementV10.subtitle'));
+    const summary = /<section id="management-v10-overview"[^>]*>([\s\S]*?)<\/section>/.exec(html)?.[0] ?? '';
+    const ledger = /<details class="management-v9-ledger">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
+    const rows = [...before.frame.resources, ...before.expansion.stock];
+    expect(summary.match(/<article>/g)).toHaveLength(rows.length); expect(ledger.match(/<article>/g)).toHaveLength(rows.length);
+    expect(summary).not.toContain('<p>'); expect(ledger).toContain(t('inventory.stockTitle'));
+    for (const row of rows) {
+      expect(summary).toContain(`<strong>${row.owned}</strong>`);
+      expect(ledger).toContain(t('live.available', { available: row.available, reserved: row.reserved }));
+      expect(ledger).toContain(t('live.capacity', { capacity: row.capacity }));
+    }
+    const mapAt = html.indexOf('<section class="management-v9-world"');
+    const placementAt = html.indexOf('<details class="management-v9-placement-disclosure">');
+    expect(mapAt).toBeGreaterThan(0); expect(placementAt).toBeGreaterThan(mapAt);
+    expect(html.indexOf('<section id="management-v10-roster"')).toBeGreaterThan(placementAt);
+    expect(html).toContain(`<h2 id="management-v10-selection">${t('managementV9.people')}</h2>`);
+    expect(html).toContain(`aria-description="${t('managementV9.selection')}"`);
+    const placementMarkup = html.slice(placementAt, html.indexOf('</details>', placementAt));
+    expect(placementMarkup).toContain('aria-labelledby="management-v10-placement-heading"');
+    expect(placementMarkup).toContain('class="management-v9-placement-fields"');
+    expect(placementMarkup.match(/type="number"/g)).toHaveLength(2);
+    expect(placementMarkup).toContain(t('managementV9.preview')); expect(session.getSnapshot()).toBe(before);
+  });
+  it.each(['zh-CN', 'en'] as const)('keeps all v10 section links in a native navigation disclosure in %s', locale => {
+    const session = fresh(); const t = createManagementTranslatorV10(locale);
+    const html = renderToStaticMarkup(createElement(ManagementAppV10, { session, initialLocale: locale }));
+    const navigation = /<details class="management-v9-navigation-disclosure">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
+    expect(navigation).toContain(`<summary>${t('managementV9.navigation')}</summary>`);
+    expect(navigation).toContain(`aria-label="${t('managementV9.navigation')}"`);
+    for (const suffix of ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'research', 'upgrade', 'care', 'maintenance']) {
+      const id = `management-v10-${suffix}`;
+      expect(navigation).toContain(`href="#${id}"`); expect(html.match(new RegExp(`id="${id}"`, 'g'))).toHaveLength(1);
+      expect(html).toMatch(new RegExp(`<section[^>]*id="${id}"[^>]*tabindex="-1"`));
+    }
+  });
+  it.each(['slot', 'session'] as const)('keeps manual-only, dirty, %s read-only and storage notices outside collapsed content', origin => {
+    const session = fresh(); if (origin === 'session') session.setStorageReadOnly(true);
+    const before = session.getSnapshot(); const t = createManagementTranslatorV10('zh-CN');
+    const status: ManagementStorageStatusV10 = { busy: false, readOnly: origin === 'slot', summary: { key: 'managementV9.unsaved' }, notice: { key: 'save.error.quota' } };
+    const renderBody = vi.fn(() => null); const storage = { subscribe: () => () => {}, getSnapshot: () => status, renderBody };
+    const html = renderToStaticMarkup(createElement(ManagementAppV10, { session, storage, initialLocale: 'zh-CN' }));
+    const persistent = html.slice(html.indexOf('</header>'), html.indexOf('<section id="management-v10-overview"'));
+    expect(persistent).not.toContain('<details'); expect(persistent).toContain(t('managementV9.unsaved'));
+    expect(persistent).toContain(t('managementV9.manualOnly')); expect(persistent).toContain(t('save.readOnly'));
+    expect(persistent).toContain(t('save.error.quota')); expect(persistent).toContain('class="management-v10-storage-state"');
+    expect(persistent).not.toContain(t('managementV10.storageUnavailable'));
+    expect(renderBody).not.toHaveBeenCalled(); expect(session.getSnapshot()).toBe(before);
+  });
+  it('keeps the explicit resume and save controls beside a quiet clock, outside action-only announcements', () => {
+    const source = cloneJson(createUnregisteredWorldV10()); source.clock.pauseReasons = ['hidden', 'player', 'choice'];
+    const session = new ApplicationSessionV10(source); sessions.push(session); const before = session.getSnapshot(); const t = createManagementTranslatorV10('en');
+    const html = renderToStaticMarkup(createElement(ManagementAppV10, { session, initialLocale: 'en' }));
+    const bar = /<div class="management-v9-command-bar"[^>]*>[\s\S]*?<\/p><\/div>/.exec(html)?.[0] ?? '';
+    expect(bar).toContain(`>${t('managementV10.resumeExplicit')}</button>`); expect(bar).toContain(`>${t('save.open')}</button>`);
+    const clock = /<div class="management-v9-clock">([\s\S]*?)<\/div>/.exec(bar)?.[0] ?? '';
+    expect(clock).toContain(t('live.tick', { tick: before.frame.clock.simulationTick }));
+    expect(clock).toContain(t('managementV9.speed', { speed: before.frame.clock.speed })); expect(clock).not.toMatch(/aria-live|role="status"/);
+    const feedback = /<p class="management-v9-feedback"[^>]*>([\s\S]*?)<\/p>/.exec(bar)?.[0] ?? '';
+    expect(feedback).toContain('aria-live="polite"'); expect(feedback).toContain(t('managementV9.feedbackReady'));
+    expect(feedback).not.toContain(t('live.tick', { tick: before.frame.clock.simulationTick }));
+    expect(html).toContain(t('managementV10.hiddenPause')); expect(session.getSnapshot()).toBe(before);
+    expect(before.frame.clock.pauseReasons).toEqual(['hidden', 'player', 'choice']);
+  });
+  it('keeps the global review outside disclosures and placement fields mounted through a live preview', () => {
+    const source = readFileSync(new URL('../../src/app/ManagementAppV10.tsx', import.meta.url), 'utf8');
+    const shell = source.slice(source.indexOf('return <main className="management-v9 management-v9-map-first management-v10"'));
+    const beforeReview = shell.slice(0, shell.indexOf('<ReviewPanelV10'));
+    expect(shell.match(/<ReviewPanelV10/g)).toHaveLength(1);
+    expect(beforeReview.match(/<details\b/g)?.length).toBe(beforeReview.match(/<\/details>/g)?.length);
+    expect(shell.indexOf('<ReviewPanelV10')).toBeLessThan(shell.indexOf('className="management-v9-utilities"'));
+    expect(shell).toContain('open={placementOpen || placementReview}');
+    expect(shell).toContain('if (placementReview && !event.currentTarget.open) event.currentTarget.open = true');
+    expect(shell).toContain('if (placementReview) event.preventDefault()');
+    expect(source).toContain('setPlacementOpen(true); setPlacement(next); if (placementReview) prepare(next)');
+    expect(source).not.toContain('placementOpen &&'); expect(shell).not.toContain('.focus(');
+    expect(source).toContain('}, [focus, region, session])');
+    const css = readFileSync(new URL('../../src/app/management-v10.css', import.meta.url), 'utf8');
+    expect(css).toContain('@media (max-width: 48rem), (max-height: 34rem)');
+    expect(css).toContain('.management-v10 .management-v10-review { scroll-margin-block-start: 1rem; }');
+  });
+  it('does not move focus away from a placement field when another review presentation is requested', () => {
+    const opener = {} as HTMLElement; const input = {} as HTMLElement; const body = {} as HTMLElement; const focus = vi.fn();
+    const region = { isConnected: true, contains: () => false, querySelector: () => ({ focus }) } as unknown as HTMLElement;
+    const restore = focusManagementReviewV10({ region, focus: { opener }, document: { activeElement: input, body }, canEnter: () => true, canRestore: () => true });
+    expect(focus).not.toHaveBeenCalled(); restore(); expect(focus).not.toHaveBeenCalled();
   });
 });
 

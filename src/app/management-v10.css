@@ -1,7 +1,10 @@
-/* Private v10 composes the verified v9 jade/paper layout; no global overrides. */
+/* Private v10 opts into the shared map-first jade/paper layout. These rules
+ * preserve its global review and injected storage facts; no global overrides. */
 .management-v10 .management-v10-source { overflow-wrap: anywhere; font-size: .9em; }
 .management-v10 .management-v10-review { scroll-margin-block-start: calc(var(--management-v9-toolbar-height, 10rem) + 1.25rem); }
 .management-v10 .management-v10-review :is(p, ul) { max-inline-size: 80ch; }
+.management-v10 .management-v10-storage-state { color: #f0c09a; font-weight: 600; }
+.management-v10 .management-v9-placement-disclosure > summary[aria-disabled="true"] { cursor: default; }
 .management-v10 :is(button, select, input, a):focus-visible,
 .management-v10-dialog :is(button, select, input, a):focus-visible {
   outline: 2px solid #ffe3a0;
@@ -12,6 +15,10 @@
 .management-v10-dialog .management-v9-save-body { overflow-x: hidden; }
 .management-v10-dialog .management-v9-save-heading,
 .management-v10-dialog .management-v9-save-feedback { overflow-wrap: anywhere; }
+/* The shared map-first toolbar stops sticking on phones/short viewports. */
+@media (max-width: 48rem), (max-height: 34rem) {
+  .management-v10 .management-v10-review { scroll-margin-block-start: 1rem; }
+}
 @media (max-width: 32rem) {
   .management-v10 { padding-inline: .75rem; }
   .management-v10 .management-v9-panel { padding: .8rem; }

@@ -181,6 +181,6 @@ describe('overlay lifetime and integration contract', () => {
   });
   it('provides narrow-screen, keyboard-focus, scrolling and reduced-motion styling', () => {
     const source = readFileSync('src/app/campaign-entry.css', 'utf8');
-    for (const text of ['max-height: calc(100dvh', 'overflow-y: auto', '@media (max-width: 620px)', '@media (max-width: 380px)', ':focus-visible', 'prefers-reduced-motion']) expect(source).toContain(text);
+    for (const text of ['max-height: calc(100dvh', 'overflow-y: auto', '@media (max-width: 680px)', '@media (max-width: 420px)', ':focus-visible', 'prefers-reduced-motion']) expect(source).toContain(text);
   });
 });

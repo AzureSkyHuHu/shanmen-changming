@@ -10,6 +10,9 @@ import { CAMPAIGN_SLOT_IDS } from '../platform/persistence/types';
 import type { BeginV10CopySourceV9, FinishV10CopySourceV9, ManagementSaveControllerV9,
   V10CopySourceOutcomeV9, V10CopySourceV9 } from './management-v9-save-controller';
 import { ApplicationSessionV10, type PreparedSessionV10, type SessionFailureV10 } from './session-v10';
+import type { SessionSourceV10 } from './session-v10';
+import { ManagementSaveControllerV10, type CopyControllerTransferResultV10,
+  type PreparedCopyControllerV10 } from './management-v10-save-controller';
 
 export interface V9V10CopyOptions {
   readonly targetSlotId: CampaignSlotId;
@@ -25,7 +28,7 @@ export type V9V10CopyFailure =
   | { readonly code: 'STORAGE_REJECTED'; readonly storageCode: ManagementV10PersistenceErrorCode };
 export type V9V10CopyCleanupIssue =
   | 'PREPARED_DISCARD_FAILED' | 'SOURCE_CLEANUP_UNCONFIRMED' | 'SOURCE_HOLD_RELEASE_FAILED'
-  | 'SOURCE_LEASE_RELEASE_FAILED' | 'TARGET_LEASE_RELEASE_FAILED' | 'TARGET_SESSION_CLOSE_FAILED';
+  | 'SOURCE_PROTECTION_FAILED' | 'SOURCE_LEASE_RELEASE_FAILED' | 'TARGET_LEASE_RELEASE_FAILED' | 'TARGET_SESSION_CLOSE_FAILED';
 /** Ownership of the live target and its lease transfers together to this host. */
 export interface V10CopyTargetBinding {
   readonly session: ApplicationSessionV10;
@@ -48,6 +51,11 @@ interface HostState {
   target: V10CopyTargetBinding | null;
   pending: CopyOperation | null;
   closing: Promise<readonly V9V10CopyCleanupIssue[]> | null;
+  readyForTransfer: boolean;
+  sourceProtected: boolean;
+  savedSource: SessionSourceV10 | null;
+  transfer: CopyHostTransferOfferV10 | null;
+  transferred: boolean;
 }
 interface CopyOperation {
   readonly host: HostState;
@@ -57,6 +65,30 @@ interface CopyOperation {
   finishing: Promise<FinishV10CopySourceV9 | null> | null;
 }
 const hosts = new WeakMap<V9V10CopyHost, HostState>();
+export interface CopyHostTransferOfferV10 { readonly kind: 'v10-copy-host-transfer' }
+export interface CopyHostTransferSourceV10 {
+  readonly binding: V10CopyTargetBinding;
+  readonly source: SessionSourceV10;
+  readonly savedSource: SessionSourceV10;
+}
+interface TransferOfferState extends CopyHostTransferSourceV10 {
+  readonly view: CopyHostTransferSourceV10;
+  readonly host: HostState;
+  readonly generation: object;
+  committing: PreparedCopyControllerV10 | null;
+}
+const transferOffers = new WeakMap<object, TransferOfferState>();
+const sameSessionSource = (a: SessionSourceV10, b: SessionSourceV10): boolean => a.sessionEpoch === b.sessionEpoch
+  && a.worldRevision === b.worldRevision && a.revision === b.revision;
+function currentTransfer(offer: CopyHostTransferOfferV10): TransferOfferState | null {
+  const state = transferOffers.get(offer);
+  if (!state) return null;
+  const host = state.host; const snapshot = state.binding.session.getSnapshot();
+  return !host.closed && !host.transferred && host.readyForTransfer && host.sourceProtected
+    && host.transfer === offer && host.generation === state.generation && host.target === state.binding
+    && !snapshot.closed && !snapshot.holds.storageBusy && snapshot.runtimeFailure === null
+    && sameSessionSource(snapshot, state.source) ? state : null;
+}
 
 function finishSource(operation: CopyOperation, outcome: V10CopySourceOutcomeV9): Promise<FinishV10CopySourceV9 | null> {
   // Host invalidation and the coordinator share one finish; neither consumes a
@@ -70,8 +102,14 @@ function finishSource(operation: CopyOperation, outcome: V10CopySourceOutcomeV9)
   }
   return operation.finishing;
 }
-function sourceCleanup(result: FinishV10CopySourceV9 | null, issues: V9V10CopyCleanupIssue[]): void {
-  if (!result?.ok) { issues.push('SOURCE_CLEANUP_UNCONFIRMED'); return; }
+function sourceCleanup(result: FinishV10CopySourceV9 | null, issues: V9V10CopyCleanupIssue[], expectedBound = false): void {
+  if (!result) { issues.push('SOURCE_CLEANUP_UNCONFIRMED'); return; }
+  if (!result.ok && result.code !== 'SOURCE_PROTECTION_FAILED') { issues.push('SOURCE_CLEANUP_UNCONFIRMED'); return; }
+  if (!result.ok) issues.push('SOURCE_PROTECTION_FAILED');
+  // A stale bound request can finish successfully as cancellation while keeping
+  // its source writer. Successful cleanup is not proof of successful retirement.
+  // Keep the durable target receipt, but never authorize automatic adoption.
+  else if (expectedBound && (!result.sourceCurrent || result.lease === 'retained')) issues.push('SOURCE_CLEANUP_UNCONFIRMED');
   if (!result.holdReleased) issues.push('SOURCE_HOLD_RELEASE_FAILED');
   if (result.lease === 'release-failed') issues.push('SOURCE_LEASE_RELEASE_FAILED');
 }
@@ -92,17 +130,64 @@ function currentFailure(operation: CopyOperation): V9V10CopyFailure | null {
  */
 export class V9V10CopyHost {
   constructor(source: ManagementSaveControllerV9) {
-    hosts.set(this, { source, generation: {}, closed: false, target: null, pending: null, closing: null });
+    hosts.set(this, { source, generation: {}, closed: false, target: null, pending: null, closing: null,
+      readyForTransfer: false, sourceProtected: false, savedSource: null, transfer: null, transferred: false });
   }
   getBoundTarget(): V10CopyTargetBinding | null { return hosts.get(this)!.target; }
   isClosed(): boolean { return hosts.get(this)!.closed; }
   /** Even replacing with the same controller creates a new host identity fence. */
   replaceSource(source: ManagementSaveControllerV9): boolean {
     const host = hosts.get(this)!;
-    if (host.closed || host.target) return false;
+    if (host.closed || host.target || host.transferred) return false;
     host.generation = {}; host.source = source;
     if (host.pending) void finishSource(host.pending, 'cancelled');
     return true;
+  }
+  /** Fixed, one-use ownership transfer. No caller-provided Session, receipt,
+   * factory, validator, callback or World can activate an adopted controller. */
+  async transferToController(): Promise<CopyControllerTransferResultV10> {
+    const host = hosts.get(this)!;
+    if (host.closed) return { ok: false, code: 'HOST_CLOSED' };
+    if (!host.target || !host.savedSource || host.transferred) return { ok: false, code: 'NO_BOUND_TARGET' };
+    if (!host.readyForTransfer) return { ok: false, code: 'COPY_PENDING' };
+    if (!host.sourceProtected) return { ok: false, code: 'SOURCE_UNPROTECTED' };
+    if (host.transfer) return { ok: false, code: 'TRANSFER_BUSY' };
+    const snapshot = host.target.session.getSnapshot();
+    if (snapshot.closed || snapshot.holds.storageBusy || snapshot.runtimeFailure !== null
+      || snapshot.sessionEpoch !== host.savedSource.sessionEpoch) return { ok: false, code: 'SOURCE_CHANGED' };
+    const offer: CopyHostTransferOfferV10 = Object.freeze({ kind: 'v10-copy-host-transfer' });
+    const source = Object.freeze({ sessionEpoch: snapshot.sessionEpoch, worldRevision: snapshot.worldRevision, revision: snapshot.revision });
+    const view = Object.freeze({ binding: host.target, source, savedSource: host.savedSource });
+    const state: TransferOfferState = { ...view, view, host, generation: host.generation, committing: null };
+    host.transfer = offer; transferOffers.set(offer, state);
+    let prepared: PreparedCopyControllerV10 | null = null;
+    try {
+      const candidate = await ManagementSaveControllerV10.prepareCopyTransfer(offer);
+      if (!candidate.ok) return host.closed ? { ok: false, code: 'HOST_CLOSED' } : candidate;
+      prepared = candidate.token;
+      if (!currentTransfer(offer)) return { ok: false, code: host.closed ? 'HOST_CLOSED' : 'SOURCE_CHANGED' };
+      // Only this concrete synchronous host call opens the activation gate.
+      // The fixed controller consumes its paired token and performs preallocated
+      // assignments only; no notification or await separates the two owners.
+      state.committing = prepared;
+      const result = ManagementSaveControllerV10.activateCopyTransfer(prepared, offer);
+      state.committing = null;
+      if (!result.ok) return result;
+      prepared = null; host.target = null; host.transferred = true; host.readyForTransfer = false;
+      return result;
+    } finally {
+      state.committing = null;
+      if (prepared) ManagementSaveControllerV10.discardCopyTransfer(prepared);
+      transferOffers.delete(offer); if (host.transfer === offer) host.transfer = null;
+    }
+  }
+  /** @internal Identity-authenticated read for the fixed controller preparer. */
+  static readTransferOffer(offer: CopyHostTransferOfferV10): CopyHostTransferSourceV10 | null {
+    return currentTransfer(offer)?.view ?? null;
+  }
+  /** @internal Cannot be opened by copied tokens or a direct activation call. */
+  static isTransferActivationCurrent(offer: CopyHostTransferOfferV10, prepared: PreparedCopyControllerV10): boolean {
+    const state = currentTransfer(offer); return state !== null && state.committing === prepared;
   }
   close(): Promise<readonly V9V10CopyCleanupIssue[]> {
     const host = hosts.get(this)!;
@@ -210,6 +295,8 @@ export class V9V10CopyCoordinator {
         binding = Object.freeze({ session: bound.value, repository: this.repository, receipt });
         // No callback/await/observer separates consuming the prepared token and
         // publishing this fixed host binding plus ownership of the target lease.
+        const boundSource = bound.value.getSnapshot();
+        host.savedSource = Object.freeze({ sessionEpoch: boundSource.sessionEpoch, worldRevision: boundSource.worldRevision, revision: boundSource.revision });
         host.target = binding; host.source = null; host.pending = null;
       } catch (error) {
         const ownedFailure = error !== null && (typeof error === 'object' || typeof error === 'function') ? copyFailures.get(error) : undefined;
@@ -225,7 +312,7 @@ export class V9V10CopyCoordinator {
         }
         if (operation) {
           // 'bound' follows BOTH a durable receipt and an actual successful bind.
-          sourceCleanup(await finishSource(operation, binding ? 'bound' : 'failed'), cleanup);
+          sourceCleanup(await finishSource(operation, binding ? 'bound' : 'failed'), cleanup, binding !== null);
           currentFailure(operation); // Expected stale after finishing the token.
         }
         if (receipt && !binding) {
@@ -243,7 +330,11 @@ export class V9V10CopyCoordinator {
         if (operation && host.pending === operation) host.pending = null;
       }
       const frozenCleanup = Object.freeze(cleanup);
-      if (receipt && binding && host.target === binding && !host.closed) return Object.freeze({ kind: 'committed-and-bound', committed: true, receipt, binding, cleanup: frozenCleanup });
+      if (receipt && binding && host.target === binding && !host.closed) {
+        host.sourceProtected = !cleanup.includes('SOURCE_PROTECTION_FAILED') && !cleanup.includes('SOURCE_CLEANUP_UNCONFIRMED');
+        host.readyForTransfer = true;
+        return Object.freeze({ kind: 'committed-and-bound', committed: true, receipt, binding, cleanup: frozenCleanup });
+      }
       if (receipt) return Object.freeze({ kind: 'committed-not-bound', committed: true, receipt,
         bindingState: binding ? 'closed-after-bind' : 'never-bound', reason: binding ? { code: 'HOST_CLOSED' as const } : reason, cleanup: frozenCleanup });
       return Object.freeze({ kind: 'rejected', committed: false, reason, cleanup: frozenCleanup });

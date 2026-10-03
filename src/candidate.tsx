@@ -1,17 +1,19 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AppProps } from './app/App';
-import { translate, type TextKey } from './i18n';
+import { translate, type Locale, type TextKey } from './i18n';
 import './app/app.css';
 
 /** A fixed development-only destination. Never look up, copy, or migrate ordinary browser slots. */
 export const CANDIDATE_DATABASE_NAME = 'shanmen-changming-v8-candidate-saves';
 const candidateRepositoryOptions = Object.freeze({ databaseName: CANDIDATE_DATABASE_NAME });
 
-export function CandidatePreviewNotice() {
-  return <aside role="note" style={{ padding: '12px 16px', marginBottom: 16, border: '1px solid #a5915d', borderRadius: 6, background: '#263c30', color: '#fff0c7', fontSize: 13, lineHeight: 1.7 }}>
-    <p lang="zh-CN">{translate('zh-CN', 'candidate.banner')}</p>
-    <p lang="en">{translate('en', 'candidate.banner')}</p>
+export function CandidatePreviewNotice({ locale }: { locale?: Locale }) {
+  return <aside className="candidate-preview-notice" role="note">
+    {locale ? <p lang={locale}>{translate(locale, 'candidate.banner')}</p> : <>
+      <p lang="zh-CN">{translate('zh-CN', 'candidate.banner')}</p>
+      <p lang="en">{translate('en', 'candidate.banner')}</p>
+    </>}
   </aside>;
 }
 
@@ -28,7 +30,7 @@ function CandidateUnavailable({ message }: { message: Extract<TextKey, 'candidat
 export async function candidatePreviewProps(buildFlag: unknown): Promise<Required<Pick<AppProps, 'newWorldFactory' | 'saveRepositoryOptions' | 'previewNotice'>> | null> {
   if (buildFlag !== '1') return null;
   const { createWorldV8 } = await import('./core/kernel/v8');
-  return { newWorldFactory: createWorldV8, saveRepositoryOptions: candidateRepositoryOptions, previewNotice: <CandidatePreviewNotice /> };
+  return { newWorldFactory: createWorldV8, saveRepositoryOptions: candidateRepositoryOptions, previewNotice: (locale) => <CandidatePreviewNotice locale={locale} /> };
 }
 
 /** Only the compile-time environment controls the actual entry, never a caller-provided flag. */

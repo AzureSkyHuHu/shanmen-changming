@@ -61,3 +61,63 @@
 @media (max-width: 72rem) { .management-v9-map-layout { grid-template-columns: 1fr; }.management-v9-recipe-list { grid-template-columns: 1fr; } }
 @media (max-width: 48rem) { .management-v9-panels { grid-template-columns: 1fr; }.management-v9 .world-canvas { min-height: 21rem; height: 60vw; }.management-v9-actions > button { flex: 1 1 10rem; }.management-v9-selection-list > button { flex: 1 1 10rem; } }
 @media (prefers-reduced-motion: reduce) { .management-v9 *, .management-v9 *::before, .management-v9 *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Map-first shell is opt-in. Private v10 keeps its current structure until it
+ * deliberately adopts these classes; no Session, ledger or Canvas rules change. */
+.management-v9-map-first { padding: clamp(.75rem, 1.7vw, 1.5rem); }
+.management-v9-map-first .management-v9-header { align-items: center; gap: .75rem 1.5rem; padding-bottom: .65rem; }
+.management-v9-map-first .management-v9-brand h1 { font-size: clamp(1.7rem, 2.7vw, 2rem); line-height: 1.4; }
+.management-v9-map-first .management-v9-brand > p { color: #bdcbb2; font-size: .875rem; }
+.management-v9-map-first .management-v9-header-controls { align-items: center; gap: .75rem; }
+.management-v9-map-first .management-v9-header-controls > label { display: flex; align-items: center; gap: .5rem; font-size: .875rem; }
+.management-v9-map-first .management-v9-scope { max-inline-size: 29rem; margin: 0; padding: 0; border-color: #c6b27c44; background: #203d3370; }
+.management-v9-map-first :is(.management-v9-scope, .management-v9-navigation-disclosure, .management-v9-ledger, .management-v9-placement-disclosure) > summary {
+  min-block-size: 2.75rem; padding: .55rem .8rem; color: #e6d4a5; font-size: .875rem; line-height: 1.65; cursor: pointer; overflow-wrap: anywhere;
+}
+.management-v9-map-first .management-v9-scope > p { margin: 0; padding: .3rem .8rem .8rem; font-size: .875rem; line-height: 1.65; }
+.management-v9-map-first .management-v9-save-summary { gap: .2rem 1rem; margin: .6rem 0; padding: .3rem 0; border: 0; border-radius: 0; background: none; color: #d6d8bb; font-size: .875rem; line-height: 1.5; }
+.management-v9-map-first .management-v9-save-summary > span:nth-child(-n+2) { color: #f0dfa9; font-weight: 600; }
+.management-v9-map-first .management-v9-storage-notice { padding: .5rem .75rem; border-left: 3px solid #d7bb7e; background: #244137; font-size: .875rem; }
+.management-v9-map-first .management-v9-run-state { padding: .25rem .55rem; border: 1px solid #adc18b55; border-radius: 2rem; color: #e6ddb9; font-size: .875rem; }
+.management-v9-map-first .management-v9-clock { flex-direction: column; align-items: flex-start; justify-content: center; gap: .05rem; margin: 0; padding-inline-start: .6rem; border-left: 1px solid #b3bd8a44; font-size: .875rem; line-height: 1.4; }
+.management-v9-map-first .management-v9-clock > span:first-child { font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif; font-size: 1rem; color: #f0dfa9; }
+.management-v9-map-first .management-v9-clock > span:last-child { color: #bfcaad; }
+.management-v9-map-first .management-v9-resources { grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); gap: .4rem; margin: .75rem 0 .5rem; }
+.management-v9-map-first .management-v9-resources article { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .5rem .65rem; background: linear-gradient(120deg, #345344, #29463a); border-color: #b8bf9140; }
+.management-v9-map-first .management-v9-resources h2 { font-size: .875rem; line-height: 1.5; letter-spacing: 0; overflow-wrap: anywhere; }
+.management-v9-map-first .management-v9-resources strong { font-size: 1.5rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.management-v9-map-first .management-v9-utilities { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: .5rem; margin-bottom: .65rem; }
+.management-v9-map-first :is(.management-v9-navigation-disclosure, .management-v9-ledger, .management-v9-placement-disclosure) { border: 1px solid #b8bf913d; border-radius: .5rem; background: #203d3370; }
+.management-v9-map-first :is(.management-v9-navigation-disclosure, .management-v9-ledger, .management-v9-placement-disclosure)[open] > summary { border-bottom: 1px solid #b8bf913d; }
+.management-v9-map-first .management-v9-ledger-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .6rem; padding: .75rem; }
+.management-v9-map-first .management-v9-ledger-grid article { padding: .65rem; border: 1px solid #c4c59035; border-radius: .3rem; background: #294439; }
+.management-v9-map-first .management-v9-ledger-grid h2 { font-family: inherit; font-size: .875rem; letter-spacing: 0; }
+.management-v9-map-first .management-v9-ledger-grid strong { color: #f0dfa9; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.management-v9-map-first .management-v9-ledger-grid p { font-size: .875rem; color: #c9d1b8; }
+.management-v9-map-first .management-v9-map-layout { grid-template-columns: minmax(0, 1fr); gap: .6rem; margin-bottom: 1rem; }
+.management-v9-map-first .management-v9-world { border-color: #b8c6a7; border-radius: .7rem; box-shadow: 0 .6rem 2rem #071c1835; }
+.management-v9-map-first .world-canvas { min-height: 23rem; height: clamp(23rem, 56vh, 39rem); }
+.management-v9-map-first .management-v9-placement { margin: 0; border: 0; border-radius: 0 0 .5rem .5rem; box-shadow: none; }
+.management-v9-map-first .management-v9-placement-fields { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 1rem; align-items: end; }
+.management-v9-map-first .management-v9-placement-fields .management-v9-field { margin: .6rem 0; }
+.management-v9-map-first .management-v9-placement-fields .management-v9-coordinates { margin: .6rem 0; }
+.management-v9-map-first .management-v9-placement :is(.management-v9-help, .management-v9-placement-fields ~ p) { font-size: .875rem; }
+.management-v9-map-first .management-v9-selection-list { gap: .5rem; }
+.management-v9-map-first .management-v9-selection-list > button { font-size: .875rem; }
+.management-v9-map-first :is(button, select, input:not([type="checkbox"]):not([type="radio"]), summary) { min-height: 2.75rem; }
+.management-v9-map-first .management-v9-checkbox { min-block-size: 2.75rem; }
+.management-v9-map-first summary:focus-visible { outline: 2px solid #ffe3a0; outline-offset: 3px; }
+@media (max-width: 48rem) {
+  .management-v9-map-first .management-v9-header { align-items: flex-start; }
+  .management-v9-map-first .management-v9-header-controls { inline-size: 100%; justify-content: space-between; align-items: flex-start; }
+  .management-v9-map-first .management-v9-scope { flex: 1 1 13rem; }
+  .management-v9-map-first .management-v9-header-controls > label { flex-wrap: wrap; }
+  .management-v9-map-first .management-v9-save-summary { gap: .15rem .75rem; }
+  .management-v9-map-first .management-v9-resources { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .management-v9-map-first .management-v9-resources article { gap: .35rem; padding: .45rem .55rem; }
+  .management-v9-map-first .management-v9-resources strong { font-size: 1.3rem; }
+  .management-v9-map-first .management-v9-utilities { grid-template-columns: minmax(0, 1fr); gap: .4rem; }
+  .management-v9-map-first .world-canvas { min-height: 20rem; height: clamp(20rem, 85vw, 30rem); }
+  .management-v9-map-first .management-v9-placement-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .management-v9-map-first .management-v9-selection-list > button { flex: 1 1 9rem; }
+}

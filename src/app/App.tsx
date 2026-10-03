@@ -31,7 +31,7 @@ export interface AppProps {
   session?: ApplicationSession;
   newWorldFactory?: NewWorldFactory;
   saveRepositoryOptions?: RepositoryOptions;
-  previewNotice?: ReactNode;
+  previewNotice?: ReactNode | ((locale: Locale) => ReactNode);
 }
 
 /** Initial display and every later new campaign share one explicit factory and storage destination. */
@@ -187,6 +187,7 @@ export function App(props: AppProps) {
   const buildFrame = useSyncExternalStore(session.subscribe, session.getBuildFrame, session.getBuildFrame);
   const saveStatus = useSyncExternalStore(saves.subscribe, saves.getSnapshot, saves.getSnapshot);
   const t: Translator = (key, parameters) => translate(locale, key, parameters);
+  const resolvedPreviewNotice = typeof previewNotice === 'function' ? previewNotice(locale) : previewNotice;
   const buildDiscipleId = world.selection?.kind === 'disciple' ? world.selection.id : world.disciples[1]?.id ?? world.disciples[0]?.id ?? '';
   const buildDisciple = world.disciples.find((entry) => entry.id === buildDiscipleId);
   useLayoutEffect(() => {
@@ -216,10 +217,10 @@ export function App(props: AppProps) {
   function selectLocale(next: string) { if (next === 'zh-CN' || next === 'en') { setLocale(next); writeLocalePreference(next); } }
   const pauseReason = world.clock.pauseReasons.map((reason) => t(`pause.${reason}`)).join(' · ');
   return <main className="game-shell" lang={locale} style={{ '--disciple-atlas': `url("${import.meta.env.BASE_URL}assets/portraits/disciples-atlas-v1.png")`, ...Object.fromEntries([0, 1, 2, 3].map(index => [`--disciple-fallback-${index}`, `url("${import.meta.env.BASE_URL}assets/characters/disciple-${index}-96-v2.png")`])) } as CSSProperties}>
-    {previewNotice}
     <div className="campaign-world" inert={overlay !== null}>
+    {overlay === null && resolvedPreviewNotice}
     <header className="shell-header">
-      <div className="brand"><svg className="brand-seal" viewBox="0 0 40 48" aria-hidden="true"><rect x="1" y="1" width="38" height="46" rx="3" /><path d="M9 32V20M20 32V13M31 32V20M9 32H31M10 38H30" /></svg><div><h1>{t('app.title')}</h1><p>{t('live.phase')}</p></div></div>
+      <div className="brand"><svg className="brand-seal" viewBox="0 0 40 48" aria-hidden="true"><rect x="1" y="1" width="38" height="46" rx="3" /><path d="M9 32V20M20 32V13M31 32V20M9 32H31M10 38H30" /></svg><div><h1>{t('app.title')}</h1>{!resolvedPreviewNotice && <p>{t('live.phase')}</p>}</div></div>
       <div className="clock-cluster"><p className="calendar">{t('live.calendar', { year: world.calendar.year, month: world.calendar.month })}</p><div className="time-controls" role="group" aria-label={t('live.monthProgress')}><button className="pause-button" aria-pressed={world.clock.pauseReasons.includes('player')} onClick={() => session.togglePlayerPause()} disabled={saveStatus.readOnly}>{t(world.clock.pauseReasons.includes('player') ? 'time.resume' : 'time.pause')}</button><button aria-pressed={world.clock.speed === 1} onClick={() => session.setSpeed(1)} disabled={saveStatus.readOnly}>{t('time.normal')}</button><button aria-pressed={world.clock.speed === 3} onClick={() => session.setSpeed(3)} disabled={saveStatus.readOnly}>{t('time.fast')}</button></div></div>
       <div className="header-actions"><button ref={entryButton} className="secondary" onClick={(event) => { overlayFocus.current = event.currentTarget; setOverlay('entry'); }}>{t('entry.open')}</button><button className="secondary" onClick={(event) => { overlayFocus.current = event.currentTarget; setSaveReturnToEntry(false); setOverlay('saves'); }}>{t('save.open')}</button><label className="language-control"><span className="sr-only">{t('settings.language.label')}</span><select value={locale} onChange={(event) => selectLocale(event.target.value)} aria-label={t('settings.language.switch')}><option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option></select></label></div>
     </header>
@@ -265,7 +266,7 @@ export function App(props: AppProps) {
     <footer className="shell-footer"><p>{t('live.help')}</p><p className={saveStatus.mode === 'memory' || saveStatus.readOnly ? 'warning-text' : ''}>{saveStatus.mode === 'memory' ? t('save.memory') : saveStatus.readOnly ? t('save.readOnly') : saveStatus.lastSavedAt ? t('save.lastSuccess', { date: dateLabel(saveStatus.lastSavedAt, locale) }) : t('save.neverSaved')}</p></footer>
     </div>
     <EmergencyRetreatDialog session={session} locale={locale} readOnly={saveStatus.readOnly || saveStatus.busy || overlay !== null} isBlocked={() => saves.getSnapshot().readOnly || saves.getSnapshot().busy || modalOpen.current} />
-    {overlay === 'entry' && <CampaignEntry controller={saves} session={session} locale={locale} hasCampaign={hasCampaign} previewNotice={previewNotice} onEnter={() => { setHasCampaign(true); setOverlay(null); }} onCampaignAvailable={() => setHasCampaign(true)} onManageSaves={() => { setSaveReturnToEntry(true); setOverlay('saves'); }} onLocaleChange={selectLocale} />}
-    {overlay === 'saves' && <SaveDialog controller={saves} session={session} locale={locale} t={t} hasCampaign={hasCampaign} previewNotice={previewNotice} returnToEntry={saveReturnToEntry || !hasCampaign} onCampaignAvailable={() => setHasCampaign(true)} onClose={() => setOverlay(saveReturnToEntry || !hasCampaign ? 'entry' : null)} />}
+    {overlay === 'entry' && <CampaignEntry controller={saves} session={session} locale={locale} hasCampaign={hasCampaign} previewNotice={resolvedPreviewNotice} onEnter={() => { setHasCampaign(true); setOverlay(null); }} onCampaignAvailable={() => setHasCampaign(true)} onManageSaves={() => { setSaveReturnToEntry(true); setOverlay('saves'); }} onLocaleChange={selectLocale} />}
+    {overlay === 'saves' && <SaveDialog controller={saves} session={session} locale={locale} t={t} hasCampaign={hasCampaign} previewNotice={resolvedPreviewNotice} returnToEntry={saveReturnToEntry || !hasCampaign} onCampaignAvailable={() => setHasCampaign(true)} onClose={() => setOverlay(saveReturnToEntry || !hasCampaign ? 'entry' : null)} />}
   </main>;
 }

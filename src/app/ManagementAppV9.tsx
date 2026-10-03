@@ -28,6 +28,7 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
   const [saveOpen, setSaveOpen] = useState(false);
   const [request, setRequest] = useState<SectPlacementRequest>({ definitionId: 'library.v9', anchor: { x: 2, y: 2 }, rotation: 0 });
   const [review, setReview] = useState<PlacementReview | null>(null);
+  const [placementOpen, setPlacementOpen] = useState(false);
   const holdScope = useRef<ManagementUiHoldScopeV9 | null>(null);
   const shell = useRef<HTMLElement | null>(null);
   const commandBar = useRef<HTMLDivElement | null>(null);
@@ -78,7 +79,7 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
     if (!result.ok) { setFeedback(managementResultV9(result)); cancelPlacement(); return; }
     setReview({ proposal: result.value, basis: session.getSnapshot() });
   };
-  const changeRequest = (next: SectPlacementRequest) => { setRequest(next); if (review) prepare(next); };
+  const changeRequest = (next: SectPlacementRequest) => { setPlacementOpen(true); setRequest(next); if (review) prepare(next); };
   pointer.current = cell => { if (review) changeRequest({ ...request, anchor: cell }); };
   useEffect(() => {
     if (!review) return;
@@ -101,17 +102,20 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
     if (review) cancelPlacement();
     const result = session.select(selection); if (!result.ok) setFeedback(managementResultV9(result));
   };
-  return <main className="management-v9" lang={locale} ref={shell}>
+  const resources = [...snapshot.frame.resources.map(row => ({ ...row, name: t(`resource.${row.resourceId}`), ledger: 'base' })),
+    ...snapshot.expansion.stock.map(row => ({ ...row, name: managementContentTextV9(SECT_V9_CANDIDATE.resources.find(item => item.resourceId === row.resourceId)!.nameKey, t), ledger: 'sect' }))];
+  return <main className="management-v9 management-v9-map-first" lang={locale} ref={shell}>
     <header className="management-v9-header">
-      <div><p className="management-v9-eyebrow">{t('managementV9.candidate')}</p><h1>{t('app.title')}</h1><p>{t('managementV9.subtitle')}</p></div>
+      <div className="management-v9-brand"><h1>{t('app.title')}</h1><p>{t('managementV9.subtitle')}</p></div>
       <div className="management-v9-header-controls">
+        <details className="management-v9-scope"><summary>{t('managementV9.candidate')}</summary><p>{t('managementV9.scope')}</p></details>
         <label>{t('settings.language.label')}<select value={locale} onChange={event => { const next = event.currentTarget.value === 'en' ? 'en' : 'zh-CN'; setLocale(next); writeLocalePreference(next); }}>
           <option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option>
         </select></label>
       </div>
     </header>
-    <p className="management-v9-scope">{t('managementV9.scope')}</p>
     <ManagementSaveSummaryV9 status={saveStatus} locale={locale} t={t} />
+    {saveStatus.notice && <p className="management-v9-storage-notice management-v9-notice" role="status">{t(saveStatus.notice)}</p>}
     <div className="management-v9-command-bar" ref={commandBar} role="region" aria-label={t('managementV9.controls')}>
       <div className="management-v9-command-row">
         <button className="secondary" aria-pressed={snapshot.frame.clock.pauseReasons.includes('player') || snapshot.holds.player} disabled={readOnly || saveStatus.busy || snapshot.holds.review || !!review || saveOpen || !!snapshot.stopped || snapshot.closed} onClick={() => {
@@ -121,9 +125,19 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
         {snapshot.frame.clock.speed !== 1 && <button disabled={!!blocked} onClick={() => { if (!managementBlockedV9(session.getSnapshot(), getReadOnly())) setFeedback(managementResultV9(session.setSpeed(1))); }}>{t('managementV9.setNormalSpeed')}</button>}
         <button className="secondary" disabled={saveStatus.busy || snapshot.holds.review || !!review} onClick={() => { const current = session.getSnapshot(); if (current.sessionEpoch !== snapshot.sessionEpoch || current.holds.storageBusy || current.holds.review || current.closed) { setFeedback({ key: 'managementV9.stale' }); return; } const result = holdScope.current?.setOverlayPaused(true); if (!result) return; if (!result.ok) { setFeedback(managementResultV9(result)); return; } setSaveOpen(true); }}>{t('save.open')}</button>
         <span className="management-v9-run-state">{t(snapshot.paused ? 'managementV9.clockPaused' : 'managementV9.clockRunning')}</span>
+        <div className="management-v9-clock">
+          <span>{t('live.calendar', { year: snapshot.frame.calendar.year, month: snapshot.frame.calendar.month })}</span>
+          <span>{t('live.tick', { tick: snapshot.frame.clock.simulationTick })} · {t('managementV9.speed', { speed: snapshot.frame.clock.speed })}</span>
+        </div>
       </div>
       <p className="management-v9-feedback" role="status" aria-live="polite" aria-atomic="true">{feedback ? t(feedback.key, feedback.parameters) : t('managementV9.feedbackReady')}</p>
     </div>
+    {(snapshot.stopped || snapshot.runtimeFailure) && <p className="management-v9-notice" role="alert">{t('managementV9.stopped')}</p>}
+    <section id="management-v9-overview" className="management-v9-resources management-v9-anchor" tabIndex={-1} aria-label={t('live.resources')}>
+      {resources.map(row => <article key={`${row.ledger}:${row.resourceId}`}><h2>{row.name}</h2><strong>{row.owned}</strong></article>)}
+    </section>
+    <div className="management-v9-utilities">
+    <details className="management-v9-navigation-disclosure"><summary>{t('managementV9.navigation')}</summary>
     <nav className="management-v9-section-nav" aria-label={t('managementV9.navigation')}>
       <a href="#management-v9-overview">{t('managementV9.overview')}</a>
       <a href="#management-v9-roster">{t('managementV9.people')}</a>
@@ -135,26 +149,30 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
       <a href="#management-v9-care">{t('managementV9.care')}</a>
       <a href="#management-v9-maintenance">{t('managementV9.maintenance')}</a>
     </nav>
-    <div className="management-v9-clock">
-      <span>{t('live.calendar', { year: snapshot.frame.calendar.year, month: snapshot.frame.calendar.month })}</span>
-      <span>{t('live.tick', { tick: snapshot.frame.clock.simulationTick })}</span>
-      <span>{t('managementV9.speed', { speed: snapshot.frame.clock.speed })}</span>
-    </div>
-    {(snapshot.stopped || snapshot.runtimeFailure) && <p className="management-v9-notice" role="alert">{t('managementV9.stopped')}</p>}
-    <section id="management-v9-overview" className="management-v9-resources management-v9-anchor" tabIndex={-1} aria-label={t('live.resources')}>
-      {[...snapshot.frame.resources.map(row => ({ ...row, name: t(`resource.${row.resourceId}`), ledger: 'base' })), ...snapshot.expansion.stock.map(row => ({ ...row, name: managementContentTextV9(SECT_V9_CANDIDATE.resources.find(item => item.resourceId === row.resourceId)!.nameKey, t), ledger: 'sect' }))].map(row => <article key={`${row.ledger}:${row.resourceId}`}>
+    </details>
+    <details className="management-v9-ledger"><summary>{t('inventory.stockTitle')}</summary><div className="management-v9-ledger-grid">
+      {resources.map(row => <article key={`${row.ledger}:${row.resourceId}`}>
         <h2>{row.name}</h2><strong>{row.owned}</strong><p>{t('live.available', { available: row.available, reserved: row.reserved })}</p><p>{t('live.capacity', { capacity: row.capacity })}</p>
       </article>)}
-    </section>
+    </div></details>
+    </div>
     <div className="management-v9-map-layout">
       <section className="management-v9-world" aria-label={t('live.worldLabel')}><PhaserWorld source={source} locale={locale} /></section>
+      <details className="management-v9-placement-disclosure" open={placementOpen || review !== null} onToggle={event => {
+        // Keep a live preview reachable without remounting its fields or stealing focus.
+        if (review && !event.currentTarget.open) event.currentTarget.open = true;
+        setPlacementOpen(event.currentTarget.open);
+      }}>
+      <summary aria-disabled={review !== null} onClick={event => { if (review) event.preventDefault(); }}>{t('managementV9.placement')}</summary>
       <section className="management-v9-panel management-v9-placement" aria-labelledby="management-v9-placement-heading">
         <h2 id="management-v9-placement-heading">{t('managementV9.placement')}</h2><p className="management-v9-help">{t('managementV9.placementHint')}</p>
+        <div className="management-v9-placement-fields">
         <label className="management-v9-field">{t('managementV9.buildingType')}<select value={request.definitionId} disabled={saveStatus.busy || readOnly} onChange={event => changeRequest({ ...request, definitionId: event.currentTarget.value === 'alchemy.v9' ? 'alchemy.v9' : 'library.v9' })}>
           <option value="library.v9">{t('sectV9.building.library')}</option><option value="alchemy.v9">{t('sectV9.building.alchemy')}</option>
         </select></label>
         <div className="management-v9-coordinates">{(['x', 'y'] as const).map(axis => <label key={axis}>{t(axis === 'x' ? 'managementV9.coordinateX' : 'managementV9.coordinateY')}<input type="number" step="1" min="0" max={axis === 'x' ? snapshot.frame.map.width - 1 : snapshot.frame.map.height - 1} value={request.anchor[axis]} disabled={saveStatus.busy || readOnly} onChange={event => { const value = Number(event.currentTarget.value); if (Number.isSafeInteger(value)) changeRequest({ ...request, anchor: { ...request.anchor, [axis]: value } }); }} /></label>)}</div>
         <label className="management-v9-field">{t('managementV9.rotation')}<select value={request.rotation} disabled={saveStatus.busy || readOnly} onChange={event => { const value = Number(event.currentTarget.value); if ([0, 90, 180, 270].includes(value)) changeRequest({ ...request, rotation: value as SectRotation }); }}>{([0, 90, 180, 270] as const).map(rotation => <option key={rotation} value={rotation}>{t('managementV9.degrees', { rotation })}</option>)}</select></label>
+        </div>
         <p>{t('managementV9.placementAdvisory')}</p>
         {review && <div className="management-v9-review" role="status">
           <p>{t(review.proposal.view.allowed ? 'managementV9.previewAllowed' : 'managementV9.previewRejected')}</p>
@@ -167,8 +185,9 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
           {review && <><button disabled={!review.proposal.view.allowed || !!managementBlockedV9(snapshot, readOnly, true)} onClick={confirmPlacement}>{t('managementV9.placeBlueprint')}</button><button className="secondary" disabled={saveStatus.busy} onClick={cancelPlacement}>{t('managementV9.cancelPreview')}</button></>}
         </div>
       </section>
+      </details>
     </div>
-    <section id="management-v9-roster" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby="management-v9-selection"><h2 id="management-v9-selection">{t('managementV9.selection')}</h2>
+    <section id="management-v9-roster" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby="management-v9-selection" aria-description={t('managementV9.selection')}><h2 id="management-v9-selection">{t('managementV9.people')}</h2>
       <div className="management-v9-selection-list">{snapshot.frame.disciples.map(actor => <button key={actor.id} className="secondary" aria-pressed={snapshot.selection?.kind === 'disciple' && snapshot.selection.id === actor.id} disabled={saveStatus.busy} onClick={() => choose({ kind: 'disciple', id: actor.id })}>{managementContentTextV9(actor.nameKey, t)} · {t('live.position', actor.position)}</button>)}
         {snapshot.frame.buildings.map(building => <button className="secondary" key={building.id} aria-pressed={snapshot.selection?.kind === 'building' && snapshot.selection.id === building.id} disabled={saveStatus.busy} onClick={() => choose({ kind: 'building', id: building.id })}>{managementContentTextV9(building.nameKey, t)}</button>)}
         {snapshot.expansion.blueprints.map(blueprint => <button className="secondary" key={blueprint.blueprintId} aria-pressed={snapshot.selection?.kind === 'blueprint' && snapshot.selection.id === blueprint.blueprintId} disabled={saveStatus.busy} onClick={() => choose({ kind: 'blueprint', id: blueprint.blueprintId })}>{t('managementV9.blueprintLabel', { name: t(blueprint.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy') })}</button>)}

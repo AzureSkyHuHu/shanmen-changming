@@ -21,13 +21,15 @@ function withSession(run: (session: ApplicationSessionV9) => void) {
 }
 
 const sectionIds = ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'research', 'care', 'maintenance'];
+const commandBarMarkup = (html: string) => /<div class="management-v9-command-bar"[^>]*>[\s\S]*?<\/p><\/div>/.exec(html)?.[0] ?? '';
 describe('v9 long-page navigation semantics', () => {
-  it.each(['zh-CN', 'en'] as const)('renders links to unique focusable named sections, without hiding controls in %s', locale => withSession(session => {
+  it.each(['zh-CN', 'en'] as const)('retains links to unique focusable named sections in a native disclosure in %s', locale => withSession(session => {
     const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
     try {
       const before = session.getSnapshot();
       const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves, initialLocale: locale }));
       const nav = /<nav class="management-v9-section-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[0] ?? '';
+      expect(html).toContain(`<details class="management-v9-navigation-disclosure"><summary>${translate(locale, 'managementV9.navigation')}</summary>${nav}</details>`);
       expect(nav).toContain(`aria-label="${translate(locale, 'managementV9.navigation')}"`);
       for (const suffix of sectionIds) {
         const id = `management-v9-${suffix}`;
@@ -40,20 +42,19 @@ describe('v9 long-page navigation semantics', () => {
     } finally { saves.stop(); }
   }));
 
-  it('keeps one run/save control pair and action-only feedback in the persistent area', () => withSession(session => {
+  it('keeps one run/save control pair and separates the quiet calendar from action-only live feedback', () => withSession(session => {
     const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
     try {
       const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves }));
-      const start = html.indexOf('<div class="management-v9-command-bar"');
-      const end = html.indexOf('<nav class="management-v9-section-nav"');
-      const commandBar = html.slice(start, end);
-      expect(start).toBeGreaterThan(-1);
+      const commandBar = commandBarMarkup(html);
+      expect(commandBar).not.toBe('');
       expect(commandBar).toContain(`>${t('managementV9.pause')}</button>`);
       expect(commandBar).toContain(`>${t('save.open')}</button>`);
       expect(commandBar).toContain('class="management-v9-feedback" role="status" aria-live="polite" aria-atomic="true"');
       expect(commandBar).toContain(t('managementV9.feedbackReady'));
       expect(commandBar).not.toContain(t('managementV9.loopHint'));
-      expect(commandBar).not.toContain(t('live.tick', { tick: 0 }));
+      const feedback = /<p class="management-v9-feedback"[^>]*>([\s\S]*?)<\/p>/.exec(commandBar)?.[0] ?? '';
+      expect(feedback).not.toContain(t('live.tick', { tick: 0 }));
       expect(html.split(`>${t('save.open')}</button>`)).toHaveLength(2);
       const clock = /<div class="management-v9-clock">([\s\S]*?)<\/div>/.exec(html)?.[0] ?? '';
       expect(clock).toContain(t('live.tick', { tick: session.getSnapshot().frame.clock.simulationTick }));
@@ -75,7 +76,7 @@ describe('v9 long-page navigation semantics', () => {
     try {
       expect(session.setReviewPaused(true).ok).toBe(true);
       const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves }));
-      const bar = html.slice(html.indexOf('<div class="management-v9-command-bar"'), html.indexOf('<nav class="management-v9-section-nav"'));
+      const bar = commandBarMarkup(html);
       expect(bar).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${t('managementV9.pause')}</button>`));
       expect(bar).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${t('save.open')}</button>`));
       expect(session.getSnapshot().holds.review).toBe(true);
@@ -97,6 +98,72 @@ describe('v9 long-page navigation semantics', () => {
     expect(app).toContain('managementIntentGuardV9(review.basis, current, getReadOnly()');
     const baseCss = readFileSync(new URL('../../src/app/management-v9.css', import.meta.url), 'utf8');
     expect(baseCss).toContain('.management-v9-panel .management-v9-feedback { color: #eee7d1; }');
+  });
+});
+
+describe('v9 map-first presentation', () => {
+  it.each(['zh-CN', 'en'] as const)('keeps the map ahead of contextual placement and retains the complete ledger in %s', locale => withSession(session => {
+    const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
+    try {
+      const before = session.getSnapshot();
+      const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves, initialLocale: locale }));
+      expect(html).toContain('class="management-v9 management-v9-map-first"');
+      const scope = /<details class="management-v9-scope">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
+      expect(scope).toContain(translate(locale, 'managementV9.candidate'));
+      expect(scope).toContain(translate(locale, 'managementV9.scope'));
+      const summary = /<section id="management-v9-overview"[^>]*>([\s\S]*?)<\/section>/.exec(html)?.[0] ?? '';
+      const ledger = /<details class="management-v9-ledger">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
+      const rows = [...before.frame.resources, ...before.expansion.stock];
+      expect(summary.match(/<article>/g)).toHaveLength(rows.length);
+      expect(ledger.match(/<article>/g)).toHaveLength(rows.length);
+      expect(summary).not.toContain('<p>');
+      for (const row of rows) {
+        expect(summary).toContain(`<strong>${row.owned}</strong>`);
+        expect(ledger).toContain(translate(locale, 'live.available', { available: row.available, reserved: row.reserved }));
+        expect(ledger).toContain(translate(locale, 'live.capacity', { capacity: row.capacity }));
+      }
+      const mapAt = html.indexOf('<section class="management-v9-world"');
+      const placementAt = html.indexOf('<details class="management-v9-placement-disclosure">');
+      const rosterAt = html.indexOf('<section id="management-v9-roster"');
+      expect(mapAt).toBeGreaterThan(0);
+      expect(placementAt).toBeGreaterThan(mapAt);
+      expect(rosterAt).toBeGreaterThan(placementAt);
+      expect(html).toContain(`<h2 id="management-v9-selection">${translate(locale, 'managementV9.people')}</h2>`);
+      expect(html).toContain(`aria-description="${translate(locale, 'managementV9.selection')}"`);
+      expect(html).toContain(translate(locale, 'managementV9.preview'));
+      expect(session.getSnapshot()).toBe(before);
+    } finally { saves.stop(); }
+  }));
+
+  it('keeps unsaved, read-only and storage-error facts outside collapsed disclosures', () => withSession(session => {
+    const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
+    const status = { ...saves.getSnapshot(), readOnly: true, dirty: true, notice: 'save.error.quota' as const };
+    const getSnapshot = vi.spyOn(saves, 'getSnapshot').mockReturnValue(status);
+    try {
+      const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves, initialLocale: 'zh-CN' }));
+      const persistent = html.slice(html.indexOf('</header>'), html.indexOf('<section id="management-v9-overview"'));
+      expect(persistent).toContain(t('save.readOnly'));
+      expect(persistent).toContain(t('managementV9.unsaved'));
+      expect(persistent).toContain(t('managementV9.manualOnly'));
+      expect(persistent).toContain(t('save.error.quota'));
+      expect(persistent).not.toContain('<details');
+    } finally { getSnapshot.mockRestore(); saves.stop(); }
+  }));
+
+  it('opts into layout-only rules and keeps review fields mounted without moving keyboard focus', () => {
+    const app = readFileSync(new URL('../../src/app/ManagementAppV9.tsx', import.meta.url), 'utf8');
+    const css = readFileSync(new URL('../../src/app/management-v9.css', import.meta.url), 'utf8');
+    const nav = readFileSync(new URL('../../src/app/management-v9-navigation.css', import.meta.url), 'utf8');
+    expect(app).toContain('open={placementOpen || review !== null}');
+    expect(app).toContain('if (review && !event.currentTarget.open) event.currentTarget.open = true');
+    expect(app).toContain('if (review) event.preventDefault()');
+    expect(app).toContain('setPlacementOpen(true); setRequest(next); if (review) prepare(next)');
+    expect(app).not.toContain('placementOpen &&');
+    expect(css).toContain('.management-v9-map-first .management-v9-map-layout { grid-template-columns: minmax(0, 1fr)');
+    expect(css).toContain('.management-v9-map-first :is(button, select, input:not([type="checkbox"]):not([type="radio"]), summary) { min-height: 2.75rem; }');
+    expect(css).toContain('.management-v9-map-first .management-v9-resources h2 { font-size: .875rem;');
+    expect(nav).toContain('@media (max-width: 48rem), (max-height: 34rem)');
+    expect(nav).toContain('.management-v9-map-first .management-v9-command-bar { position: static; }');
   });
 });
 

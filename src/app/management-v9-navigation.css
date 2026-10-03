@@ -65,3 +65,34 @@
   .management-v9-command-bar { position: static; }
   .management-v9-anchor, .management-v9 :is(button, input, select, a) { scroll-margin-block-start: 1rem; }
 }
+
+/* Compact command/navigation treatment belongs only to the map-first shell. */
+.management-v9-map-first .management-v9-command-bar {
+  grid-template-columns: minmax(0, auto) minmax(14rem, 1fr);
+  gap: .5rem .75rem;
+  padding: .5rem .65rem;
+  margin: .5rem 0;
+  top: .4rem;
+}
+.management-v9-map-first .management-v9-command-row { gap: .45rem; }
+.management-v9-map-first .management-v9-command-bar .management-v9-feedback {
+  min-block-size: 2.75rem;
+  padding: .25rem .65rem;
+  font-size: .875rem;
+  line-height: 1.55;
+  color: #d4d9b9;
+}
+.management-v9-map-first .management-v9-section-nav { gap: .4rem; margin: 0; padding: .6rem; }
+.management-v9-map-first .management-v9-section-nav a { flex: 1 1 9rem; font-size: .875rem; text-decoration: none; }
+.management-v9-map-first .management-v9-section-nav a:hover { color: #fff0c7; border-color: #d4c590; text-decoration: underline; }
+.management-v9-map-first summary { scroll-margin-block-start: calc(var(--management-v9-toolbar-height, 10rem) + 1.25rem); }
+@media (max-width: 64rem) {
+  .management-v9-map-first .management-v9-command-bar { grid-template-columns: minmax(0, 1fr); }
+}
+/* A phone or short landscape screen should never lose its map behind a tall
+ * wrapping toolbar. The same controls remain in ordinary document order. */
+@media (max-width: 48rem), (max-height: 34rem) {
+  .management-v9-map-first .management-v9-command-bar { position: static; }
+  .management-v9-map-first .management-v9-anchor,
+  .management-v9-map-first :is(button, input, select, a, summary) { scroll-margin-block-start: 1rem; }
+}

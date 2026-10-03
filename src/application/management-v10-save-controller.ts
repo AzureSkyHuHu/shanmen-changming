@@ -12,6 +12,58 @@ import { ManagementV10PersistenceError, managementV10PersistenceErrorCode, type 
 import { CAMPAIGN_SLOT_IDS } from '../platform/persistence/types';
 import type { ImportFileSource, SaveImportStatus } from './save-controller';
 import { ApplicationSessionV10, type PreparedReplacementV10, type SessionSourceV10, type SessionValueV10 } from './session-v10';
+import { V9V10CopyHost, type CopyHostTransferOfferV10, type CopyHostTransferSourceV10 } from './v9-v10-copy-coordinator';
+
+export interface PreparedCopyControllerV10 { readonly kind: 'v10-prepared-copy-controller' }
+export type CopyControllerTransferFailureCodeV10 = 'HOST_CLOSED' | 'NO_BOUND_TARGET' | 'COPY_PENDING' | 'SOURCE_UNPROTECTED'
+  | 'TRANSFER_BUSY' | 'SOURCE_CHANGED' | 'STORAGE_FAILED' | 'PREPARATION_FAILED' | 'INVALID_TOKEN';
+export interface AdoptedManagementDisposeResultV10 { readonly storageStopped: boolean; readonly sessionClosed: boolean }
+/** Owns the copied Session and saves.stop; its repository remains caller-owned. */
+export interface AdoptedManagementServiceV10 {
+  readonly session: ApplicationSessionV10;
+  readonly saves: ManagementSaveControllerV10;
+  dispose(): Promise<AdoptedManagementDisposeResultV10>;
+}
+export type CopyControllerTransferResultV10 = { readonly ok: true; readonly service: AdoptedManagementServiceV10 }
+  | { readonly ok: false; readonly code: CopyControllerTransferFailureCodeV10 };
+type PreparedCopyResultV10 = { readonly ok: true; readonly token: PreparedCopyControllerV10 }
+  | Extract<CopyControllerTransferResultV10, { ok: false }>;
+interface CopyServiceLifetime { active: boolean; disposing: boolean }
+interface PreparedCopyControllerStateV10 {
+  readonly offer: CopyHostTransferOfferV10;
+  readonly offered: CopyHostTransferSourceV10;
+  readonly controller: ManagementSaveControllerV10;
+  readonly lease: Lease;
+  readonly status: RuntimeReadonlyV10<ManagementSaveStatusV10>;
+  readonly savedBoundary: string;
+  readonly unsubscribe: () => void;
+  readonly timer: ReturnType<typeof setInterval>;
+  readonly lifetime: CopyServiceLifetime;
+  readonly answer: Extract<CopyControllerTransferResultV10, { ok: true }>;
+}
+const preparedCopyControllers = new WeakMap<object, PreparedCopyControllerStateV10>();
+const preparingCopyOffers = new WeakSet<object>();
+function preparedCopyService(session: ApplicationSessionV10, saves: ManagementSaveControllerV10) {
+  const lifetime: CopyServiceLifetime = { active: false, disposing: false };
+  const results = [false, true].flatMap(storageStopped => [false, true].map(sessionClosed => Object.freeze({ storageStopped, sessionClosed })));
+  let settle!: (result: AdoptedManagementDisposeResultV10) => void;
+  const disposed = new Promise<AdoptedManagementDisposeResultV10>(resolve => { settle = resolve; });
+  const service: AdoptedManagementServiceV10 = Object.freeze({ session, saves,
+    dispose: (): Promise<AdoptedManagementDisposeResultV10> => {
+      if (!lifetime.active || lifetime.disposing) return disposed;
+      lifetime.disposing = true;
+      void (async () => {
+        let storageStopped = false; let sessionClosed = false;
+        try { await saves.stop(); storageStopped = true; } catch { /* Preserve the separate Session teardown result. */ }
+        // Waiting for stop also leaves Session publication exclusivity before
+        // close and removes the controller listener, preventing reentrant stop.
+        try { sessionClosed = session.close().ok || session.getSnapshot().closed; } catch { /* Report; never retry arbitrary failures. */ }
+        lifetime.active = false; settle(results[(storageStopped ? 2 : 0) + (sessionClosed ? 1 : 0)]!);
+      })();
+      return disposed;
+    } });
+  return { lifetime, service };
+}
 
 export interface LoadReviewV10 extends SessionSourceV10 {
   readonly kind: 'v10-load-review'; readonly slotId: CampaignSlotId; readonly expectedRevision: number; readonly dirty: boolean;
@@ -82,10 +134,12 @@ const download = (text: string, label: string): SaveFile => ({ text, mimeType: '
   filename: `shanmen-changming-v10-${label.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 96)}.json` });
 
 /** Private normal-save lifecycle. No legacy route, injected validator, memory-save
- * fiction, automatic load, force takeover, migration, or copied-host adoption.
- * Owns its connection and leases, but never closes the caller's Session. */
+ * fiction, automatic load, force takeover, or implicit migration. Normal starts
+ * own their connection; the fixed host-transfer path borrows its connection.
+ * Leases belong to the controller; Session close belongs to its caller/service. */
 export class ManagementSaveControllerV10 {
   private repository: IndexedDbManagementV10Repository | null = null;
+  private connectionOwned = true;
   private lease: Lease | null = null;
   private revision = 0;
   private generation = 0;
@@ -110,6 +164,77 @@ export class ManagementSaveControllerV10 {
 
   constructor(private readonly session: ApplicationSessionV10, options: ManagementV10RepositoryOptions = {}) {
     this.options = { ...options }; this.observedEpoch = session.getSnapshot().sessionEpoch;
+  }
+  /** @internal Only an authentic, settled copy-host offer can prepare a dormant
+   * controller. Preparation never takes ownership of its Session/lease/DB. */
+  static async prepareCopyTransfer(offer: CopyHostTransferOfferV10): Promise<PreparedCopyResultV10> {
+    const offered = V9V10CopyHost.readTransferOffer(offer);
+    if (!offered) return { ok: false, code: 'INVALID_TOKEN' };
+    if (preparingCopyOffers.has(offer)) return { ok: false, code: 'TRANSFER_BUSY' };
+    preparingCopyOffers.add(offer);
+    const { session, repository, receipt } = offered.binding;
+    let unsubscribe: (() => void) | null = null; let timer: ReturnType<typeof setInterval> | null = null;
+    let storagePhase = true;
+    let published = false;
+    try {
+      const slots = await repository.listSlots();
+      if (V9V10CopyHost.readTransferOffer(offer) !== offered) return { ok: false, code: 'SOURCE_CHANGED' };
+      const actual = slots.find(row => row.slotId === receipt.slot.slotId)?.slot;
+      if (!actual || actual.revision !== receipt.slot.revision || actual.currentSnapshotId !== receipt.slot.currentSnapshotId
+        || actual.manualSnapshotId !== receipt.slot.manualSnapshotId || actual.savedAt !== receipt.slot.savedAt) return { ok: false, code: 'STORAGE_FAILED' };
+      // Renew the already-owned epoch only. Never acquire/take over a lease,
+      // import a save or create a new snapshot/generation during adoption.
+      const renewed = await repository.renewLease(receipt.lease);
+      if (V9V10CopyHost.readTransferOffer(offer) !== offered) return { ok: false, code: 'SOURCE_CHANGED' };
+      if (!sameLease(renewed, receipt.lease)) return { ok: false, code: 'STORAGE_FAILED' };
+      storagePhase = false;
+      const controller = new ManagementSaveControllerV10(session);
+      unsubscribe = session.subscribe(() => { if (controller.enabled) controller.onSession(); });
+      const savedBoundary = `${offered.savedSource.sessionEpoch}:${offered.savedSource.worldRevision}`;
+      const snapshot = session.getSnapshot();
+      const status = freeze({ mode: 'browser' as const, busy: false, readOnly: snapshot.holds.storage,
+        dirty: savedBoundary !== `${snapshot.sessionEpoch}:${snapshot.worldRevision}`, autosave: 'manual-only' as const,
+        slots, boundSlot: receipt.slot.slotId, lastSavedAt: receipt.slot.savedAt, notice: null, lastAction: null,
+        import: emptyImport(), load: null, committed: { slotId: receipt.slot.slotId, revision: receipt.slot.revision, bound: true }, rescue: null });
+      const service = preparedCopyService(session, controller);
+      timer = setInterval(() => { if (controller.enabled) void controller.renew(); }, 5000);
+      const token: PreparedCopyControllerV10 = Object.freeze({ kind: 'v10-prepared-copy-controller' });
+      const answer = Object.freeze({ ok: true as const, service: service.service });
+      const prepared: PreparedCopyControllerStateV10 = { offer, offered, controller, lease: { repository, token: renewed, release: null },
+        status, savedBoundary, unsubscribe, timer, lifetime: service.lifetime, answer };
+      if (V9V10CopyHost.readTransferOffer(offer) !== offered) return { ok: false, code: 'SOURCE_CHANGED' };
+      preparedCopyControllers.set(token, prepared); unsubscribe = null; timer = null; published = true;
+      return Object.freeze({ ok: true, token });
+    } catch {
+      return { ok: false, code: storagePhase ? 'STORAGE_FAILED' : 'PREPARATION_FAILED' };
+    } finally {
+      if (!published) preparingCopyOffers.delete(offer);
+      if (timer !== null) clearInterval(timer);
+      if (unsubscribe) unsubscribe();
+    }
+  }
+  /** @internal The host alone opens this gate for the exact paired token.
+   * Success uses preallocated assignments and has no publication or await. */
+  static activateCopyTransfer(token: PreparedCopyControllerV10, offer: CopyHostTransferOfferV10): CopyControllerTransferResultV10 {
+    const prepared = preparedCopyControllers.get(token);
+    if (!prepared || prepared.offer !== offer || !V9V10CopyHost.isTransferActivationCurrent(offer, token)
+      || V9V10CopyHost.readTransferOffer(offer) !== prepared.offered) return { ok: false, code: 'INVALID_TOKEN' };
+    const controller = prepared.controller;
+    preparedCopyControllers.delete(token);
+    preparingCopyOffers.delete(offer);
+    controller.repository = prepared.offered.binding.repository; controller.connectionOwned = false;
+    controller.lease = prepared.lease; controller.revision = prepared.offered.binding.receipt.slot.revision;
+    controller.savedBoundary = prepared.savedBoundary; controller.status = prepared.status;
+    controller.unsubscribeSession = prepared.unsubscribe; controller.timer = prepared.timer;
+    controller.observedEpoch = prepared.offered.source.sessionEpoch; controller.enabled = true;
+    prepared.lifetime.active = true;
+    return prepared.answer;
+  }
+  /** @internal Discards only dormant subscription/timer allocations. */
+  static discardCopyTransfer(token: PreparedCopyControllerV10): boolean {
+    const prepared = preparedCopyControllers.get(token); if (!prepared) return false;
+    preparedCopyControllers.delete(token); preparingCopyOffers.delete(prepared.offer);
+    clearInterval(prepared.timer); prepared.unsubscribe(); return true;
   }
   readonly getSnapshot = (): RuntimeReadonlyV10<ManagementSaveStatusV10> => this.status;
   readonly subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -231,7 +356,7 @@ export class ManagementSaveControllerV10 {
       try {
         repository = await openManagementV10Repository(this.options); this.check(operation);
         const slots = await repository.listSlots(); this.check(operation);
-        this.repository = repository; operation.repository = repository;
+        this.repository = repository; this.connectionOwned = true; operation.repository = repository;
         this.update({ mode: 'browser', slots }); this.check(operation);
         this.timer = setInterval(() => { void this.renew(); }, 5000);
       } catch (error) {
@@ -245,12 +370,13 @@ export class ManagementSaveControllerV10 {
   stop(): Promise<void> {
     const generation = ++this.generation; this.enabled = false; this.operation?.abort.abort();
     if (this.timer) clearInterval(this.timer); this.timer = null;
-    const repository = this.repository; const lease = this.lease; const pending = this.operation?.done;
+    const repository = this.repository; const connectionOwned = this.connectionOwned; const lease = this.lease; const pending = this.operation?.done;
     this.repository = null; this.lease = null; this.revision = 0;
+    this.connectionOwned = true;
     this.candidate = null; this.loadReview = null; this.selection++;
     const notify = this.status.mode !== 'stopped' || this.status.boundSlot !== null || this.status.load !== null || this.status.import.phase !== 'idle';
     this.closing = Promise.all([this.closing, pending]).then(async () => {
-      await this.releaseLease(lease); repository?.close();
+      await this.releaseLease(lease); if (connectionOwned) repository?.close();
       if (generation !== this.generation) return;
       this.desiredReadOnly = false; this.syncReadOnly();
       this.unsubscribeSession?.(); this.unsubscribeSession = null;
