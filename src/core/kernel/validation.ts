@@ -1,7 +1,8 @@
 import { canonicalUtf8ByteLength } from '../save-budget';
 import { isManagementV10Identity, MANAGEMENT_V10_CONTENT_VERSION } from '../../content/sect-v10/world-content';
 import { inspectV10LifecycleRecords, type V10LifecycleRecordEvidence } from '../world/v10-lifecycle-records';
-import { captureV10RecordData, inspectV10SectOwnerClosure } from '../world/v10-sect-records';
+import { inspectV10SectOwnerClosure } from '../world/v10-sect-records';
+import { captureFrozenV10RecordData } from '../world/v10-frozen-record-capture';
 import type { WorldStateV10 } from '../sect-expansion/upgrade-types';
 import { ownSectFields } from '../sect-expansion/layout';
 import { isManagementV9Identity, MANAGEMENT_V9_CONTENT_VERSION } from '../../content/sect-v9/world-content';
@@ -80,7 +81,7 @@ export function inspectUnregisteredWorldV9Records(value: WorldStateV9): string[]
  * this inspection. A successful result proves neither full envelope fit nor future capacity. */
 export function inspectUnregisteredWorldV10Records(input: unknown): string[] {
   try {
-    const value = captureV10RecordData(input);
+    const value = captureFrozenV10RecordData(input);
     if (!ownSectFields(value, ['seed', 'simulationVersion', 'contentVersion', 'clock', 'randomStreams', 'sequences', 'map', 'disciples', 'buildings',
       'sectEconomy', 'history', 'automaticProduction', 'inventory', 'reservations', 'transactions', 'activeProductionTransactionIds', 'commandReceipts',
       'pendingCommands', 'events', 'unlocks', 'diagnostics', 'cultivation', 'builds', 'expedition', 'contentIdentity', 'campaign', 'legacy', 'runtimeProtocol', 'sectExpansion', 'cultivationClock'])) return ['Invalid internal v10 root fields'];
