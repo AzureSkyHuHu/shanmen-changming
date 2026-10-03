@@ -1,7 +1,7 @@
 import { resolveSectCatalogIdentity } from '../../content/sect-v9/catalog';
 import { isManagementV10Identity } from '../../content/sect-v10/world-content';
 import { MANAGEMENT_V10_PROTOCOL, type WorldStateV10 } from '../sect-expansion/upgrade-types';
-import { createCanonicalByteCounter } from './canonical-bytes';
+import { canonicalUtf8ByteLength } from './canonical-bytes';
 import { deriveSectRecordObligations, type SectObligationAssessmentV9, type SectRecordMeasureV9,
   type SectReservationV9 } from './sect-obligations-v9';
 import { deriveSectUpgradeObligationsV10, type SectUpgradeObligationAssessmentV10,
@@ -73,7 +73,7 @@ export function deriveSectReservationsV10(world: WorldStateV10): SectObligationA
     owners: [], totals: emptyTotals(), shared: zero(), unknowns, excluded: EXCLUDED,
   });
   try {
-    createCanonicalByteCounter().measure(world);
+    canonicalUtf8ByteLength(world);
     const protocol = MANAGEMENT_V10_PROTOCOL;
     const records = world.sectExpansion;
     if (world.simulationVersion !== protocol.simulationVersion || world.runtimeProtocol !== protocol.runtimeProtocol

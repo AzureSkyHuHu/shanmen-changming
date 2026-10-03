@@ -1,7 +1,7 @@
 import { isManagementV10Identity } from '../../content/sect-v10/world-content';
 import { MAX_CULTIVATION_HISTORY } from '../cultivation/rules';
 import { assessBuildHistoryObligations } from '../save-budget/build-obligations';
-import { createCanonicalByteCounter } from '../save-budget/canonical-bytes';
+import { canonicalUtf8ByteLength } from '../save-budget/canonical-bytes';
 import { derivePhaseAwareManagementClockReservation } from '../save-budget/management-clock-reservation';
 import { deriveProgressionReservationsTimeV9 } from '../save-budget/progression-time-v9';
 import { assessHistoryExpansion, assessHistorySlots, manualProductionByteObligations } from '../save-budget/retention';
@@ -21,7 +21,7 @@ import { deriveV10BuildObligationFacts } from './v10-build-obligations';
  * The complete-record root remains separate so it may call the narrow check without
  * recursively invoking whole-World validation or whole-envelope sizing. */
 export function deriveV10RecordReservations(world: WorldStateV10) {
-  createCanonicalByteCounter().measure(world);
+  canonicalUtf8ByteLength(world);
   const protocol = MANAGEMENT_V10_PROTOCOL;
   if (world.simulationVersion !== protocol.simulationVersion || world.runtimeProtocol !== protocol.runtimeProtocol
     || world.contentVersion !== protocol.contentVersion || !isManagementV10Identity(world.contentIdentity)

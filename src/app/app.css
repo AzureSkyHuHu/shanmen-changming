@@ -8,6 +8,11 @@
 }
 * { box-sizing: border-box; }
 body { min-width: 0; margin: 0; background: radial-gradient(ellipse at 25% 0%, #3d5a46 0%, #223d34 38%, #142d2c 100%); }
+/* Native modal state owns the page lock, including entry/save swaps. Keep each
+ * dialog's own scroll area; unsupported selectors retain the existing layout. */
+@supports selector(html:has(dialog:modal)) {
+  html:has(dialog:modal) { overflow: hidden; }
+}
 button, select, input { font: inherit; }
 button, select, summary { touch-action: manipulation; }
 button {

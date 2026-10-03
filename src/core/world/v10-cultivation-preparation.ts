@@ -3,13 +3,12 @@ import type { CultivationCommand, CultivationEvent, CultivationFrame, Cultivatio
 import { CALENDAR_TICKS_PER_MONTH, setPauseReason, tickClock } from '../kernel/clock';
 import type { WorldClock } from '../kernel/clock';
 import { checkedAdd } from '../kernel/numeric';
-import { canonicalStringify } from '../kernel/serialization';
-import { canonicalUtf8ByteLength } from '../save-budget';
 import type { ConstructionContext } from '../sect-expansion/construction-types';
 import type { SectUpgradeFrameV10, WorldStateV10 } from '../sect-expansion/upgrade-types';
 import { cultivationFrameOf, prepareCultivationClockAdvance, prepareCultivationWorldEvents, projectCultivationDisciples } from './cultivation-preparation';
 import { appendWorldEvents, worldEventCursor, worldEventsSince } from './history-access';
 import { V9_CULTIVATION_CLOCK_LIMIT } from './v9-cultivation-clock-types';
+import { readV10EvidenceSnapshot } from './v10-evidence-snapshot';
 import { inspectV10LifecycleRecords } from './v10-lifecycle-records';
 import { projectV10SectFrame, v10SectContext } from './v10-sect-frame';
 
@@ -53,7 +52,7 @@ interface Binding {
   readonly eventCursor: number;
 }
 const bindings = new WeakMap<V10CultivationTransitionEvidence, Binding>();
-const snapshot = (value: unknown): string => { canonicalUtf8ByteLength(value); return canonicalStringify(value); };
+const snapshot = (value: unknown): string => readV10EvidenceSnapshot(value).canonical;
 const pendingDecision = (world: WorldStateV10): boolean => world.cultivation.pendingDeaths.length > 0
   || world.cultivation.attempts.some(attempt => attempt.phase === 'DecisionReady');
 

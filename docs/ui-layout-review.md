@@ -34,3 +34,36 @@
 - 修炼、永久构筑、生产及照护现有流程不受展示改动影响
 
 当前仍不是完整游戏或无障碍合规验收。
+
+### Published checkpoint — 2026-10-03 02:09 UTC
+
+Remote main `e1b805704e68a909de81546cde612aef3000b992` (tree
+`91463db6d3b4a6040ad68097be816c7ab02646c7`) completed Actions
+[37083998934](https://github.com/AzureSkyHuHu/shanmen-changming/actions/runs/37083998934)
+and Pages deployment successfully at 01:46 UTC. The validation job passed
+191 files / 3987 tests in 2664.71 seconds and both production builds.
+
+Actual cloud-browser checks of that release:
+
+- Desktop management map now starts near y330, versus approximately y657 in the
+  earlier baseline. Map region spans the main content width; placement controls
+  no longer occupy a permanent side column
+- Inspected narrow approximately 400 CSS-pixel management first fold and English
+  desktop 150% zoom: visible controls/text wrap without observed overlap
+- Warehouse disclosure opens complete available/reserved/capacity data and
+  closes; navigation exposes all nine existing destinations
+- Save dialog opens and closes; Escape closes it and returns focus to Saves
+- Placement form expands and remains mounted. Its preview is correctly disabled
+  while the current session is player-paused; live placement interaction remains
+  pending rather than counted as passed
+- Campaign entry renders one selected-language preview notice. Inspected desktop
+  Chinese and narrow English screenshots; new campaign controls remain available
+  by modal scrolling. Further modal/background scrolling review is ongoing
+
+The three existing management slots remain listed unchanged. Re-loading one was
+not completed: the safety check blocked replacing current unsaved test progress.
+The pending operation was cancelled, the current session retained paused, and
+approval requested before retry. No save slot was overwritten.
+
+These are bounded layout/interaction checks, not complete game, real phone,
+long-term performance, or full accessibility acceptance.

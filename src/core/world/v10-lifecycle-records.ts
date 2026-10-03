@@ -10,6 +10,7 @@ import { inspectEstateIdentityRecords, inspectEstateSettlementRecords } from './
 import { lookupEvent } from './history-access';
 import { validateWorldLifecycleSources } from './lifecycle-source-proof';
 import { inspectV10CultivationClockRecords } from './v10-cultivation-clock-records';
+import { readV10EvidenceSnapshot } from './v10-evidence-snapshot';
 import type { WorldStateV10 } from '../sect-expansion/upgrade-types';
 import { EMPTY_V9_EXPEDITION } from './v9-lifecycle-records';
 
@@ -104,13 +105,12 @@ export function inspectV10LifecycleRecords(world: WorldStateV10): V10LifecycleRe
   });
   if (new Set(deaths.map(death => death.deathId)).size !== deaths.length) throw new TypeError('Duplicate lifecycle death');
   const token = Object.freeze({ [evidence]: true as const });
-  sources.set(token, { world, canonical: canonicalStringify(world), facts: Object.freeze(deaths) }); return token;
+  sources.set(token, { world, canonical: readV10EvidenceSnapshot(world).canonical, facts: Object.freeze(deaths) }); return token;
 }
 /** Exact source-bound record proof. This cannot authorize pre-work cancellation. */
 export function historicalDeathsOfV10LifecycleEvidence(token: V10LifecycleRecordEvidence, world: WorldStateV10): readonly V10HistoricalDeathFact[] {
   const source = sources.get(token);
   if (!source || source.world !== world) throw new TypeError('Unauthenticated v10 lifecycle evidence');
-  canonicalUtf8ByteLength(world);
-  if (canonicalStringify(world) !== source.canonical) throw new TypeError('Changed v10 lifecycle evidence source');
+  if (readV10EvidenceSnapshot(world).canonical !== source.canonical) throw new TypeError('Changed v10 lifecycle evidence source');
   return source.facts;
 }

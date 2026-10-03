@@ -217,6 +217,23 @@ describe('internal actual v10 cultivation preparation, not whole-source admissio
     if (part === 'death-record') prepared.world.cultivation.pendingDeaths[0]!.deathId = 'instance:9999';
     expect(() => readV10PreWorkDeaths(prepared.evidence, prepared.frame, prepared.context)).toThrow();
   });
+  it('rechecks mutable source descendants below a shallow-frozen preparation root', () => {
+    const source = Object.freeze(records()); const prepared = prepareValidatedV10CultivationClock(source);
+    expect(readV10PreWorkDeaths(prepared.evidence, prepared.frame, prepared.context)).toEqual([]);
+    expect(readV10PreWorkDeaths(prepared.evidence, prepared.frame, prepared.context)).toEqual([]);
+    expect(Object.isFrozen(source.clock)).toBe(false);
+    source.clock.speed = 3;
+    expect(() => readV10PreWorkDeaths(prepared.evidence, prepared.frame, prepared.context)).toThrow('Changed v10 cultivation transition binding');
+    expect(Object.isFrozen(source.clock)).toBe(false);
+  });
+  it('rejects a mutable binding getter introduced after successful evidence reads without executing it', () => {
+    const source = records(); const prepared = prepareValidatedV10CultivationClock(source);
+    expect(readV10PreWorkDeaths(prepared.evidence, prepared.frame, prepared.context)).toEqual([]);
+    Object.freeze(prepared.context); let reads = 0;
+    Object.defineProperty(prepared.world.clock, 'speed', { enumerable: true, get: () => { reads++; return 1; } });
+    expect(() => readV10PreWorkDeaths(prepared.evidence, prepared.frame, prepared.context)).toThrow();
+    expect(reads).toBe(0);
+  });
   it('binds the actual command result, even when only its result summary is changed', () => {
     const source = records(); const prepared = prepareValidatedV10CultivationCommand(source, { kind: 'training.set', commandId: 'train.noop',
       expectedRevision: source.cultivation.revision, discipleId: 'entity:1', mode: 'duty' });
