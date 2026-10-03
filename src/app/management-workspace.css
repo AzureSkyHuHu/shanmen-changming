@@ -6,6 +6,9 @@
 .management-v9-workspace .management-v9-ledger { margin-block: .4rem; }
 .management-workspace-navigation { display: flex; flex-wrap: wrap; gap: .3rem; padding-block: .5rem; }
 .management-workspace-navigation [role="tab"] { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .4rem .65rem; min-block-size: 2.75rem; background: #244137; color: #e6dcc0; border: 1px solid #8da48566; border-radius: .35rem; }
+/* Keep the dark surface on hover/focus, including focusable review-locked tabs.
+ * The selected rule follows with equal specificity and retains its paper fill. */
+.management-workspace-navigation [role="tab"]:is(:hover, :focus-visible) { background: #244137; color: #e6dcc0; }
 .management-workspace-navigation [role="tab"][aria-selected="true"] { color: #243e32; background: #e7dbb5; border-color: #f3e3b3; box-shadow: inset 0 -3px #96753e; }
 .management-workspace-navigation [aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 .management-workspace-navigation [role="tab"]:focus-visible { outline: 2px solid #ffe3a0; outline-offset: 2px; }
