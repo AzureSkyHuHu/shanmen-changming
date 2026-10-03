@@ -405,3 +405,45 @@ default build (803 ms). Initial execution stopped at a test receipt literal's
 TypeScript inference error; explicit ConstructionReceipt context fixed it without
 casting away the frame type. Independent review closed the phase/revision defect.
 No runtime/UI/public-identity activation is included.
+
+## Actual two-domain command composition — 2026-10-03 12:05 UTC
+
+The internal domain candidate now uses one construction/relocation envelope,
+clock, people, map and ledger. The fixed new tick wrapper advances construction
+once and then invokes a module-private already-clocked relocation work stage;
+equal-clock calls are no-ops. Original wrappers keep their permanent-origin
+policy. No new public World identity, parser, Session, UI or migration is enabled.
+
+Every new command/tick checks source and candidate descriptor/provenance/spatial,
+live ownership, current route binding, combined navigation obligations and
+cross-domain command IDs. The same actual path budget spans both stages. New
+construction starts are confined to ungated library work; research/lifecycle/
+archive and complete historical navigation authority are not supplied here.
+
+Source review repaired three issues: an exported equal-clock helper could repeat
+fractional movement (now private behind the full tick wrapper); paused simulation
+time could wrongly fund construction movement (now a calendar-time lower bound
+including completed legs/work/fractional movement); and new construction starts
+needed combined relocation navigation headroom before reduction. Runtime testing
+then found a separate exact-shape geometry call incorrectly given a whole blueprint;
+explicit original placement fields fixed it without relaxing the guard.
+
+All 25 focused cases now pass in 104.50 s with both type configurations. The
+principal fixture performs actual API calls for building A, moving A with split
+payments, starting/finishing B at A's origin at the move-completion tick, and
+moving A again. Original construction history remains unchanged. Two initial
+budget-test failures came from the old builder correctly occupying the doorway;
+a real move by that builder followed by real B start corrected the fixture,
+retaining budget exhaustion and movement/equal-clock assertions.
+
+The budget rejection case proves preservation of budget already spent by the
+caller before an early source/candidate rejection. It does not prove the distinct
+case where stage one spends budget and stage two subsequently fails; that dynamic
+case remains unverified. These reducer tests are not browser-playable relocation,
+complete World/save acceptance or certification of excluded domains.
+
+Final related execution passed 12 files / 376 tests in 181.94 s, boundaries,
+1206 locale keys, content and default build in 801 ms. The previous frozen spatial
+snapshot independently passed the complete 219-file / 4460-test suite in
+2851.88 s, both type configurations and default build (813 ms); that full-suite
+result predates this command-composition slice and is not its full-suite claim.

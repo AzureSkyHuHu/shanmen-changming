@@ -4,6 +4,8 @@ import { emptyNavigation, isWalkable, sameCell } from '../agents/navigation';
 import { advanceWorkNavigationWithBudget, type WorkPathBudget, type WorkNavigationEffect } from '../agents/work-navigation';
 import { canonicalStringify, cloneJson, compareStable } from '../kernel/serialization';
 import type { WorldMap } from '../world/types';
+import { relocationOwnerCurrentSpatialContext, relocationOwnerEffectiveMap } from '../world/relocation-owner/spatial-records';
+import type { SectRelocationRecordFrame, SectRelocationState } from './relocation-types';
 import { deriveSectFootprint } from './layout';
 import { commitSectReservation, consumeSectConstructionCheckpoint, releaseSectReservation, reserveSectResources, sectReservationLines } from './ledger';
 import { constructionResearchGate, constructionResearchGateMatches } from './research-consumer-gates';
@@ -14,6 +16,10 @@ import { CONSTRUCTION_LIMITS, type ConstructionBlueprint, type ConstructionClaim
   type ConstructionFrame, type ConstructionJob, type ConstructionPerson, type ConstructionRejection, type ConstructionResult } from './construction-types';
 
 const MAX = Number.MAX_SAFE_INTEGER;
+// Only fixed wrappers select this private policy. The original records are never projected
+// onto moved anchors, nor is a caller-supplied map/callback accepted as authority.
+type SpatialPolicy = { readonly kind: 'permanent-origin' } | { readonly kind: 'relocation-domain'; readonly relocation: SectRelocationState };
+const permanentOrigin: SpatialPolicy = { kind: 'permanent-origin' };
 const live = (job: ConstructionJob): boolean => job.terminal === null;
 const placement = (bp: SectPlacementRequest): SectPlacementRequest => ({ definitionId: bp.definitionId, anchor: { ...bp.anchor }, rotation: bp.rotation });
 const key = (p: SectCell): string => `${p.x},${p.y}`;
@@ -40,6 +46,41 @@ function spatial(frame: ConstructionFrame, omitBlueprintId?: string, omitPersonI
     blueprints: frame.blueprints.filter(bp => bp.status === 'planned' && bp.blueprintId !== omitBlueprintId)
       .map(bp => ({ blueprintId: bp.blueprintId, ...placement(bp) })) };
 }
+/** Each query binds the complete current construction book to the unchanged relocation book. */
+function policyPlacement(frame: ConstructionFrame, policy: SpatialPolicy, request: SectPlacementRequest,
+  omitBlueprintId?: string, omitPersonId?: string): boolean {
+  if (policy.kind === 'permanent-origin') return assessSectPlacement(spatial(frame, omitBlueprintId, omitPersonId), request).ok;
+  const result = relocationOwnerCurrentSpatialContext(cloneJson({ construction: frame, relocation: policy.relocation }));
+  if (!result.ok) return false;
+  const omitted = frame.jobs.find(job => job.blueprintId === omitBlueprintId)?.resultBuildingId;
+  const context: SectSpatialContext = { ...result.context,
+    people: result.context.people.filter(person => person.id !== omitPersonId),
+    spaces: result.context.spaces.filter(value => value.buildingId !== omitted),
+    blueprints: result.context.blueprints.filter(value => value.blueprintId !== omitBlueprintId) };
+  if (!assessSectPlacement(context, request).ok) return false;
+  const geometry = deriveSectFootprint(request); if (!geometry.ok) return false;
+  const occupied = new Set([...geometry.footprint.cells, geometry.footprint.entrance].map(key));
+  // Relocation reservations do not consume the sixteen blueprint slots.
+  return result.softTargets.every(target => [...target.footprint.cells, target.footprint.entrance].every(cell => !occupied.has(key(cell))));
+}
+function policyMap(frame: ConstructionFrame, policy: SpatialPolicy): WorldMap | null {
+  if (policy.kind === 'permanent-origin') return constructionEffectiveMap(frame);
+  const result = relocationOwnerEffectiveMap(cloneJson({ construction: frame, relocation: policy.relocation }));
+  return result.ok ? result.map : null;
+}
+function relocationContext(context: ConstructionContext, relocation: SectRelocationState): ConstructionContext {
+  const active = relocation.jobs.filter(job => job.terminal === null);
+  const claims: ConstructionClaim[] = active.flatMap(job => {
+    const old = deriveSectFootprint(job.from); const target = deriveSectFootprint(job.to);
+    if (!old.ok || !target.ok) throw new Error('Relocation geometry invariant');
+    return [{ kind: 'worker' as const, key: job.workerId, ownerId: job.jobId },
+      { kind: 'seat' as const, key: job.buildingId, ownerId: job.jobId },
+      ...Array.from(new Set([key(old.footprint.entrance), key(target.footprint.entrance)])).map(token =>
+        ({ kind: 'entrance' as const, key: token, ownerId: job.jobId }))];
+  });
+  return { ...context, externalActiveJobs: context.externalActiveJobs + active.length, externalClaims: [...context.externalClaims, ...claims] };
+}
+
 /** Explicit cross-domain ownership view; callers must feed it into production/cultivation/away admission. */
 export function constructionClaims(frame: ConstructionFrame): readonly ConstructionClaim[] {
   return frame.jobs.filter(live).slice().sort((a, b) => compareStable(a.jobId, b.jobId)).flatMap(job => [
@@ -76,11 +117,14 @@ function siteOccupied(frame: ConstructionFrame, job: ConstructionJob): boolean {
 /** Internal prediction for a validated frame/context and, only at the research root, full authority.
  * This is a local candidate only, never proof of research, funds or completed work. */
 export function previewValidatedConstructionPlacement(frame: ConstructionFrame, context: ConstructionContext, request: SectPlacementRequest, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
+  return previewPlacement(frame, context, request, permanentOrigin, researchAuthority);
+}
+function previewPlacement(frame: ConstructionFrame, context: ConstructionContext, request: SectPlacementRequest, policy: SpatialPolicy, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
   const geometry = deriveSectFootprint(request);
   if (!geometry.ok) return rejected(frame, 'INVALID_COMMAND');
   if (getSectBuildingDefinition(request.definitionId)!.levels[0]!.requiredResearch.length
     && (!researchAuthority || !constructionResearchGate(researchAuthority, request.definitionId, context.simulationTick, context.calendarTick))) return rejected(frame, 'RESEARCH_AUTHORITY_REQUIRED');
-  return assessSectPlacement(spatial(frame), request).ok ? accepted(frame) : rejected(frame, 'PLACEMENT_CHANGED');
+  return policyPlacement(frame, policy, request) ? accepted(frame) : rejected(frame, 'PLACEMENT_CHANGED');
 }
 /**
  * Internal command stage: source frame, context, clock and command shape are already checked.
@@ -88,6 +132,9 @@ export function previewValidatedConstructionPlacement(frame: ConstructionFrame, 
  * its actual full authority; the standalone public wrapper can never authorize gated work.
  */
 export function applyValidatedConstructionCommand(frame: ConstructionFrame, context: ConstructionContext, command: ConstructionCommand, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
+  return applyCommand(frame, context, command, permanentOrigin, researchAuthority);
+}
+function applyCommand(frame: ConstructionFrame, context: ConstructionContext, command: ConstructionCommand, policy: SpatialPolicy, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
   const old = frame.receipts.find(receipt => receipt.command.commandId === command.commandId);
   if (old) return canonicalStringify(old.command) === canonicalStringify(command) ? accepted(frame, old.relatedId, true) : rejected(frame, 'IDENTITY_CONFLICT');
   if (command.expectedRevision !== frame.revision) return rejected(frame, 'STALE_REVISION');
@@ -97,7 +144,7 @@ export function applyValidatedConstructionCommand(frame: ConstructionFrame, cont
     if (context.mode !== 'management' || context.expeditionActive) return rejected(frame, 'MANAGEMENT_REQUIRED');
     if (frame.blueprints.length >= CONSTRUCTION_LIMITS.records || frame.blueprints.filter(bp => bp.status === 'planned').length >= CONSTRUCTION_LIMITS.blueprints
       || frame.nextId >= MAX || frame.receipts.length + 3 * (frame.blueprints.filter(bp => bp.status === 'planned').length + 1) + frame.jobs.filter(live).length > CONSTRUCTION_LIMITS.receipts) return rejected(frame, 'CAPACITY_EXCEEDED');
-    const preview = previewValidatedConstructionPlacement(frame, context, command.placement, researchAuthority);
+    const preview = previewPlacement(frame, context, command.placement, policy, researchAuthority);
     if (!preview.ok) return preview;
     relatedId = `sect-blueprint:${frame.nextId}`;
     const researchGate = researchAuthority ? constructionResearchGate(researchAuthority, command.placement.definitionId, context.simulationTick, context.calendarTick) : null;
@@ -116,7 +163,8 @@ export function applyValidatedConstructionCommand(frame: ConstructionFrame, cont
       const active = frame.jobs.filter(live);
       if (active.length + context.externalActiveJobs >= CONSTRUCTION_LIMITS.activeJobs || active.length + frame.buildings.length + 8 >= CONSTRUCTION_LIMITS.buildings
         || frame.jobs.length >= CONSTRUCTION_LIMITS.records || frame.ledger.reservations.length >= CONSTRUCTION_LIMITS.records * 3
-        || frame.nextId > MAX - 3 || frame.map.navVersion > MAX - active.length - 2 || context.calendarTick > MAX - 1200) return rejected(frame, 'CAPACITY_EXCEEDED');
+        || frame.nextId > MAX - 3 || frame.map.navVersion > MAX - active.length - 2
+        - (policy.kind === 'relocation-domain' ? policy.relocation.jobs.filter(job => job.terminal === null).length : 0) || context.calendarTick > MAX - 1200) return rejected(frame, 'CAPACITY_EXCEEDED');
       const worker = frame.people.find(person => person.id === command.workerId);
       if (!worker || !eligible(worker) || active.some(job => job.workerId === worker.id)) return rejected(frame, 'WORKER_UNAVAILABLE');
       const storage = frame.legacyStations.find(station => station.blueprintId === 'storage' && station.operational);
@@ -124,7 +172,7 @@ export function applyValidatedConstructionCommand(frame: ConstructionFrame, cont
       const geometry = deriveSectFootprint(placement(bp));
       if (!geometry.ok) return rejected(frame, 'INVALID_FRAME');
       if (conflicts(context, 'worker', worker.id) || conflicts(context, 'seat', bp.blueprintId) || conflicts(context, 'entrance', key(geometry.footprint.entrance))) return rejected(frame, 'CLAIM_CONFLICT');
-      if (!assessSectPlacement(spatial(frame, bp.blueprintId), placement(bp)).ok) return rejected(frame, 'PLACEMENT_CHANGED');
+      if (!policyPlacement(frame, policy, placement(bp), bp.blueprintId)) return rejected(frame, 'PLACEMENT_CHANGED');
       relatedId = `sect-construction:${frame.nextId}`;
       const reservationId = `sect-reservation:${frame.nextId + 1}`; const resultBuildingId = `sect-building:${frame.nextId + 2}`;
       const reserve = reserveSectResources(frame.ledger, { reservationId, ownerTransactionId: relatedId }, getSectBuildingDefinition(bp.definitionId)!.levels[0]!.costs, 'construction-checkpoints');
@@ -150,18 +198,25 @@ export function applyValidatedConstructionCommand(frame: ConstructionFrame, cont
             released: sectReservationLines(claim, 'remainingReservation'), buildingId: null } };
         next = invalidate(replaceJob({ ...frame, ledger: release.context }, cancelled));
         // A broken external terrain/position input is never repaired by teleporting the worker.
-        if (!isWalkable(constructionEffectiveMap(next), worker.position)) return rejected(frame, 'PLACEMENT_CHANGED');
+        if (policy.kind === 'permanent-origin' && !isWalkable(constructionEffectiveMap(next), worker.position)) return rejected(frame, 'PLACEMENT_CHANGED');
       }
       next = { ...next, blueprints: next.blueprints.map(value => value.blueprintId === bp.blueprintId ? { ...value, status: 'cancelled', endedTick: context.simulationTick } : value) };
     }
   }
   if (next.receipts.length >= CONSTRUCTION_LIMITS.receipts) return rejected(frame, 'CAPACITY_EXCEEDED');
   next = { ...next, revision: frame.revision + 1, receipts: [...next.receipts, { command: cloneJson(command), revision: frame.revision + 1, relatedId }] };
+  if (policy.kind === 'relocation-domain' && command.kind === 'construction.cancel') {
+    const cancelled = next.jobs.find(job => job.blueprintId === command.blueprintId);
+    if (cancelled) {
+      const map = policyMap(next, policy); const worker = next.people.find(person => person.id === cancelled.workerId)!;
+      if (!map || !isWalkable(map, worker.position)) return rejected(frame, 'PLACEMENT_CHANGED');
+    }
+  }
   return accepted(next, relatedId);
 }
-function complete(frame: ConstructionFrame, context: ConstructionContext, job: ConstructionJob): ConstructionFrame {
+function complete(frame: ConstructionFrame, context: ConstructionContext, job: ConstructionJob, policy: SpatialPolicy): ConstructionFrame {
   const bp = blueprint(frame, job); const worker = frame.people.find(person => person.id === job.workerId)!;
-  if (!assessSectPlacement(spatial(frame, bp.blueprintId, worker.id), placement(bp)).ok) return replaceJob(frame, { ...job, blocked: 'PLACEMENT_CHANGED' });
+  if (!policyPlacement(frame, policy, placement(bp), bp.blueprintId, worker.id)) return replaceJob(frame, { ...job, blocked: 'PLACEMENT_CHANGED' });
   const identity = { reservationId: job.reservationId, ownerTransactionId: job.jobId };
   const debit = consumeSectConstructionCheckpoint(frame.ledger, identity, 'remainder');
   if (!debit.ok) throw new Error('Construction remainder invariant');
@@ -180,10 +235,13 @@ function complete(frame: ConstructionFrame, context: ConstructionContext, job: C
  * cancellation headroom and the complete candidate before publishing. ONE caller-owned path
  * budget is shared with all work domains; it is never an authorization or validation bypass. */
 export function tickValidatedConstruction(frame: ConstructionFrame, context: ConstructionContext, budget: WorkPathBudget, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
+  return tickConstructionMechanics(frame, context, budget, permanentOrigin, researchAuthority);
+}
+function tickConstructionMechanics(frame: ConstructionFrame, context: ConstructionContext, budget: WorkPathBudget, policy: SpatialPolicy, researchAuthority?: Pick<SectResearchFrame, 'construction' | 'research'>): ConstructionResult {
   const activeCount = frame.jobs.filter(live).length;
   if (frame.revision === MAX || frame.map.navVersion > MAX - activeCount || (activeCount > 0 && (context.calendarTick > MAX - 1200 || context.simulationTick > MAX - 20))) return rejected(frame, 'CAPACITY_EXCEEDED');
   let next: ConstructionFrame = { ...frame, lastSimulationTick: context.simulationTick, lastCalendarTick: context.calendarTick, revision: frame.revision + 1 };
-  if (context.mode !== 'management' || context.expeditionActive) return accepted(next);
+  if (context.mode !== 'management' || context.expeditionActive || policy.kind === 'relocation-domain' && context.paused) return accepted(next);
   const ordered = frame.jobs.filter(live).slice().sort((a, b) => compareStable(a.jobId, b.jobId));
   for (const original of ordered) {
     let job = next.jobs.find(value => value.jobId === original.jobId)!;
@@ -199,7 +257,8 @@ export function tickValidatedConstruction(frame: ConstructionFrame, context: Con
     if (conflicts(context, 'seat', job.seatToken, job.jobId) || conflicts(context, 'entrance', key(target), job.jobId) || (job.phase !== 'to-storage' && siteOccupied(next, job))) {
       next = replaceJob(next, { ...job, blocked: 'ENTRANCE_BUSY' }); continue;
     }
-    const effectiveMap = constructionEffectiveMap(next);
+    const effectiveMap = policyMap(next, policy);
+    if (!effectiveMap) return rejected(frame, 'INVALID_FRAME');
     if (job.phase === 'to-storage' || job.phase === 'to-site') {
       let effect: WorkNavigationEffect;
       try { effect = advanceWorkNavigationWithBudget({ map: effectiveMap, position: worker.position, target, navigation: job.navigation, simulationTick: context.simulationTick }, budget); }
@@ -229,7 +288,26 @@ export function tickValidatedConstruction(frame: ConstructionFrame, context: Con
       }
       next = replaceJob(next, job);
     }
-    if (job.activeTicks === definition.workTicks) next = complete(next, context, job);
+    if (job.activeTicks === definition.workTicks) next = complete(next, context, job, policy);
   }
   return accepted(next);
+}
+
+/** Fixed internal two-domain stage. Full envelope/live admission belongs to the composition
+ * root; every spatial query independently binds the real relocation records. No research
+ * authority is manufactured here, so gated construction remains unavailable. */
+export function applyConstructionCommandForRelocationDomain(records: SectRelocationRecordFrame, context: ConstructionContext,
+  command: ConstructionCommand): ConstructionResult {
+  if (!relocationOwnerCurrentSpatialContext(records).ok) return rejected(records.construction, 'INVALID_FRAME');
+  if (records.relocation.receipts.some(receipt => receipt.command.commandId === command.commandId)) return rejected(records.construction, 'IDENTITY_CONFLICT');
+  return applyCommand(records.construction, relocationContext(context, records.relocation), command,
+    { kind: 'relocation-domain', relocation: records.relocation });
+}
+/** Advances the single construction clock; relocation subsequently runs its already-clocked
+ * work stage using this exact candidate and the same caller-owned path budget. */
+export function tickConstructionForRelocationDomain(records: SectRelocationRecordFrame, context: ConstructionContext,
+  budget: WorkPathBudget): ConstructionResult {
+  if (!relocationOwnerCurrentSpatialContext(records).ok) return rejected(records.construction, 'INVALID_FRAME');
+  return tickConstructionMechanics(records.construction, relocationContext(context, records.relocation), budget,
+    { kind: 'relocation-domain', relocation: records.relocation });
 }
