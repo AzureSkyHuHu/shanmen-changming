@@ -1,5 +1,6 @@
 import { createUnregisteredWorldV9 } from '../core/world/create-world-v9';
 import type { RuntimeReadonlyV9 } from '../core/world/runtime-view-types-v9';
+import type { SaveMetadata } from '../core/kernel/save';
 import { describeSaveFile, MAX_SAVE_FILE_BYTES, parseSaveFile, type SaveFile } from '../platform/files/save-files';
 import { CAMPAIGN_SLOT_IDS, MANAGEMENT_V9_DATABASE_NAME, openSaveRepository, PersistenceError,
   type CampaignSlotId, type IndexedDbSaveRepository, type RepositoryOptions, type SlotManifest, type WriterLease } from '../platform/persistence';
@@ -45,6 +46,40 @@ interface OperationV9 {
   check(): void;
 }
 
+/** Identity, not these public fields, grants access to the held source. */
+export interface V10CopySourceV9 {
+  readonly kind: 'v9-live-copy-source';
+  readonly sourceText: string;
+  readonly signal: AbortSignal;
+  readonly sessionEpoch: number;
+  readonly worldRevision: number;
+  readonly revision: number;
+}
+export type BeginV10CopySourceV9 = { readonly ok: true; readonly token: V10CopySourceV9 }
+  | { readonly ok: false; readonly code: 'READ_ONLY_SOURCE' | 'SOURCE_BUSY' | 'SOURCE_UNAVAILABLE' | 'EXPORT_FAILED' };
+export type V10CopySourceOutcomeV9 = 'cancelled' | 'failed' | 'bound';
+export type FinishV10CopySourceV9 = { readonly ok: false; readonly code: 'INVALID_TOKEN' | 'INVALID_OUTCOME' | 'SOURCE_BUSY' }
+  | { readonly ok: false; readonly code: 'SOURCE_PROTECTION_FAILED'; readonly sourceCurrent: boolean; readonly holdReleased: boolean;
+    readonly lease: 'retained' | 'released' | 'release-failed' }
+  | { readonly ok: true; readonly sourceCurrent: boolean; readonly holdReleased: boolean;
+    readonly lease: 'retained' | 'released' | 'release-failed' };
+type CopyCleanupV9 = Extract<FinishV10CopySourceV9, { sourceCurrent: boolean }>;
+interface CopySourceStateV9 {
+  repository: IndexedDbSaveRepository | null;
+  generation: number;
+  boundSlot: CampaignSlotId | null;
+  boundRevision: number;
+  lease: WriterLease | null;
+  readonly abort: AbortController;
+  readonly cleanup: Promise<CopyCleanupV9>;
+  readonly pending: Promise<void>;
+  readonly settle: (result: CopyCleanupV9) => void;
+  boundary: Pick<V10CopySourceV9, 'sessionEpoch' | 'worldRevision' | 'revision'> | null;
+  acquiring: boolean;
+  held: boolean;
+  finishing: boolean;
+}
+
 /** Disabled-entry coordinator; constructing it does not open a database.
  * Every write uses an explicit fixed route and storage destination. A busy hold
  * spans source admission, prepared replacement, transaction and atomic swap.
@@ -67,6 +102,9 @@ export class ManagementSaveControllerV9 {
   private prepared: PreparedReplacementV9 | null = null;
   private savedBoundary: string | null = null;
   private closing: Promise<void> = Promise.resolve();
+  private copySourceReady = false;
+  private copySource: CopySourceStateV9 | null = null;
+  private readonly copySourceTokens = new WeakMap<object, CopySourceStateV9>();
   private readonly ownerId = globalThis.crypto?.randomUUID?.() ?? `management-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   private readonly options: RepositoryOptions;
   private status: RuntimeReadonlyV9<ManagementSaveStatusV9> = freeze({ mode: 'opening', busy: false,
@@ -76,6 +114,7 @@ export class ManagementSaveControllerV9 {
   constructor(private readonly session: ManagementSaveSessionV9, options: RepositoryOptions = {}) {
     this.options = { ...options, databaseName: MANAGEMENT_V9_DATABASE_NAME, routePolicy: 'management-v9' };
     session.subscribe(() => {
+      this.checkCopySource();
       if (session.getSnapshot().closed) { this.stop(); return; }
       const dirty = this.savedBoundary === null || this.savedBoundary !== this.boundary() || session.getSnapshot().runtimeFailure !== null;
       if (dirty !== this.status.dirty) this.update({ dirty });
@@ -89,6 +128,7 @@ export class ManagementSaveControllerV9 {
   }
   private update(patch: Partial<ManagementSaveStatusV9>): void {
     this.status = freeze({ ...this.status, ...patch }) as RuntimeReadonlyV9<ManagementSaveStatusV9>;
+    this.checkCopySource();
     for (const listener of [...this.listeners]) { try { listener(); } catch { /* UI observers do not own persistence. */ } }
   }
   private metadata() { return { buildId: 'management-0.9.0', savedAt: new Date().toISOString() }; }
@@ -126,6 +166,7 @@ export class ManagementSaveControllerV9 {
       this.repository = repository;
       this.applyReadOnly(false);
       if (generation !== this.generation) return;
+      this.copySourceReady = true;
       this.update({ mode: 'browser', slots, notice: null });
       if (generation !== this.generation) return;
       this.timer = setInterval(() => { void this.renew(); }, 5000);
@@ -134,11 +175,19 @@ export class ManagementSaveControllerV9 {
       if (generation !== this.generation) return;
       this.applyReadOnly(false);
       if (generation !== this.generation) return;
+      this.copySourceReady = true;
       this.update({ mode: 'memory', slots: CAMPAIGN_SLOT_IDS.map(slotId => ({ slotId, slot: null })), notice: persistenceMessage(error) });
     }
   }
   stop(): void {
     this.generation++;
+    this.copySourceReady = false;
+    if (this.copySource) {
+      const source = this.copySource;
+      // Explicit stop/close always aborts, including during source cleanup.
+      source.abort.abort();
+      this.finishCopySource(source, false, false);
+    }
     this.selection++;
     this.importCandidate = null;
     this.abort?.abort();
@@ -156,7 +205,7 @@ export class ManagementSaveControllerV9 {
   }
   private async renew(): Promise<void> {
     const repository = this.repository; const lease = this.lease; const generation = this.generation;
-    if (!repository || !lease || this.running || this.renewing || this.session.getSnapshot().closed) return;
+    if (!repository || !lease || (this.running && !this.copySource) || this.renewing || this.session.getSnapshot().closed) return;
     this.renewing = true;
     try {
       const next = await repository.renewLease(lease);
@@ -402,5 +451,151 @@ export class ManagementSaveControllerV9 {
   exportCurrent(): SaveFile {
     const text = value(this.session.exportSave(this.metadata())); const parsed = v9Save(text);
     return describeSaveFile(text, parsed.envelope);
+  }
+
+  private copySourceCurrent(source: CopySourceStateV9): boolean {
+    const snapshot = this.session.getSnapshot();
+    // Once somebody removes our hold, a later true value belongs to them.
+    if (!source.acquiring && !snapshot.holds.storageBusy) source.held = false;
+    const lease = this.lease;
+    return this.copySource === source && !source.finishing && !source.abort.signal.aborted
+      && this.copySourceReady && source.generation === this.generation && source.repository === this.repository
+      && source.boundSlot === this.status.boundSlot && source.boundRevision === this.boundRevision
+      && (source.lease === null ? lease === null : lease !== null && source.lease.slotId === lease.slotId
+        && source.lease.ownerId === lease.ownerId && source.lease.epoch === lease.epoch)
+      && !this.status.readOnly && !snapshot.closed && !snapshot.holds.storage && snapshot.runtimeFailure === null
+      && (source.acquiring || source.held && snapshot.holds.storageBusy)
+      && (source.boundary === null || source.boundary.sessionEpoch === snapshot.sessionEpoch
+        && source.boundary.worldRevision === snapshot.worldRevision && source.boundary.revision === snapshot.revision);
+  }
+  private checkCopySource(): void {
+    const source = this.copySource;
+    // Finishing may be waiting for a BUSY publication to unwind. Continue
+    // observing ownership loss then, so its deferred release cannot clear a
+    // hold that somebody else removed and reacquired in the meantime.
+    if (source && !source.acquiring && !this.session.getSnapshot().holds.storageBusy) source.held = false;
+    if (source && !source.finishing && !this.copySourceCurrent(source)) source.abort.abort();
+  }
+  /** Synchronous: no database read/write, target admission, or migration occurs.
+   * Metadata is passed only to the unchanged descriptor-safe Session codec. */
+  beginV10CopySource(metadata: SaveMetadata): BeginV10CopySourceV9 {
+    const snapshot = this.session.getSnapshot();
+    if (!this.copySourceReady || snapshot.closed || this.status.mode === 'opening') return { ok: false, code: 'SOURCE_UNAVAILABLE' };
+    if (this.status.readOnly || snapshot.holds.storage) return { ok: false, code: 'READ_ONLY_SOURCE' };
+    if (this.copySource || this.running || this.status.busy || snapshot.holds.storageBusy) return { ok: false, code: 'SOURCE_BUSY' };
+    if (snapshot.runtimeFailure !== null) return { ok: false, code: 'SOURCE_UNAVAILABLE' };
+    let settle!: (result: CopyCleanupV9) => void;
+    const cleanup = new Promise<CopyCleanupV9>(resolve => { settle = resolve; });
+    const pending = cleanup.then(() => {});
+    const source: CopySourceStateV9 = { repository: this.repository, generation: this.generation,
+      boundSlot: this.status.boundSlot, boundRevision: this.boundRevision, lease: this.lease,
+      abort: new AbortController(), cleanup, pending, settle, boundary: null, acquiring: true, held: false, finishing: false };
+    this.copySource = source; this.running = true; this.pending = pending;
+    let exported = false;
+    try {
+      const held = this.session.setStorageBusy(true);
+      source.acquiring = false; source.held = held.ok;
+      if (!held.ok) return { ok: false, code: 'SOURCE_BUSY' };
+      if (!this.copySourceCurrent(source)) return { ok: false, code: 'SOURCE_UNAVAILABLE' };
+      // The hold itself publishes a Session revision. Capture only afterwards.
+      const heldSnapshot = this.session.getSnapshot();
+      // The pre-hold values above are acquisition guards. The source identity
+      // actually retained by the token is captured at this post-hold boundary.
+      source.repository = this.repository; source.generation = this.generation;
+      source.boundSlot = this.status.boundSlot; source.boundRevision = this.boundRevision; source.lease = this.lease;
+      source.boundary = { sessionEpoch: heldSnapshot.sessionEpoch, worldRevision: heldSnapshot.worldRevision, revision: heldSnapshot.revision };
+      this.update({ busy: true });
+      if (!this.copySourceCurrent(source)) return { ok: false, code: 'SOURCE_UNAVAILABLE' };
+      const text = value(this.session.exportSave(metadata));
+      if (!this.copySourceCurrent(source)) return { ok: false, code: 'SOURCE_UNAVAILABLE' };
+      // Never substitute a stored generation, including when dirty is false.
+      v9Save(text);
+      if (!this.copySourceCurrent(source)) return { ok: false, code: 'SOURCE_UNAVAILABLE' };
+      const token: V10CopySourceV9 = Object.freeze({ kind: 'v9-live-copy-source', sourceText: text,
+        signal: source.abort.signal, ...source.boundary });
+      this.copySourceTokens.set(token, source); exported = true;
+      return Object.freeze({ ok: true, token });
+    } catch {
+      return { ok: false, code: this.copySourceCurrent(source) ? 'EXPORT_FAILED' : 'SOURCE_UNAVAILABLE' };
+    } finally {
+      source.acquiring = false;
+      if (!exported) this.finishCopySource(source, false, false);
+    }
+  }
+  /** Use after every await and immediately before target commit/binding. */
+  isV10CopySourceCurrent(token: unknown): boolean {
+    const source = token !== null && typeof token === 'object' ? this.copySourceTokens.get(token) : undefined;
+    if (!source || source !== this.copySource) return false;
+    const current = this.copySourceCurrent(source);
+    if (!current) source.abort.abort();
+    return current;
+  }
+  /** 'bound' is allowed only AFTER durable target commit and target binding.
+   * The resolved result reports completed cleanup, never a target rollback.
+   * A stale bound request consumes its own hold but retains the source lease. */
+  finishV10CopySource(token: unknown, outcome: V10CopySourceOutcomeV9): Promise<FinishV10CopySourceV9> {
+    const source = token !== null && typeof token === 'object' ? this.copySourceTokens.get(token) : undefined;
+    if (!source || source !== this.copySource || source.finishing) return Promise.resolve({ ok: false, code: 'INVALID_TOKEN' });
+    if (outcome !== 'cancelled' && outcome !== 'failed' && outcome !== 'bound') return Promise.resolve({ ok: false, code: 'INVALID_OUTCOME' });
+    let current = this.copySourceCurrent(source);
+    if (outcome === 'bound' && current) {
+      // Our held value is already true, so this is a no-publication/no-counter
+      // probe of Session exclusivity. Do not accept a bound retirement that
+      // would need deferred protection after a reentrant Session call returns.
+      const available = this.session.setStorageBusy(true);
+      if (!available.ok) return Promise.resolve({ ok: false, code: 'SOURCE_BUSY' });
+      current = this.copySourceCurrent(source);
+    }
+    this.finishCopySource(source, outcome === 'bound' && current, current);
+    return source.cleanup;
+  }
+  private finishCopySource(source: CopySourceStateV9, bound: boolean, sourceCurrent: boolean): void {
+    if (this.copySource !== source || source.finishing) return;
+    source.finishing = true;
+    // Capture and detach before any Session/observer callback. Reentrant stop
+    // waits on source.pending and cannot double-release or close the captured
+    // repository ahead of this cleanup.
+    const retirement = bound ? { repository: source.repository, lease: this.lease } : null;
+    if (retirement) { this.lease = null; this.copySourceReady = false; }
+    // Successful binding must protect the old engine before abort observers
+    // can remove/reacquire storageBusy. Cancellation still aborts immediately.
+    if (!bound) source.abort.abort();
+    const release = (): void => {
+      if (this.copySource !== source) return;
+      // A Session listener runs inside its exclusive publication. Retry only
+      // that transient BUSY refusal, still against this exact owning state.
+      if (source.acquiring) { queueMicrotask(release); return; }
+      if (!this.session.getSnapshot().holds.storageBusy) source.held = false;
+      let holdReleased = !source.held;
+      if (source.held) {
+        const result = this.session.setStorageBusy(false);
+        if (!bound && !result.ok && result.kind === 'session-rejection' && result.code === 'BUSY') { queueMicrotask(release); return; }
+        holdReleased = result.ok || this.session.getSnapshot().closed;
+        source.held = false;
+      }
+      if (!bound && this.status.readOnly && !this.session.getSnapshot().closed) this.applyReadOnly(true);
+      let protectionFailed = false;
+      if (retirement) {
+        const protectedSource = this.session.setStorageReadOnly(true);
+        const snapshot = this.session.getSnapshot();
+        protectionFailed = !snapshot.closed && (!protectedSource.ok || !snapshot.holds.storage);
+        this.update({ readOnly: true, ...(protectionFailed ? { notice: 'save.error.protected' as const } : {}) });
+      }
+      source.abort.abort();
+      const complete = (leaseResult: CopyCleanupV9['lease']): void => {
+        if (this.copySource !== source) return;
+        this.copySource = null; this.running = false;
+        if (this.pending === source.pending) this.pending = null;
+        this.update({ busy: false });
+        const result: CopyCleanupV9 = protectionFailed
+          ? { ok: false, code: 'SOURCE_PROTECTION_FAILED', sourceCurrent, holdReleased, lease: leaseResult }
+          : { ok: true, sourceCurrent, holdReleased, lease: leaseResult };
+        source.settle(Object.freeze(result));
+      };
+      if (retirement?.repository && retirement.lease) {
+        void retirement.repository.releaseLease(retirement.lease).then(() => complete('released'), () => complete('release-failed'));
+      } else complete(retirement ? 'released' : 'retained');
+    };
+    release();
   }
 }

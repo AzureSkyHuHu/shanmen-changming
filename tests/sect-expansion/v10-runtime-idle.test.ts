@@ -105,7 +105,8 @@ describe('private v10 retained scalar idle integration', () => {
     const owner = runtime(source); const first = compare(owner, source, 1, 0);
     expect(first.actual.metrics.fastTicks).toBe(1);
     const second = compare(owner, first.world, 1, 1);
-    expect(second.actual.metrics).toMatchObject({ fastTicks: 0, sourceChecks: 1, normalCandidates: 1, candidateChecks: 1 });
+    expect(second.actual.metrics).toMatchObject({ fastTicks: 0, sourceChecks: 1, normalCandidates: 0, candidateChecks: 0,
+      ownedCaptures: 1, ownedNormalAttempts: 1, ownedTicks: 1 });
     expect(second.world.cultivationClock.transitions.at(-1)?.kind).toBe(boundary === 'month' ? 'month' : 'age-sync');
     expect(compare(owner, second.world, 2, 2).actual.metrics.fastTicks).toBe(2);
   }, 30000);
@@ -115,7 +116,7 @@ describe('private v10 retained scalar idle integration', () => {
     const owner = runtime(source); const first = compare(owner, source, 1, 0);
     expect(first.actual.metrics.fastTicks).toBe(1);
     const second = compare(owner, first.world, 1, 1);
-    expect(second.actual.metrics).toMatchObject({ fastTicks: 0, sourceChecks: 1, normalCandidates: 1 });
+    expect(second.actual.metrics).toMatchObject({ fastTicks: 0, sourceChecks: 1, normalCandidates: 0, ownedTicks: 1 });
     expect(second.actual.stopped).toBeNull();
   });
 
@@ -144,7 +145,8 @@ describe('private v10 retained scalar idle integration', () => {
     const leaf = createOwnedIdleLeafV10(); expect(leaf.capture(source)).not.toBeNull(); expect(leaf.advance()).toBeNull();
     const owner = runtime(source); const result = compare(owner, source, 1, 0);
     expect(result.actual).toMatchObject({ ok: true, advancedTicks: 1, stopped: null,
-      metrics: { fastTicks: 0, sourceChecks: 1, normalCandidates: 1, noOptionalCandidates: 0, candidateChecks: 1 } });
+      metrics: { fastTicks: 0, sourceChecks: 1, normalCandidates: 0, noOptionalCandidates: 0, candidateChecks: 0,
+        ownedCaptures: 1, ownedNormalAttempts: 1, ownedTicks: 1 } });
   }, 60000);
 
   it('keeps real numeric safe-stops through retries, conflicts, failed replacement, invalidation and clock control', () => {
@@ -264,10 +266,11 @@ describe('retained idle and actual sixth-owner boundaries', () => {
   it('uses strict candidates for each live upgrade phase and actual paid checkpoints', () => {
     for (const source of [started, traveling, working, checkpoint, almost]) {
       const result = compare(runtime(source), source, 1, 0);
-      expect(result.actual.metrics).toMatchObject({ fastTicks: 0, normalCandidates: 1, candidateChecks: 1 });
+      expect(result.actual.metrics).toMatchObject({ fastTicks: 0, normalCandidates: 0, candidateChecks: 0,
+        ownedCaptures: 1, ownedNormalAttempts: 1, ownedTicks: 1 });
     }
     const owner = runtime(almost); const result = compare(owner, almost, 2, 0);
-    expect(result.actual.metrics).toMatchObject({ fastTicks: 1, normalCandidates: 1, candidateChecks: 1 });
+    expect(result.actual.metrics).toMatchObject({ fastTicks: 1, normalCandidates: 0, candidateChecks: 0, ownedTicks: 1 });
     expect(result.world.sectExpansion.upgrade.jobs[0]).toMatchObject({ activeTicks: 400, terminal: { kind: 'completed', resultLevel: 2 } });
     expect(result.world.sectExpansion.construction.buildings).toEqual(almost.sectExpansion.construction.buildings);
   }, 60000);
@@ -280,7 +283,7 @@ describe('retained idle and actual sixth-owner boundaries', () => {
     actor.birthCalendarTick = target - profile.lifespanMonths * MONTH; actor.ageMonths = profile.lifespanMonths - 1; profile.ageMonths = actor.ageMonths;
     expect(inspectUnregisteredWorldV10Records(source)).toEqual([]);
     const result = compare(runtime(source), source, 2, 0);
-    expect(result.actual).toMatchObject({ advancedTicks: 1, metrics: { fastTicks: 0, normalCandidates: 1 } });
+    expect(result.actual).toMatchObject({ advancedTicks: 1, metrics: { fastTicks: 0, normalCandidates: 0, ownedTicks: 1 } });
     const death = result.world.cultivation.pendingDeaths.find(value => value.discipleId === actor.id)!;
     expect(result.world.sectExpansion.upgrade.jobs[0]).toMatchObject({ activeTicks: 399,
       terminal: { kind: 'cancelled', cancellation: { kind: 'death', deathId: death.deathId } } });
@@ -292,7 +295,7 @@ describe('retained idle and actual sixth-owner boundaries', () => {
     const edge = until(paid, world => world.clock.calendarTick === payment.dueCalendarTick - 2);
     const original = runtime(edge); const saved = snapshot(original); original.close(); const restored = runtime(saved);
     const result = compare(restored, saved, 2, 0);
-    expect(result.actual.metrics).toMatchObject({ fastTicks: 1, sourceChecks: 1, normalCandidates: 1, candidateChecks: 1 });
+    expect(result.actual.metrics).toMatchObject({ fastTicks: 1, sourceChecks: 1, normalCandidates: 0, candidateChecks: 0, ownedTicks: 1 });
     expect(result.world.sectExpansion.maintenance.payments.at(-1)).toMatchObject({ buildingId: payment.buildingId,
       paidCalendarTick: payment.dueCalendarTick, rate: { level: 2 } });
     expect(saved.sectExpansion.maintenance.payments).toEqual(edge.sectExpansion.maintenance.payments);

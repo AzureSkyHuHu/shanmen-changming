@@ -101,7 +101,7 @@ describe('private fixed v10-only repository', () => {
     expect(await h.repository.exportMigrationSource(slotId)).toBe(oldText);
     await h.repository.importSave(text, { ownerId: 'other-slot' });
     expect((await h.inspect()).migrationSources).toEqual(backups);
-  });
+  }, 20000); // Multiple fully admitted save/import transactions; CI measured 5029ms.
   it('requires an empty target for default import and fences overwrite by revision', async () => {
     const h = await harness(); const first = await h.repository.importSave(text, { ownerId: 'first' });
     await expect(h.repository.importSave(text, { ownerId: 'other', slotId })).rejects.toMatchObject({ code: 'SLOT_OCCUPIED' });

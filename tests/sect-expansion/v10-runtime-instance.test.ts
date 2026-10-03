@@ -83,6 +83,12 @@ vi.mock('../../src/core/kernel/simulation-v10', async importOriginal => {
     prepareNoOptionalGrowthTickCandidateV10(world: WorldStateV10): WorldStateV10 {
       return injectedFailures.fallback ? injectedFailures.fallback(world) : actual.prepareNoOptionalGrowthTickCandidateV10(world);
     },
+    prepareOwnedNormalTickStagesV10(world: WorldStateV10): WorldStateV10 {
+      return injectedFailures.normal ? injectedFailures.normal(world) : actual.prepareOwnedNormalTickStagesV10(world);
+    },
+    prepareOwnedNoOptionalGrowthTickStagesV10(world: WorldStateV10): WorldStateV10 {
+      return injectedFailures.fallback ? injectedFailures.fallback(world) : actual.prepareOwnedNoOptionalGrowthTickStagesV10(world);
+    },
   };
 });
 function atWireCost(source: WorldStateV10, target: number): WorldStateV10 {
@@ -114,7 +120,8 @@ describe('strict private v10 lifecycle and complete publications', () => {
       const oracle = advanceCapacityLimitedTicksV10(world, ticks); const result = instance.advance(ticks);
       expect(result).toMatchObject({ ok: true, advancedTicks: ticks, stopped: null, recoveryOnly: false });
       publication += ticks; expect(result.stamp).toEqual({ generation: 1, publication });
-      expect(result.metrics).toEqual({ sourceChecks: 0, candidateChecks: 0, normalCandidates: 0, noOptionalCandidates: 0, exports: 0, fastTicks: ticks });
+      expect(result.metrics).toEqual({ sourceChecks: 0, candidateChecks: 0, normalCandidates: 0, noOptionalCandidates: 0, exports: 0,
+        fastTicks: ticks, ownedCaptures: 0, ownedNormalAttempts: 0, ownedNoOptionalAttempts: 0, ownedTicks: 0 });
       expect('world' in result).toBe(false); world = oracle.world; expect(snapshot(instance)).toEqual(world);
     }
     const input = discard(world); const oracle = dispatchCapacityLimitedCommandV10(world, input); const applied = instance.command(input);
@@ -124,7 +131,8 @@ describe('strict private v10 lifecycle and complete publications', () => {
     expect(instance.command({ ...input, payload: { resourceId: 'grain', quantity: 2 } })).toMatchObject({ published: false,
       result: { rejection: { code: 'COMMAND_CONFLICT' } }, stamp: applied.stamp });
     expect(snapshot(instance)).toEqual(world);
-    expect(Object.keys(instance).sort()).toEqual(['advance', 'close', 'command', 'controlClock', 'invalidate', 'replace', 'snapshot']);
+    expect(Object.keys(instance).sort()).toEqual(['advance', 'close', 'command', 'controlClock', 'invalidate', 'replace', 'snapshot',
+      'frame', 'cultivation', 'build', 'expansion', 'previewBreakthrough', 'previewPlacement', 'previewUpgrade', 'nextApplicationCommand'].sort());
     expect(Object.isFrozen(instance)).toBe(true);
   });
   it('detaches every snapshot, command result, replacement and external source without freezing the caller', () => {
@@ -219,7 +227,8 @@ describe('strict private v10 lifecycle and complete publications', () => {
     const fallback = simulation.prepareNoOptionalGrowthTickCandidateV10(world);
     expect(assess(fallback).fits).toBe(true); expect(assess(prepareNormalTickCandidateV10(world)).fits).toBe(false);
     const instance = runtime(world); expect(instance.advance(1)).toMatchObject({ ok: true, advancedTicks: 1, stopped: null,
-      stamp: { generation: 1, publication: 1 }, metrics: { normalCandidates: 1, noOptionalCandidates: 1, candidateChecks: 2 } });
+      stamp: { generation: 1, publication: 1 }, metrics: { normalCandidates: 1, noOptionalCandidates: 0, candidateChecks: 1,
+        ownedCaptures: 1, ownedNormalAttempts: 1, ownedNoOptionalAttempts: 1, ownedTicks: 1 } });
     expect(snapshot(instance)).toEqual(fallback); expect(world).toEqual(original);
     expect(snapshot(instance).automaticProduction.nextCycle).toBe(1); expect(snapshot(instance).sectEconomy.enabled).toBe(true);
   }, 30000);

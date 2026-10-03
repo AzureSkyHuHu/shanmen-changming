@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { MANAGEMENT_V10_CONTENT_VERSION, MANAGEMENT_V10_IDENTITY } from '../../src/content/sect-v10/world-content';
 import { createCultivationStateV3 } from '../../src/core/cultivation/v3';
 import { recordAutomaticNotice } from '../../src/core/economy/automatic-production';
+import { iterateArchivedCommandReceipts, lookupArchivedProduction, restoreHistoryArchive } from '../../src/core/history';
 import { CALENDAR_TICKS_PER_MONTH as MONTH, setPauseReason } from '../../src/core/kernel/clock';
 import { prepareUnregisteredCommandCandidateV10 } from '../../src/core/kernel/commands-v10';
 import type { CommandV10, SectCommandV10 } from '../../src/core/kernel/contracts-v10';
@@ -9,6 +10,7 @@ import { canonicalStringify, cloneJson } from '../../src/core/kernel/serializati
 import * as tickPreparation from '../../src/core/kernel/simulation-v10';
 import { prepareNormalTickCandidateV10 as normal, prepareNoOptionalGrowthTickCandidateV10 as noOptional } from '../../src/core/kernel/simulation-v10';
 import { inspectUnregisteredWorldV10Records } from '../../src/core/kernel/validation';
+import * as recordValidation from '../../src/core/kernel/validation';
 import { SAVE_FILE_LIMIT_BYTES } from '../../src/core/save-budget/admission';
 import type { SectProductionJobV10, WorldStateV10 } from '../../src/core/sect-expansion/upgrade-types';
 import { createSectUpgradeStateV10 } from '../../src/core/sect-expansion/upgrade-validation';
@@ -92,8 +94,10 @@ describe('per-owner actual fixed-v10 tick pipeline', () => {
   it('fully captures once and executes one actual reducer plus one complete query per step', () => {
     const source = fresh(); const pipeline = createOwnedTickPipelineV10();
     const query = vi.spyOn(capacity, 'assessManagementCapacityV10');
-    const prepare = vi.spyOn(tickPreparation, 'prepareNormalTickCandidateV10');
-    const fallback = vi.spyOn(tickPreparation, 'prepareNoOptionalGrowthTickCandidateV10');
+    const prepare = vi.spyOn(tickPreparation, 'prepareOwnedNormalTickStagesV10');
+    const fallback = vi.spyOn(tickPreparation, 'prepareOwnedNoOptionalGrowthTickStagesV10');
+    const publicNormal = vi.spyOn(tickPreparation, 'prepareNormalTickCandidateV10');
+    const publicFallback = vi.spyOn(tickPreparation, 'prepareNoOptionalGrowthTickCandidateV10');
     const records = vi.spyOn(dischargeRecords, 'inspectReservedDischargeRecordsV10');
     const captured = pipeline.capture(source); expect(captured).not.toBeNull(); expect(query).toHaveBeenCalledTimes(1);
     const next = pipeline.advanceNormal(); expect(next).not.toBeNull();
@@ -104,6 +108,7 @@ describe('per-owner actual fixed-v10 tick pipeline', () => {
     expect(prepare).toHaveBeenCalledTimes(1); expect(fallback).toHaveBeenCalledTimes(1);
     expect(fallback).toHaveBeenCalledWith(next!.world); expect(query).toHaveBeenCalledTimes(3);
     expect(records).toHaveBeenCalledTimes(2);
+    expect(publicNormal).not.toHaveBeenCalled(); expect(publicFallback).not.toHaveBeenCalled();
   });
   it('matches real active gathering on consecutive exact immutable boundaries', () => {
     const source = sect(fresh(), { domain: 'production', command: { kind: 'production.start', commandId: 'owned.gather',
@@ -234,6 +239,92 @@ describe('per-owner actual fixed-v10 tick pipeline', () => {
     malformed.cultivation.disciples[0]!.activityOwner = { kind: 'unknown', id: 'unbounded' } as never;
     expect(assess(malformed).supported).toBe(false); expect(createOwnedTickPipelineV10().capture(malformed)).toBeNull();
   });
+});
+
+describe('unchanged strict wrapper boundary around shared raw stages', () => {
+  it('still runs complete source and candidate root inspection in both public preparations', () => {
+    const source = fresh(); const paused = { ...source, clock: setPauseReason(source.clock, 'player', true) };
+    const inspect = vi.spyOn(recordValidation, 'inspectUnregisteredWorldV10Records');
+    for (const prepare of [normal, noOptional]) {
+      inspect.mockClear(); const candidate = prepare(source);
+      expect(inspect).toHaveBeenCalledTimes(2); expect(inspect.mock.calls[0]![0]).toEqual(source);
+      expect(inspect.mock.calls[1]![0]).toBe(candidate);
+      inspect.mockClear(); expect(prepare(paused)).toBe(paused); expect(inspect).toHaveBeenCalledTimes(1);
+    }
+  });
+  it.each(['normal', 'no-optional-growth'] as const)('keeps the %s wrapper detached and exact against the owned stage pipeline', mode => {
+    const source = automatic(); const before = canonicalStringify(source);
+    const prepare = mode === 'normal' ? normal : noOptional;
+    const candidate = prepare(source); const { next } = exactNext(source, mode);
+    expect(candidate).toEqual(next.world); expect(candidate).not.toBe(source);
+    expect(candidate.inventory).not.toBe(source.inventory); expect(candidate.history).not.toBe(source.history);
+    expect(inspectUnregisteredWorldV10Records(candidate)).toEqual([]);
+    expect(canonicalStringify(source)).toBe(before); expect(Object.isFrozen(source)).toBe(false);
+    candidate.inventory.wood.owned++; expect(source.inventory.wood.owned).not.toBe(candidate.inventory.wood.owned);
+  });
+  it.each(['normal', 'no-optional-growth'] as const)('validates before returning exact original paused identity in the %s wrapper', mode => {
+    const prepare = mode === 'normal' ? normal : noOptional;
+    const source = fresh(); source.clock = setPauseReason(setPauseReason(source.clock, 'player', true), 'hidden', true);
+    const before = canonicalStringify(source); expect(prepare(source)).toBe(source);
+    const frozen = freeze(cloneJson(source)); expect(prepare(frozen)).toBe(frozen);
+    const invalid = cloneJson(source); invalid.inventory.wood.reserved = 1;
+    expect(() => prepare(invalid)).toThrow(); expect(canonicalStringify(source)).toBe(before);
+    const queued = cloneJson(source); queued.pendingCommands.push({ kind: 'inventory.discard', commandId: 'paused.invalid.queue',
+      sequence: 0, issuedTick: 0, payload: { resourceId: 'grain', quantity: 1 } });
+    expect(() => prepare(queued)).toThrow();
+  });
+  it.each(['normal', 'no-optional-growth'] as const)('still rejects hostile descriptors/aliases and frozen corruption in the %s wrapper', mode => {
+    const prepare = mode === 'normal' ? normal : noOptional; const source = fresh(); let reads = 0;
+    const hostile = Object.defineProperty(cloneJson(source), 'clock', { enumerable: true, get() { reads++; throw null; } });
+    expect(() => prepare(hostile)).toThrow(); expect(reads).toBe(0);
+    const alias = cloneJson(source); alias.disciples[1]!.position = alias.disciples[0]!.position;
+    expect(() => prepare(alias)).toThrow();
+    const invalid = freeze({ ...source, runtimeProtocol: 'forged-frozen-source' }) as unknown as WorldStateV10;
+    expect(() => Reflect.apply(prepare, null, [invalid, true, assess(source), () => source])).toThrow();
+    const thrown = new Proxy({}, { get() { reads++; throw null; }, getPrototypeOf() { reads++; throw null; } });
+    const proxy = new Proxy({}, { ownKeys() { throw thrown; } }) as WorldStateV10;
+    // Catch directly: a test assertion's thrown-value formatter may inspect the
+    // hostile object, whereas the real wrapper must simply propagate it unchanged.
+    let caught: unknown = null; try { prepare(proxy); } catch (error) { caught = error; }
+    expect(caught).toBe(thrown); expect(reads).toBe(0);
+  });
+  it('preserves strict arithmetic failure while the owned factory retains its complete source', () => {
+    const source = fresh(); source.sectExpansion = { ...source.sectExpansion,
+      construction: { ...source.sectExpansion.construction, revision: Number.MAX_SAFE_INTEGER } };
+    const before = canonicalStringify(source); expect(inspectUnregisteredWorldV10Records(source)).toEqual([]);
+    for (const prepare of [normal, noOptional]) expect(() => prepare(source)).toThrow();
+    const pipeline = createOwnedTickPipelineV10(); const captured = pipeline.capture(source)!;
+    expect(captured).not.toBeNull(); expect(pipeline.advanceNormal()).toBeNull(); expect(pipeline.advanceNoOptional()).toBeNull();
+    expect(canonicalStringify(captured.world)).toBe(before); expect(canonicalStringify(source)).toBe(before);
+  });
+  it('restores its actual captured archive and appends genuine completion with old receipts intact', () => {
+    let source = fresh();
+    for (let index = 0; index < 66; index++) source = apply(source, { kind: 'sect-economy.command', commandId: `owned.archive.${index}`,
+      sequence: 0, issuedTick: source.clock.simulationTick, payload: { command: { kind: 'enabled.set', enabled: false } } });
+    source = apply(source, { kind: 'production.start', commandId: 'owned.archive.production', sequence: 0, issuedTick: 0,
+      payload: { recipeId: 'gather.wood', workerId: 'entity:2' } });
+    const id = source.activeProductionTransactionIds[0]!;
+    source = until(source, world => world.transactions[id]!.phase === 'AwaitingDelivery');
+    const wireSource = freeze(cloneJson(source)); const oldReceipts = [...iterateArchivedCommandReceipts(wireSource.history)];
+    expect(oldReceipts.length).toBeGreaterThan(0);
+    const { pipeline, captured, next } = exactNext(wireSource);
+    // A merely frozen foreign archive must be newly authenticated; the actual
+    // retained objects, rather than a validator's throwaway copy, are indexed.
+    expect(restoreHistoryArchive(wireSource.history)).not.toBe(wireSource.history);
+    expect(restoreHistoryArchive(captured.world.history)).toBe(captured.world.history);
+    expect(restoreHistoryArchive(next.world.history)).toBe(next.world.history);
+    expect(next.world.history.production.count).toBe(wireSource.history.production.count + 1);
+    expect(lookupArchivedProduction(next.world.history, id)?.transaction.state).toBe('Committed');
+    expect([...iterateArchivedCommandReceipts(next.world.history)]).toEqual(oldReceipts);
+    const following = pipeline.advanceNoOptional()!;
+    expect(following.world).toEqual(noOptional(next.world));
+    expect(restoreHistoryArchive(following.world.history)).toBe(following.world.history);
+    expect(lookupArchivedProduction(following.world.history, id)).toEqual(lookupArchivedProduction(next.world.history, id));
+    const corrupt = cloneJson(next.world); corrupt.history = { ...corrupt.history,
+      production: { ...corrupt.history.production, count: corrupt.history.production.count + 1 } };
+    freeze(corrupt); expect(createOwnedTickPipelineV10().capture(corrupt)).toBeNull();
+    expect(() => normal(corrupt)).toThrow(); expect(() => noOptional(corrupt)).toThrow();
+  }, 60000);
 });
 
 describe('public supplied-candidate gate remains strict', () => {

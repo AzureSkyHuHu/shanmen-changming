@@ -9,7 +9,7 @@ export interface SectRenderTerrain {
   readonly tiles: readonly (SectRenderCell & { readonly terrain: 'grass' | 'path' | 'forest' | 'stone' | 'water'; readonly walkable: boolean })[];
 }
 export interface SectVisualWork {
-  readonly kind: 'legacy-production' | 'construction' | 'sect-production' | 'research' | 'care';
+  readonly kind: 'legacy-production' | 'construction' | 'sect-production' | 'research' | 'care' | 'upgrade';
   readonly ownerId: string; readonly activeTicks: number; readonly requiredTicks: number; readonly blocked: boolean;
 }
 export interface SectRenderDisciple {

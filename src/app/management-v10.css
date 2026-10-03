@@ -1,0 +1,24 @@
+/* Private v10 composes the verified v9 jade/paper layout; no global overrides. */
+.management-v10 .management-v10-source { overflow-wrap: anywhere; font-size: .9em; }
+.management-v10 .management-v10-review { scroll-margin-block-start: calc(var(--management-v9-toolbar-height, 10rem) + 1.25rem); }
+.management-v10 .management-v10-review :is(p, ul) { max-inline-size: 80ch; }
+.management-v10 :is(button, select, input, a):focus-visible,
+.management-v10-dialog :is(button, select, input, a):focus-visible {
+  outline: 2px solid #ffe3a0;
+  outline-offset: 3px;
+}
+.management-v10 .management-v9-panel :is(button, select, input):focus-visible { outline-color: #375d47; }
+.management-v10 progress { inline-size: 100%; }
+.management-v10-dialog .management-v9-save-body { overflow-x: hidden; }
+.management-v10-dialog .management-v9-save-heading,
+.management-v10-dialog .management-v9-save-feedback { overflow-wrap: anywhere; }
+@media (max-width: 32rem) {
+  .management-v10 { padding-inline: .75rem; }
+  .management-v10 .management-v9-panel { padding: .8rem; }
+  .management-v10 .management-v9-coordinates { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-height: 20rem) {
+  .management-v10-dialog { max-height: calc(100dvh - .5rem); }
+  .management-v10-dialog .management-v9-save-heading,
+  .management-v10-dialog .management-v9-save-feedback { padding-block: .35rem; }
+}

@@ -59,3 +59,20 @@ expansion 新增 upgrade 修订和真实升级任务/终态。building 的 `leve
 ## Root verification —2026-10-02 22:05UTC
 
 The final source passed both TypeScript configurations, boundary checking and default build. All real L2/maintenance/recipe/care/retirement cases passed;18/19 view tests passed in the last combined367.24s run. The sole remaining fixture expected a mutable source from the intentionally frozen admitted constructor. A cloneJson mutable-input fixture corrected that assumption; focused case passed (1passed/18skipped,2.00s). Earlier blanket ledger-name assertions were replaced by exact cost-row/path/domain checks with negative cases, retaining ledger/history/owner-evidence leakage exclusions. Independent read-only review found no blocker. Owner method integration and player UI/browser acceptance remain separate.
+
+## 有界真实升级付款摘要补充（2026-10-02）
+
+活动升级任务新增 `checkpoints`，最多2行，每行只含：
+
+- `checkpointId`：实际记录的 `construction.half` 或 `construction.remainder`
+- `activeTicks`：实际记录的200或400
+- `tick`：该检查点实际提交的 simulation tick
+- `consumed`：同一 job/reservation 的 base/sect 检查点实际消费资源行，最多11行，逐字段复制
+
+没有依据当前进度补造检查点，也没有用 catalog 或 preview 的 `halfCosts`/`remainingCosts` 当作已经付款。199刻仍为空，200到399刻保留真实半程检查点；第400刻完成后任务退出活动列表，最近终态另行报告实际消耗。
+
+仅 `recentTerminals` 中 `domain: 'upgrade'` 的条目新增 `consumed` 和 `released`，各最多11条资源行，直接复制真实 terminal evidence。其他领域不新增这两个字段。早于半程取消实际释放6石/6木板，半程后取消实际消费3石/3木板并释放剩余3石/3木板，完成则实际消费6石/6木板且释放为空。这些是此次结算记录，不是下一次操作的退款保证。
+
+不导出 claim、reservation、账本对象、位置/访问/工作跨度或 terminal 的完整证明树。原8条最近终态上界不变。固定资源行中的 `ledger: 'base' | 'sect'` 是资源分类，测试仍拒绝对象型账本或其他路径的同名字段。
+
+新增专项测试覆盖真实199/200/399/400边界、实际配对检查点行、局部2行上界、半程前/后取消与完成的真实结算、叶输出的嵌套隔离，以及现有 runtime owner 的冻结输出且不发生 World export。此次补充尚待集成负责人执行测试/类型检查；没有更改 parser、runtime owner 或任何领域权威。

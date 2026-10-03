@@ -14,6 +14,7 @@ import type { SectProductionJobV10, WorldStateV10 } from '../../src/core/sect-ex
 import { createSectUpgradeStateV10 } from '../../src/core/sect-expansion/upgrade-validation';
 import { createUnregisteredWorldV10 } from '../../src/core/world/create-world-v10';
 import { lookupCommandReceipt } from '../../src/core/world/history-access';
+import { createPrivateRuntimeV10 } from '../../src/core/world/runtime-instance-v10';
 import { RUNTIME_VIEW_LIMITS_V10, type RuntimeFrameViewV10, type RuntimeReadonlyV10 } from '../../src/core/world/runtime-view-types-v10';
 import * as views from '../../src/core/world/runtime-views-v10';
 import type { WorldStateV9 } from '../../src/core/world/v9-types';
@@ -65,7 +66,9 @@ function invalidLedgerPaths(value: unknown, path = '$'): string[] {
     if (key !== 'ledger') return invalidLedgerPaths(child, childPath);
     const resourceIds: readonly string[] = child === 'base' ? RESOURCE_IDS : child === 'sect' ? SECT_RESOURCE_IDS : [];
     const expectedPath = /^\$\.recipes\.[0-9]+\.(inputs|outputs|deficits)\.[0-9]+\.ledger$/.test(childPath)
-      || /^\$\.buildings\.[0-9]+\.maintenance\.(nextMaintenanceCosts|deficits)\.[0-9]+\.ledger$/.test(childPath);
+      || /^\$\.buildings\.[0-9]+\.maintenance\.(nextMaintenanceCosts|deficits)\.[0-9]+\.ledger$/.test(childPath)
+      || /^\$\.jobs\.[0-9]+\.checkpoints\.[0-9]+\.consumed\.[0-9]+\.ledger$/.test(childPath)
+      || /^\$\.recentTerminals\.[0-9]+\.(consumed|released)\.[0-9]+\.ledger$/.test(childPath);
     const exactResourceLine = Object.keys(row).sort().join(',') === 'ledger,quantity,resourceId'
       && typeof row.resourceId === 'string' && resourceIds.includes(row.resourceId)
       && typeof row.quantity === 'number' && Number.isSafeInteger(row.quantity) && row.quantity >= 0;
@@ -169,7 +172,8 @@ describe('fixed v10 projection leaves and query protocol', () => {
 });
 
 let oldMedicine: WorldStateV9; let medicine: WorldStateV10; let ready: WorldStateV10;
-let active: WorldStateV10; let completed: WorldStateV10; let paidL2: WorldStateV10;
+let active: WorldStateV10; let beforeHalf: WorldStateV10; let half: WorldStateV10; let almost: WorldStateV10;
+let completed: WorldStateV10; let paidL2: WorldStateV10;
 let delivery: WorldStateV10; let powder: WorldStateV10;
 describe('genuine v10 upgrade, paid rates, delivery and retired-worker projection', () => {
   beforeAll(() => { oldMedicine = medicineRuntimeFixture(); }, 60000);
@@ -183,7 +187,10 @@ describe('genuine v10 upgrade, paid rates, delivery and retired-worker projectio
     ready = until(started, world => world.sectExpansion.research.jobs.at(-1)!.terminal !== null);
     active = apply(ready, sect(ready, { domain: 'upgrade', command: { kind: 'upgrade.start', commandId: 'app-command.1',
       expectedRevision: ready.sectExpansion.upgrade.revision, ...upgradeRequest(ready) } }));
-    completed = until(active, world => world.sectExpansion.upgrade.jobs[0]!.terminal !== null);
+    beforeHalf = until(active, world => world.sectExpansion.upgrade.jobs[0]!.activeTicks === 199);
+    half = until(beforeHalf, world => world.sectExpansion.upgrade.jobs[0]!.activeTicks === 200);
+    almost = until(half, world => world.sectExpansion.upgrade.jobs[0]!.activeTicks === 399);
+    completed = until(almost, world => world.sectExpansion.upgrade.jobs[0]!.terminal !== null);
   }, 120000);
   beforeAll(() => {
     paidL2 = until(completed, world => world.sectExpansion.maintenance.payments.some(payment => payment.rate?.level === 2));
@@ -221,6 +228,85 @@ describe('genuine v10 upgrade, paid rates, delivery and retired-worker projectio
     expect(lookupCommandReceipt(active, 'app-command.1')).toBeUndefined();
     expect(views.nextRuntimeApplicationCommandV10(active, 0)?.sequence).toBe(2);
     expect(active.sectExpansion.construction.buildings).toEqual(ready.sectExpansion.construction.buildings);
+  });
+  it('projects only actually recorded upgrade checkpoints with exact paired consumption and a two-row bound', () => {
+    const upgrade = (world: WorldStateV10) => {
+      const job = views.projectRuntimeExpansionV10(world).jobs.find(row => row.domain === 'upgrade');
+      if (!job || job.domain !== 'upgrade') throw new Error('Missing real active upgrade'); return job;
+    };
+    expect(upgrade(active).checkpoints).toEqual([]); expect(upgrade(beforeHalf).checkpoints).toEqual([]);
+    const actual = half.sectExpansion.upgrade.jobs[0]!; const recorded = actual.checkpoints[0]!;
+    const claim = half.sectExpansion.reservations.find(row => row.reservationId === actual.reservationId && row.ownerTransactionId === actual.jobId)!;
+    const checkpoint = upgrade(half).checkpoints[0]!;
+    expect(checkpoint).toEqual({ checkpointId: recorded.checkpointId, activeTicks: recorded.activeTicks, tick: recorded.tick,
+      consumed: claim.base.checkpoints[0]!.lines.map(line => ({ ledger: 'base', resourceId: line.resourceId, quantity: line.quantity })) });
+    expect(checkpoint).toMatchObject({ checkpointId: 'construction.half', activeTicks: 200,
+      consumed: [{ ledger: 'base', resourceId: 'stone', quantity: 3 }, { ledger: 'base', resourceId: 'plank', quantity: 3 }] });
+    expect(Object.keys(checkpoint).sort()).toEqual(['activeTicks', 'checkpointId', 'consumed', 'tick']);
+    expect(upgrade(almost).checkpoints).toEqual([checkpoint]);
+    expect(views.projectRuntimeExpansionV10(completed).jobs.some(row => row.domain === 'upgrade')).toBe(false);
+    expect(completed.sectExpansion.upgrade.jobs[0]!.checkpoints).toHaveLength(2);
+    expect(RUNTIME_VIEW_LIMITS_V10.upgradeCheckpoints).toBe(2);
+    expect(invalidLedgerPaths(views.projectRuntimeExpansionV10(half))).toEqual([]);
+    // Deliberately violates the selector's owned-source precondition solely to
+    // prove the local output-bound guard; this is not an admitted World fixture.
+    const overBound = cloneJson(half); const job = overBound.sectExpansion.upgrade.jobs[0]!;
+    Reflect.set(job, 'checkpoints', [job.checkpoints[0], job.checkpoints[0], job.checkpoints[0]]);
+    expect(() => views.projectRuntimeExpansionV10(overBound)).toThrow(RangeError);
+  });
+  it('copies authentic upgrade cancellation refunds and completion consumption without inferring policy', () => {
+    const cancel = (source: WorldStateV10) => apply(source, sect(source, { domain: 'upgrade', command: { kind: 'upgrade.cancel',
+      commandId: `view.cancel.${source.sectExpansion.upgrade.jobs[0]!.activeTicks}`, expectedRevision: source.sectExpansion.upgrade.revision,
+      jobId: source.sectExpansion.upgrade.jobs[0]!.jobId } }));
+    const cancelledEarly = cancel(beforeHalf); const cancelledHalf = cancel(half);
+    for (const source of [cancelledEarly, cancelledHalf, completed]) {
+      const view = views.projectRuntimeExpansionV10(source); const terminal = view.recentTerminals.find(row => row.domain === 'upgrade');
+      if (!terminal || terminal.domain !== 'upgrade') throw new Error('Missing upgrade terminal summary');
+      const actual = source.sectExpansion.upgrade.jobs[0]!.terminal!;
+      expect(terminal.consumed).toEqual(actual.consumed); expect(terminal.released).toEqual(actual.released);
+      expect(terminal.consumed).not.toBe(actual.consumed); expect(terminal.released).not.toBe(actual.released);
+      expect(invalidLedgerPaths(view)).toEqual([]);
+      expect(view.recentTerminals.length).toBeLessThanOrEqual(RUNTIME_VIEW_LIMITS_V10.recentTerminals);
+    }
+    const early = views.projectRuntimeExpansionV10(cancelledEarly).recentTerminals.find(row => row.domain === 'upgrade')!;
+    const midway = views.projectRuntimeExpansionV10(cancelledHalf).recentTerminals.find(row => row.domain === 'upgrade')!;
+    const complete = views.projectRuntimeExpansionV10(completed).recentTerminals.find(row => row.domain === 'upgrade')!;
+    expect(early).toMatchObject({ kind: 'cancelled', consumed: [], released: [
+      { ledger: 'base', resourceId: 'stone', quantity: 6 }, { ledger: 'base', resourceId: 'plank', quantity: 6 }] });
+    expect(midway).toMatchObject({ kind: 'cancelled', consumed: [
+      { ledger: 'base', resourceId: 'stone', quantity: 3 }, { ledger: 'base', resourceId: 'plank', quantity: 3 }], released: [
+      { ledger: 'base', resourceId: 'stone', quantity: 3 }, { ledger: 'base', resourceId: 'plank', quantity: 3 }] });
+    expect(complete).toMatchObject({ kind: 'completed', released: [], consumed: [
+      { ledger: 'base', resourceId: 'stone', quantity: 6 }, { ledger: 'base', resourceId: 'plank', quantity: 6 }] });
+    const before = canonicalStringify(cancelledHalf);
+    if (midway.domain !== 'upgrade') throw new Error('Missing upgrade refund');
+    expect(Reflect.set(midway.consumed[0]!, 'quantity', 99)).toBe(true);
+    expect(Reflect.set(midway.released[0]!, 'quantity', 99)).toBe(true);
+    expect(canonicalStringify(cancelledHalf)).toBe(before);
+    expect(views.projectRuntimeExpansionV10(cancelledHalf).recentTerminals.find(row => row.domain === 'upgrade')!.released)
+      .toEqual(cancelledHalf.sectExpansion.upgrade.jobs[0]!.terminal!.released);
+    const owner = createPrivateRuntimeV10(cancelledHalf); if (!owner.ok) throw new Error(owner.error);
+    const read = owner.instance.expansion(); if (!read.ok) throw new Error(read.error);
+    const frozen = read.value.recentTerminals.find(row => row.domain === 'upgrade');
+    if (!frozen || frozen.domain !== 'upgrade') throw new Error('Missing frozen upgrade refund');
+    expect(Object.isFrozen(frozen.released)).toBe(true); expect(Reflect.set(frozen.released[0]!, 'quantity', 99)).toBe(false);
+    owner.instance.close();
+  });
+  it('detaches checkpoint rows and freezes them only at the existing runtime owner boundary', () => {
+    const before = canonicalStringify(half); const view = views.projectRuntimeExpansionV10(half);
+    const job = view.jobs.find(row => row.domain === 'upgrade'); if (!job || job.domain !== 'upgrade') throw new Error('Missing upgrade');
+    expect(Reflect.set(job.checkpoints[0]!, 'tick', 0)).toBe(true);
+    expect(Reflect.set(job.checkpoints[0]!.consumed[0]!, 'quantity', 99)).toBe(true);
+    expect(canonicalStringify(half)).toBe(before);
+    const owner = createPrivateRuntimeV10(half); if (!owner.ok) throw new Error(owner.error);
+    const read = owner.instance.expansion(); if (!read.ok) throw new Error(read.error);
+    const frozen = read.value.jobs.find(row => row.domain === 'upgrade');
+    if (!frozen || frozen.domain !== 'upgrade') throw new Error('Missing frozen upgrade');
+    expect(Object.isFrozen(frozen.checkpoints)).toBe(true); expect(Object.isFrozen(frozen.checkpoints[0]!.consumed)).toBe(true);
+    expect(Reflect.set(frozen.checkpoints[0]!, 'tick', 0)).toBe(false);
+    expect(Reflect.set(frozen.checkpoints[0]!.consumed[0]!, 'quantity', 99)).toBe(false);
+    expect(frozen.checkpoints[0]!.tick).toBe(half.sectExpansion.upgrade.jobs[0]!.checkpoints[0]!.tick);
+    expect(read.metrics.exports).toBe(0); owner.instance.close();
   });
   it('shows genuine L2 source while preserving the L1 paid period and fixed L2 next costs', () => {
     const before = canonicalStringify(completed); const oldValidator = vi.spyOn(oldMaintenance, 'validateSectMaintenanceFrame');

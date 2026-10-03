@@ -16,9 +16,9 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # Full serial regression reached 2493s before repository/views/owned-tick suites.
-    # Keep every assertion and test timeout; allow runner-speed variance at job level.
-    timeout-minutes: 60
+    # Full serial regression reached 3095s before Session/UI/owned-runtime integration.
+    # Keep every assertion; long transaction cases declare bounded per-test limits.
+    timeout-minutes: 75
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

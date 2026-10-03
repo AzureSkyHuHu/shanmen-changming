@@ -27,3 +27,9 @@ Run37065423449 passed171 files/3451 tests in1893.94s and deployed successfully a
 ## 2026-10-02 22:40 UTC measured persistence and owned-tick batch
 
 Run 37069144139 at 1646550d57c849415a0e75176671d5e8adf945d2 passed 176 files in 2493.15 seconds and deployed successfully at 22:32:24 UTC. The ready isolated repository/views suites measured 150.67 seconds before fixture corrections; the owned-tick/discharge/gate regression measured 399.77 seconds (including existing discharge/gate tests). Even allowing overlap, a 50-minute ceiling has insufficient build and runner-variance margin for the additional genuine reducer fixtures. The validation-only job ceiling is 60 minutes. Every test, assertion, serial execution setting, deployment gate, permission, and the 15-minute deploy limit remains unchanged. Runtime frame performance is still a separate activation blocker.
+
+## 2026-10-02 23:36 UTC final full-suite evidence
+
+Run37074067845 on3a1105c3a95b17c1591dc2640c362b9fc58c4180 completed180files/3691tests in3094.93s:3690passed and one newly introduced multi-transaction retention case exceeded its implicit5s ceiling at5029ms. Deployment was correctly skipped; the existing public preview remains the last successful commit. The single new retention test now has an explicit20s bound; all nine real copy/save/import actions and every backup/rotation assertion are unchanged. This is not a runtime-performance budget change, and no global timeout or old test limit is changed.
+
+The next already locally validated batch includes additional actual-owner integration, query, Session, UI, source-fence, copy and normal-storage coverage. Measured added work places the serial full run near60minutes before variance/builds. The validation job ceiling is75minutes; deployment remains15minutes, all serial execution, checks, permissions and deployment gates stay unchanged. The opt-in genuine-workload benchmark is not part of CI.

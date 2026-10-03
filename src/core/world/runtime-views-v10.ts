@@ -1,7 +1,7 @@
 /** Internal fixed projections over the runtime's already owned root. No function
  * here grants source authority or escapes a World/frame/proof to the caller. */
 import { getSectBuildingDefinition, getSectRecipeDefinition } from '../../content/sect-v9/catalog';
-import { SECT_RECIPE_IDS, SECT_RESOURCE_IDS } from '../../content/sect-v9/types';
+import { SECT_RECIPE_IDS, SECT_RESOURCE_IDS, type SectResourceLine } from '../../content/sect-v9/types';
 import { managementV10BuildContext } from '../../content/sect-v10/world-content';
 import { REALM_RULES } from '../cultivation/rules';
 import { previewBreakthroughV3 } from '../cultivation/v3';
@@ -18,7 +18,7 @@ import { sectProductionSitesV10 } from '../sect-expansion/production-runtime-v10
 import { productionResearchGateV10 } from '../sect-expansion/research-consumer-gates-v10';
 import { previewSectUpgradeV10, sectBuildingStatusV10 } from '../sect-expansion/upgrade-queries';
 import { sectUpgradeAllLocalClaimsV10 } from '../sect-expansion/upgrade-validation';
-import type { SectProductionSiteProofV10, SectUpgradeFrameV10, WorldStateV10 } from '../sect-expansion/upgrade-types';
+import type { SectProductionSiteProofV10, SectUpgradeFrameV10, SectUpgradeJobV10, WorldStateV10 } from '../sect-expansion/upgrade-types';
 import type { SectPlacementRequest } from '../sect-expansion/types';
 import { cultivationFrameOf } from './cultivation-preparation';
 import { lookupCommandReceipt, lookupProduction, recentWorldEvents } from './history-access';
@@ -27,7 +27,7 @@ import { RUNTIME_VIEW_LIMITS_V10 as LIMITS } from './runtime-view-types-v10';
 import type { RuntimeApplicationCommandV10, RuntimeBreakthroughPreviewV10, RuntimeBreakthroughRequestV10, RuntimeBuildViewV10,
   RuntimeCultivationViewV10, RuntimeExpansionJobV10, RuntimeExpansionTerminalV10, RuntimeExpansionViewV10,
   RuntimeFrameViewV10, RuntimePlacementPreviewV10, RuntimeSelectedCultivationV10, RuntimeUpgradeRequestV10, RuntimeUpgradePreviewV10,
-  RuntimeDoseSourceV10, RuntimeProductionSiteV10, RuntimeMaintenanceViewV10, RuntimeRecipeViewV10 } from './runtime-view-types-v10';
+  RuntimeDoseSourceV10, RuntimeProductionSiteV10, RuntimeMaintenanceViewV10, RuntimeRecipeViewV10, RuntimeUpgradeCheckpointV10 } from './runtime-view-types-v10';
 
 function bounded(length: number, maximum: number): void {
   if (length > maximum) throw new RangeError('Private v10 view exceeds its fixed presentation bound');
@@ -191,6 +191,26 @@ function doseView(frame: SectUpgradeFrameV10, jobId: string): RuntimeDoseSourceV
     throw new TypeError('Owned care dose lost its exact production source');
   return { productionJobId: producer.transactionId, recipeId: producer.recipeId, site: siteView(producer.productiveSite) };
 }
+function upgradeCheckpointViews(frame: SectUpgradeFrameV10, job: SectUpgradeJobV10): RuntimeUpgradeCheckpointV10[] {
+  bounded(job.checkpoints.length, LIMITS.upgradeCheckpoints);
+  const claim = frame.construction.ledger.reservations.find(row => row.reservationId === job.reservationId && row.ownerTransactionId === job.jobId);
+  if (!claim) throw new TypeError('Owned upgrade lost its paired resource claim');
+  return job.checkpoints.map(checkpoint => {
+    const base = claim.base.checkpoints.find(row => row.checkpointId === checkpoint.checkpointId);
+    const sect = claim.sect.checkpoints.find(row => row.checkpointId === checkpoint.checkpointId);
+    if (!base || !sect) throw new TypeError('Owned upgrade checkpoint lost its recorded consumption');
+    bounded(base.lines.length + sect.lines.length, LIMITS.resourceLines);
+    return { checkpointId: checkpoint.checkpointId, activeTicks: checkpoint.activeTicks, tick: checkpoint.tick,
+      consumed: [...base.lines.map(line => ({ ledger: 'base' as const, resourceId: line.resourceId, quantity: line.quantity })),
+        ...sect.lines.map(line => ({ ledger: 'sect' as const, resourceId: line.resourceId, quantity: line.quantity }))] };
+  });
+}
+function recordedResourceLines(lines: readonly SectResourceLine[]): SectResourceLine[] {
+  bounded(lines.length, LIMITS.resourceLines);
+  return lines.map(line => line.ledger === 'base'
+    ? { ledger: 'base' as const, resourceId: line.resourceId, quantity: line.quantity }
+    : { ledger: 'sect' as const, resourceId: line.resourceId, quantity: line.quantity });
+}
 function maintenanceView(frame: SectUpgradeFrameV10, buildingId: string): RuntimeMaintenanceViewV10 {
   const status = sectBuildingStatusV10(frame, buildingId);
   const building = frame.construction.buildings.find(row => row.buildingId === buildingId);
@@ -259,7 +279,7 @@ export function projectRuntimeExpansionV10(world: WorldStateV10): RuntimeExpansi
       phase: job.phase, activeTicks: job.activeTicks, requiredTicks: 40 as const, blocked: job.blocked, doseSource: doseView(frame, job.doseProductionJobId) })),
     ...records.upgrade.jobs.filter(job => !job.terminal).map(job => ({ domain: 'upgrade' as const, jobId: job.jobId, buildingId: job.buildingId,
       workerId: job.workerId, fromLevel: job.fromLevel, toLevel: job.toLevel, phase: job.phase, activeTicks: job.activeTicks,
-      requiredTicks: job.requiredTicks, blocked: job.blocked })),
+      requiredTicks: job.requiredTicks, blocked: job.blocked, checkpoints: upgradeCheckpointViews(frame, job) })),
   ]; bounded(jobs.length, LIMITS.activeJobs);
   // Keep at most eight terminal summaries while traversing retained records.
   // History length never becomes DTO length, even as old identities retire.
@@ -279,7 +299,8 @@ export function projectRuntimeExpansionV10(world: WorldStateV10): RuntimeExpansi
     kind: job.terminal.kind, tick: job.terminal.tick, beforeInjury: job.terminal.effect?.beforeInjury ?? null,
     afterInjury: job.terminal.effect?.afterInjury ?? null, resultLevel: null, doseSource: doseView(frame, job.doseProductionJobId) });
   for (const job of records.upgrade.jobs) if (job.terminal) remember({ domain: 'upgrade', jobId: job.jobId, actorId: job.workerId,
-    kind: job.terminal.kind, tick: job.terminal.tick, beforeInjury: null, afterInjury: null, resultLevel: job.terminal.resultLevel, doseSource: null });
+    kind: job.terminal.kind, tick: job.terminal.tick, beforeInjury: null, afterInjury: null, resultLevel: job.terminal.resultLevel, doseSource: null,
+    consumed: recordedResourceLines(job.terminal.consumed), released: recordedResourceLines(job.terminal.released) });
   return { revisions: { construction: records.construction.revision, production: records.production.revision,
     research: records.research.revision, care: records.care.revision, upgrade: records.upgrade.revision },
     stock: SECT_RESOURCE_IDS.map(resourceId => { const row = records.stock[resourceId]; return { resourceId, owned: row.owned, reserved: row.reserved,

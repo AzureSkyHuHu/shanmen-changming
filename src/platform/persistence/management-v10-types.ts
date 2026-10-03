@@ -59,6 +59,11 @@ export interface ManagementV10RepositoryOptions {
 export type ManagementV10PersistenceErrorCode = PersistenceErrorCode
   | 'MIGRATION_SOURCE_INVALID' | 'MIGRATION_NOT_READY' | 'MIGRATION_TARGET_MISMATCH'
   | 'SOURCE_BACKUP_CONFLICT';
+const persistenceErrorCodes = new WeakMap<object, ManagementV10PersistenceErrorCode>();
+/** Identity-only diagnostics: never reflect on an arbitrary caught error. */
+export function managementV10PersistenceErrorCode(error: unknown): ManagementV10PersistenceErrorCode | null {
+  return error !== null && (typeof error === 'object' || typeof error === 'function') ? persistenceErrorCodes.get(error) ?? null : null;
+}
 /** Diagnostic messages are not player-facing copy; consumers localize the codes. */
 export class ManagementV10PersistenceError extends Error {
   readonly code: ManagementV10PersistenceErrorCode;
@@ -75,6 +80,7 @@ export class ManagementV10PersistenceError extends Error {
     super(message, { cause: options.cause });
     this.name = 'ManagementV10PersistenceError';
     this.code = code;
+    persistenceErrorCodes.set(this, code);
     this.saveErrorCode = options.saveErrorCode;
     this.issues = options.issues ?? [];
     this.migrationIssues = options.migrationIssues ?? [];

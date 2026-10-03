@@ -26,10 +26,11 @@ function prepareAutomatic(world: WorldStateV10): WorldStateV10 {
   }
   return next;
 }
-function prepareTick(original: WorldStateV10, growth: 'normal' | 'no-optional-growth'): WorldStateV10 {
-  const source = captureValidatedV10PreparationSource(original);
+/** Fixed stage composition shared by the strict wrappers and private owned
+ * factory. This function adds no source/candidate admission or trust policy. */
+function prepareStages(source: WorldStateV10, growth: 'normal' | 'no-optional-growth'): WorldStateV10 {
   const preparation = prepareValidatedV10CultivationClock(source);
-  if (!preparation.advanced) return original;
+  if (!preparation.advanced) return source;
   let next = reconcilePreparedV10Cultivation(source, preparation);
   if (!isPaused(next.clock)) {
     const budget = createWorkPathBudget(next.clock.simulationTick);
@@ -37,6 +38,28 @@ function prepareTick(original: WorldStateV10, growth: 'normal' | 'no-optional-gr
     next = growth === 'normal' ? tickV10SectStages(next, budget) : prepareV10SectStagesWithoutOptionalGrowth(next, budget);
     next = tickV10LegacyProduction(next, budget);
   }
+  return next;
+}
+/** INTERNAL candidate-only stage helper. Never export through public barrels.
+ * The only runtime caller is the private owned tick factory, which supplies its
+ * own captured, restored-history, frozen, fully validated source and then MUST
+ * isolate the result and run full candidate capacity and residual record checks.
+ * Calling this helper grants no source, candidate, save or import admission.
+ * There is no validator, callback, assessment, policy or trusted-source argument. */
+export function prepareOwnedNormalTickStagesV10(source: WorldStateV10): WorldStateV10 {
+  return prepareStages(source, 'normal');
+}
+/** INTERNAL candidate-only fixed alternative. Omit only automatic starts and
+ * maintenance renewal; retain real funded work/lifecycle and saved settings. */
+export function prepareOwnedNoOptionalGrowthTickStagesV10(source: WorldStateV10): WorldStateV10 {
+  return prepareStages(source, 'no-optional-growth');
+}
+function prepareTick(original: WorldStateV10, growth: 'normal' | 'no-optional-growth'): WorldStateV10 {
+  const source = captureValidatedV10PreparationSource(original);
+  const next = growth === 'normal' ? prepareOwnedNormalTickStagesV10(source) : prepareOwnedNoOptionalGrowthTickStagesV10(source);
+  // Even a paused caller is captured and completely source-validated first.
+  // Preserve original caller identity, not the temporary restored snapshot.
+  if (next === source) return original;
   const errors = inspectUnregisteredWorldV10Records(next);
   if (errors.length) throw new TypeError(errors[0]);
   return next;

@@ -3,7 +3,7 @@
 import type { SectRecipeId, SectResourceLine } from '../../content/sect-v9/types';
 import type { SectMaintenanceStatus } from '../sect-expansion/maintenance-types';
 import type { SectResearchGateRef } from '../sect-expansion/research-gate-types';
-import type { SectBuildingLevelEvidenceV10, SectProductionSiteProofV10, SectUpgradeJobV10,
+import type { SectBuildingLevelEvidenceV10, SectProductionSiteProofV10, SectUpgradeCheckpointV10, SectUpgradeJobV10,
   SectUpgradePreviewV10 } from '../sect-expansion/upgrade-types';
 import type { RuntimeInstanceErrorV10, RuntimeOperationV10 } from './runtime-instance-v10';
 import type { RuntimeApplicationCommandV9, RuntimeBreakthroughPreviewV9, RuntimeBreakthroughRequestV9,
@@ -19,7 +19,7 @@ export type RuntimeReadV10<T> = Omit<RuntimeOperationV10, 'ok' | 'error'> & (
 export const RUNTIME_VIEW_LIMITS_V10 = Object.freeze({ recentEvents: 5, recentTerminals: 8, teachingChoices: 64,
   livePeople: 36, activeJobs: 36, plannedBlueprints: 16, visibleBlueprints: 52, objects: 200,
   mapTiles: 256 * 256, equipmentChoices: 512, workPlans: 36, workPriorities: 6,
-  decisions: 72, completedResearch: 2, recipes: 5, resourceLines: 11, cacheEntries: 4 });
+  decisions: 72, completedResearch: 2, recipes: 5, resourceLines: 11, upgradeCheckpoints: 2, cacheEntries: 4 });
 
 export type RuntimeFrameViewV10 = Omit<RuntimeFrameViewV9, 'simulationVersion'> & { simulationVersion: '0.10.0' };
 export type RuntimeSelectedCultivationV10 = Omit<RuntimeSelectedCultivationV9, 'workOwner'> & { workOwner: V10WorkOwner | null };
@@ -39,14 +39,23 @@ export type RuntimeUpgradePreviewV10 = SectUpgradePreviewV10 & { scope: 'upgrade
 /** Only compact source references, never the producer's work/ledger evidence. */
 export type RuntimeProductionSiteV10 = Pick<SectProductionSiteProofV10, 'kind' | 'siteId' | 'sourceJobId' | 'level'> & { upgradeJobId: string | null };
 export interface RuntimeDoseSourceV10 { productionJobId: string; recipeId: SectRecipeId; site: RuntimeProductionSiteV10 }
+/** Recorded work checkpoint joined to its actual paired-ledger consumption.
+ * These are historical facts, not preview costs or a promised future refund. */
+export type RuntimeUpgradeCheckpointV10 = Pick<SectUpgradeCheckpointV10, 'checkpointId' | 'activeTicks' | 'tick'> & {
+  consumed: readonly SectResourceLine[];
+};
 export type RuntimeExpansionJobV10 = Exclude<RuntimeExpansionJobV9, { domain: 'production' | 'care' }>
   | (Extract<RuntimeExpansionJobV9, { domain: 'production' }> & { site: RuntimeProductionSiteV10 })
   | (Extract<RuntimeExpansionJobV9, { domain: 'care' }> & { doseSource: RuntimeDoseSourceV10 })
   | { domain: 'upgrade'; jobId: string; buildingId: string; workerId: string; fromLevel: 1; toLevel: 2;
-    phase: SectUpgradeJobV10['phase']; activeTicks: number; requiredTicks: 400; blocked: SectUpgradeJobV10['blocked'] };
+    phase: SectUpgradeJobV10['phase']; activeTicks: number; requiredTicks: 400; blocked: SectUpgradeJobV10['blocked'];
+    checkpoints: RuntimeUpgradeCheckpointV10[] };
 export type RuntimeExpansionTerminalV10 = Omit<RuntimeExpansionTerminalV9, 'domain'> & {
-  domain: RuntimeExpansionJobV10['domain']; resultLevel: 1 | 2 | null; doseSource: RuntimeDoseSourceV10 | null;
-};
+  resultLevel: 1 | 2 | null; doseSource: RuntimeDoseSourceV10 | null;
+} & (
+  | { domain: 'upgrade'; consumed: readonly SectResourceLine[]; released: readonly SectResourceLine[] }
+  | { domain: Exclude<RuntimeExpansionJobV10['domain'], 'upgrade'>; consumed?: never; released?: never }
+);
 export type RuntimeMaintenanceViewV10 = SectMaintenanceStatus & {
   paid: boolean;
   /** An upgrade never retroactively changes the rate of the current paid period. */
