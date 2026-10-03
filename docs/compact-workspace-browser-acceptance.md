@@ -99,3 +99,30 @@ fallbacks, stable selector values and non-mutation. Together with cultivation
 Session and diagnostic regressions, 6 files / 55 tests passed in 6.87 seconds;
 strict types, boundaries, 1206 locale keys and enabled-v8/v9 Pages build passed.
 Actual post-publication language-switch/selector verification is still pending.
+
+### Published hover fix and real care loop — 2026-10-03 08:50 UTC
+
+Release `8419380052b95ef7a2f3b450d00ba5fe2937fd00` passed Actions
+`37108406483` (212 files, 4302 tests, 2260.10 seconds); deploy `111167436107`
+succeeded. Run terminal timestamp 08:41:45 UTC. Fresh browser pages verified
+`:hover=true`: management unselected #244137/#e6dcc0, selected #e7dbb5/#243e32;
+ordinary selected #e8d5a3/#253e33. Keyboard focus-visible colors also held.
+
+The same unbound v9 test scene then earned all materials, built a library,
+produced two insights/two spirit stones, completed basic medicine research,
+built alchemy, produced and delivered medicine. The registered injured elder
+was actually treated 25→5→0 using two independently produced doses; stock fell
+by one per completed treatment. Ordinary breakthrough preview moved 55%→60%→
+61.25%; death risk remained zero. Healthy Lin's treatment button was disabled
+with the explicit no-injury reason. Missing wood suspended both new buildings;
+a real wood delivery restored them, consuming one wood each without accumulated
+multi-month debt. These are actual UI results, not injected inventory or injury.
+
+A locator click failed to establish care in two observations and focused the
+region; generic accepted feedback was left over from resume. Fresh Enter and a
+physical mouse click at the observed on-screen button both established care and
+completed treatment. Source review found no successful-care silent-loss path.
+The locator/scroll cause remains unproven; do not claim that as a diagnosed game
+bug. Browser download capture still returned no artifact despite a prepared
+export notice. Old slots were not overwritten; file backup/save-restoration for
+this fresh scene remains unverified.
