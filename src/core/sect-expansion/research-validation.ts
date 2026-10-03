@@ -1,4 +1,6 @@
 import { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
+import { relocationResearchSitesFromRecordsAt } from '../world/relocation-owner/history-sites';
+import type { SectRelocationRecordFrame } from './relocation-types';
 export { SECT_RESEARCH_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
 import { isArchivedSectWorkerReference, type SectHistoricalIdentitySource } from './history-identity';
 import { sectBuildingPaidAt, sectBuildingPaidRange, type SectMaintenancePeriodSource } from './maintenance-periods';
@@ -116,7 +118,14 @@ export function validateMaintainedSectResearchSourceRecords(frame: SectMaintaine
   identities?: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
   return validateResearchRecords(frame, frame, identities);
 }
-function validateResearchRecords(frame: SectResearchRecordSource, maintenance?: SectMaintenancePeriodSource, identities?: SectHistoricalIdentitySource): readonly SectResearchValidationIssue[] {
+/** Fixed relocation-owner leaf, after construction/relocation/maintenance authentication.
+ * Reuses every old check in its old order, changing only immutable site-at-start
+ * geometry. Full lifetime exclusion and phase joins remain the owner's next stage. */
+export function validateRelocationOwnerResearchSourceRecords(frame: SectMaintainedResearchRecordSource & SectRelocationRecordFrame): readonly SectResearchValidationIssue[] {
+  return validateResearchRecords(frame, frame, undefined, frame);
+}
+function validateResearchRecords(frame: SectResearchRecordSource, maintenance?: SectMaintenancePeriodSource, identities?: SectHistoricalIdentitySource,
+  relocation?: SectRelocationRecordFrame): readonly SectResearchValidationIssue[] {
   const fail = (code: string, path: string): readonly SectResearchValidationIssue[] => [{ code, path }];
   const authority = frame.construction;
   const domain = frame.research;
@@ -157,7 +166,8 @@ function validateResearchRecords(frame: SectResearchRecordSource, maintenance?: 
     }
     const site = job.site;
     if (!fields(site, ['buildingId', 'sourceJobId', 'position', 'level', 'firstMaintenanceCalendarTick'])
-      || !sectResearchSites(frame, definition).some(proof => same(proof, site))) return fail('INVALID_SITE_SOURCE', job.jobId);
+      || !(relocation ? relocationResearchSitesFromRecordsAt(relocation, definition, { tick: job.startedTick, phase: 'legacy-production', side: 'after' })
+        : sectResearchSites(frame, definition)).some(proof => same(proof, site))) return fail('INVALID_SITE_SOURCE', job.jobId);
     const source = authority.jobs.find(value => value.jobId === site.sourceJobId);
     if (source?.terminal?.kind !== 'completed' || source.terminal.tick > job.startedTick || source.terminal.calendarTick > job.startedCalendarTick
       || !paidAt(frame, site, job.startedTick, job.startedCalendarTick, maintenance)) return fail('INVALID_PAID_SITE', job.jobId);

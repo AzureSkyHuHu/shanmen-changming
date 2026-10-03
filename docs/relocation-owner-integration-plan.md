@@ -447,3 +447,40 @@ Final related execution passed 12 files / 376 tests in 181.94 s, boundaries,
 snapshot independently passed the complete 219-file / 4460-test suite in
 2851.88 s, both type configurations and default build (813 ms); that full-suite
 result predates this command-composition slice and is not its full-suite claim.
+
+## Relocated research record/site join — 2026-10-03 13:18 UTC
+
+A fixed four-book source (construction, relocation, research, maintenance) now
+joins library-L1 historical research sites with actual placement history. Three
+unknown-input entry points independently capture and authenticate that source,
+retaining the complete shared ledger. Historical starts keep their old doorway;
+current queries use the current doorway and actual maintenance/move availability.
+Research DAG, payments, receipts, visits/work and whole building/worker lifetime
+exclusions remain checked. Shared fixed phase/order comparisons preserve old
+spatial behavior and reject relevant cross-domain same-tick cancellation ambiguity.
+
+Review found the shared-clock join omitted blueprint placement observations.
+Every placedTick/placedCalendarTick is now included; a true late-placement fixture
+with calendar forged back to zero is rejected by all three research entry points,
+even though the narrower old spatial inspection alone accepts it. Old research
+and maintenance wrappers retain their policies and first-error order. L2 rate
+shapes are not upgraded into L2 maintenance authority by this L1-oriented leaf.
+
+Root validation: both type configurations, 49 focused cases in 131.11 s, and nine
+related research/maintenance/space/command/upgrade files with 360 cases in 349.39 s;
+boundaries, 1206 locale keys, content and default build (862 ms) passed. The initial
+type error was confined to a test mutation helper returning T rather than its
+actual Mutable<T> result; its contract was corrected, without weakening source
+validation. The source fixture uses actual old reducers and maintenance payments,
+then actual two-domain relocation/rebuilding with the original ledger retained.
+
+This slice returns fixed partial record/site proof, not an executable third domain,
+World admission, lifecycle/archive proof, save capacity or a public runtime. A new
+site query returning a new doorway does not prove that a new research worker has
+actually walked there. The next execution slice must keep full-tick ownership
+closed and insert maintenance before relocation/research without exposing an
+independently repeatable equal-clock work stage.
+
+Separately, the preceding two-domain frozen snapshot passed its complete local
+220-file / 4485-test suite in 3008.60 s plus both types and build (813 ms). That
+complete-suite result is for the prior snapshot, not this research-site join.

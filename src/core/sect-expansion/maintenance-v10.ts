@@ -2,7 +2,7 @@ import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
 import { isLedgerDataArray } from '../economy/ledger-operations';
 import { isNonNegativeInteger } from '../kernel/numeric';
 import { canonicalStringify, compareStable } from '../kernel/serialization';
-import type { ConstructionValidationIssue } from './construction-types';
+import type { ConstructionFrame, ConstructionValidationIssue } from './construction-types';
 import type { SectHistoricalIdentitySource } from './history-identity';
 import { ownSectFields } from './layout';
 import { normalizeSectResourceLines, sectReservationLines } from './ledger';
@@ -10,7 +10,7 @@ import { sectMaintenanceClockFits } from './maintenance-periods';
 import { SECT_MAINTENANCE_LIMITS } from './maintenance-types';
 import { validateMaintainedSectResearchSourceRecords } from './research-validation';
 import { sectBuildingLevelAtFromUpgradeRecordsV10 } from './upgrade-level-records';
-import type { SectMaintenancePaymentV10, SectUpgradeFrameV10 } from './upgrade-types';
+import type { SectMaintenancePaymentV10, SectMaintenanceStateV10, SectUpgradeFrameV10 } from './upgrade-types';
 
 const integer = isNonNegativeInteger;
 const same = (a: unknown, b: unknown): boolean => canonicalStringify(a) === canonicalStringify(b);
@@ -24,6 +24,12 @@ const paymentFields = ['paymentId', 'reservationId', 'buildingId', 'sourceJobId'
  * its upgrade provenance and L2 settlement belong to the later fixed v10 rate stage.
  * This is not admission, a whole-maintenance validator, or an owner-closure certificate. */
 export function validateSectMaintenanceL1RecordsV10(frame: SectUpgradeFrameV10): readonly ConstructionValidationIssue[] {
+  return validateSectMaintenanceL1SourceRecords(frame);
+}
+/** Fixed structural leaf over the complete construction/maintenance source. It
+ * authenticates all chains and L1 payments, never an alchemy L2 tag's payment or
+ * upgrade provenance. Construction and the whole shared ledger precede this leaf. */
+export function validateSectMaintenanceL1SourceRecords(frame: { readonly construction: ConstructionFrame; readonly maintenance: SectMaintenanceStateV10 }): readonly ConstructionValidationIssue[] {
   const fail = (code: string, path: string): readonly ConstructionValidationIssue[] => [{ code, path }];
   const domain = frame.maintenance; const authority = frame.construction;
   if (!ownSectFields(domain, ['nextId', 'payments']) || !integer(domain.nextId) || domain.nextId < 1

@@ -8,6 +8,9 @@ import { inspectRelocationProvenanceForOwner } from '../../sect-expansion/reloca
 import type { SectFootprint, SectPlacementRequest, SectSpatialContext } from '../../sect-expansion/types';
 import type { WorldMap } from '../types';
 import { RELOCATION_OWNER_PHASES, type RelocationOwnerBoundary } from './types';
+import { compareRelocationHistoryEdges as compare, relocationHistoryCommandEdge as commandEdge,
+  relocationHistoryCompletionEdge as completionEdge, relocationHistoryIntersection as intersection,
+  type RelocationHistoryEdge as Edge, type RelocationHistoryInterval as Interval } from './history-order';
 
 export interface RelocationOwnerSpatialFailure {
   readonly ok: false;
@@ -27,11 +30,6 @@ export type RelocationOwnerSpatialInspection =
   | { readonly ok: true; readonly scope: 'relocation-spatial-records' }
   | RelocationOwnerSpatialFailure;
 
-type Domain = 'construction' | 'relocation';
-/** Only command revisions within the SAME domain are comparable. Tick completions
- * precede commands; construction completion precedes relocation completion. */
-interface Edge { readonly tick: number; readonly stage: 0 | 1 | 2; readonly domain: Domain; readonly revision: number }
-interface Interval { readonly start: Edge; readonly end: Edge | null }
 interface Claim extends Interval {
   readonly id: string;
   readonly source: string;
@@ -48,22 +46,6 @@ interface CapturedSpatial {
 const key = (cell: SectCell): string => `${cell.x},${cell.y}`;
 const placement = (p: SectPlacementRequest): SectPlacementRequest => ({ definitionId: p.definitionId, anchor: { ...p.anchor }, rotation: p.rotation });
 const failure = (code: string, path = 'spatial'): RelocationOwnerSpatialFailure => ({ ok: false, issues: [{ code, path }] });
-const commandEdge = (tick: number, domain: Domain, revision: number): Edge => ({ tick, stage: 2, domain, revision });
-const completionEdge = (tick: number, domain: Domain, revision = 0): Edge => ({ tick, stage: domain === 'construction' ? 0 : 1, domain, revision });
-function compare(a: Edge, b: Edge): number | null {
-  if (a.tick !== b.tick) return a.tick < b.tick ? -1 : 1;
-  if (a.stage !== b.stage) return a.stage < b.stage ? -1 : 1;
-  if (a.domain !== b.domain) return null;
-  return a.revision < b.revision ? -1 : a.revision > b.revision ? 1 : 0;
-}
-/** Half-open intervals are safe only with real event endpoints. In particular,
- * place and cancel at one tick have DISTINCT receipt revisions, never [tick,tick). */
-function intersection(a: Interval, b: Interval): 'none' | 'overlap' | 'ambiguous' {
-  const left = a.end === null ? 1 : compare(a.end, b.start);
-  const right = b.end === null ? 1 : compare(b.end, a.start);
-  if (left !== null && left <= 0 || right !== null && right <= 0) return 'none';
-  return left === null || right === null ? 'ambiguous' : 'overlap';
-}
 function baseContext(frame: ConstructionFrame): SectSpatialContext {
   return { map: frame.map, legacyStations: frame.legacyStations, people: [],
     spaces: frame.legacyStations.map(s => ({ kind: 'legacy-point', buildingId: s.id })), blueprints: [] };
