@@ -14,6 +14,7 @@ import { ManagementCultivationPanelV9 } from './ManagementCultivationPanelV9';
 import { ManagementBuildPanelV9 } from './ManagementBuildPanelV9';
 import { ManagementSavePanelV9, ManagementSaveSummaryV9 } from './ManagementSavePanelV9';
 import { ManagementWorkspace, type ManagementWorkspaceSection, type ManagementWorkspaceTab, type ManagementWorkspaceFocusRequest } from './ManagementWorkspace';
+import { FrameDiagnosticsPanel, useFrameDiagnostics } from './FrameDiagnosticsPanel';
 import './app.css';
 import './management-v9.css';
 import './management-v9-navigation.css';
@@ -23,6 +24,7 @@ export interface ManagementAppV9Props { session: ApplicationSessionV9; saves: Ma
 type PlacementReview = { proposal: RuntimeReadonlyV9<PlacementProposalV9>; basis: ManagementSnapshotV9 };
 export function ManagementAppV9({ session, saves, initialLocale }: ManagementAppV9Props) {
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  const [frameDiagnostics, diagnosticController] = useFrameDiagnostics(session, 'v9');
   const saveStatus = useSyncExternalStore(saves.subscribe, saves.getSnapshot, saves.getSnapshot);
   const [locale, setLocale] = useState<Locale>(() => initialLocale ?? (typeof window === 'undefined' ? DEFAULT_LOCALE : readLocalePreference()));
   const [feedback, setFeedback] = useState<ManagementTextV9 | null>(null);
@@ -63,7 +65,7 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
     const visibility = () => session.setForeground({ visible: document.visibilityState !== 'hidden' });
     const focus = () => session.setForeground({ focused: true });
     const blur = () => session.setForeground({ focused: false });
-    const tick = (timestamp: number) => { if (disposed) return; session.frame(timestamp); frame = requestAnimationFrame(tick); };
+    const tick = (timestamp: number) => { if (disposed) return; if (frameDiagnostics.current) frameDiagnostics.current.frame(timestamp); else session.frame(timestamp); frame = requestAnimationFrame(tick); };
     session.setForeground({ visible: document.visibilityState !== 'hidden', focused: document.hasFocus() });
     document.addEventListener('visibilitychange', visibility); window.addEventListener('focus', focus); window.addEventListener('blur', blur);
     frame = requestAnimationFrame(tick);
@@ -138,6 +140,7 @@ export function ManagementAppV9({ session, saves, initialLocale }: ManagementApp
         </select></label>
       </div>
     </header>
+    {diagnosticController && <FrameDiagnosticsPanel controller={diagnosticController} locale={locale} />}
     <ManagementSaveSummaryV9 status={saveStatus} locale={locale} t={t} />
     {saveStatus.notice && <p className="management-v9-storage-notice management-v9-notice" role="status">{t(saveStatus.notice)}</p>}
     <div className="management-v9-command-bar" ref={commandBar} role="region" aria-label={t('managementV9.controls')}>

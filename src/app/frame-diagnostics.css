@@ -1,0 +1,6 @@
+.frame-diagnostics { margin: .5rem 0; padding: .5rem .75rem; border: 1px solid #76694d; border-radius: .35rem; background: #f8f0dc; color: #332b20; overflow-wrap: anywhere; }
+.frame-diagnostics summary { cursor: pointer; font-weight: 600; min-block-size: 2rem; }
+.frame-diagnostics p, .frame-diagnostics li { font-size: .875rem; line-height: 1.5; margin-block: .4rem; }
+.frame-diagnostics-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.frame-diagnostics-actions button { min-block-size: 2.75rem; }
+.frame-diagnostics :focus-visible { outline: 3px solid #365f85; outline-offset: 3px; }

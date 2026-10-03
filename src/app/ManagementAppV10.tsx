@@ -21,6 +21,7 @@ import { PhaserWorld } from '../phaser/PhaserWorld';
 import { ManagementCultivationRiskV9 } from './ManagementCultivationPanelV9';
 import { managementBuildNameV9 } from './ManagementBuildPanelV9';
 import { ManagementWorkspace, type ManagementWorkspaceSection, type ManagementWorkspaceTab, type ManagementWorkspaceFocusRequest } from './ManagementWorkspace';
+import { FrameDiagnosticsPanel, useFrameDiagnostics } from './FrameDiagnosticsPanel';
 import './app.css';
 import './management-v9.css';
 import './management-v9-navigation.css';
@@ -31,7 +32,7 @@ import './management-v10.css';
 export type ManagementSnapshotV10 = RuntimeReadonlyV10<SessionProjectionV10>;
 export type ManagementSessionV10 = Pick<ApplicationSessionV10, 'getSnapshot' | 'subscribe' | 'select' | 'dispatch' | 'dispatchCultivation' | 'dispatchBuild' | 'dispatchSect'
   | 'preparePlacement' | 'confirmPlacement' | 'prepareUpgrade' | 'confirmUpgrade' | 'prepareBreakthrough' | 'confirmBreakthrough' | 'isProposalCurrent'
-  | 'setReviewPaused' | 'setOverlayPaused' | 'setPaused' | 'setSpeed' | 'setForeground' | 'frame' | 'resetFrameBaseline' | 'refresh'>;
+  | 'setReviewPaused' | 'setOverlayPaused' | 'setPaused' | 'setSpeed' | 'setForeground' | 'frame' | 'getFrameDiagnostics' | 'resetFrameBaseline' | 'refresh'>;
 
 /** Stable local keys use the existing validated translator and Chinese fallback.
  * Kept here until the integration owner elects to register the private surface. */
@@ -711,6 +712,7 @@ function BuildPanelV10({ context, locale, active = true }: { context: UiContext;
 
 export function ManagementAppV10({ session, storage, initialLocale }: ManagementAppV10Props) {
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  const [frameDiagnostics, diagnosticController] = useFrameDiagnostics(session, 'v10');
   const storageStatus = useSyncExternalStore(storage?.subscribe ?? noStorage.subscribe, storage?.getSnapshot ?? noStorage.getSnapshot, storage?.getSnapshot ?? noStorage.getSnapshot);
   const [locale, setLocale] = useState<Locale>(() => initialLocale ?? (typeof window === 'undefined' ? DEFAULT_LOCALE : readLocalePreference()));
   const [notice, setNotice] = useState<ManagementTextV10 | null>(null); const [saveOpen, setSaveOpen] = useState(false);
@@ -744,7 +746,7 @@ export function ManagementAppV10({ session, storage, initialLocale }: Management
     let disposed = false, frame = 0;
     const visibility = () => session.setForeground({ visible: document.visibilityState !== 'hidden' });
     const focus = () => session.setForeground({ focused: true }); const blur = () => session.setForeground({ focused: false });
-    const tick = (timestamp: number) => { if (disposed) return; session.frame(timestamp); frame = requestAnimationFrame(tick); };
+    const tick = (timestamp: number) => { if (disposed) return; if (frameDiagnostics.current) frameDiagnostics.current.frame(timestamp); else session.frame(timestamp); frame = requestAnimationFrame(tick); };
     session.setForeground({ visible: document.visibilityState !== 'hidden', focused: document.hasFocus() });
     document.addEventListener('visibilitychange', visibility); window.addEventListener('focus', focus); window.addEventListener('blur', blur); frame = requestAnimationFrame(tick);
     return () => { disposed = true; cancelAnimationFrame(frame); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus); window.removeEventListener('blur', blur); session.resetFrameBaseline(); };
@@ -795,6 +797,7 @@ export function ManagementAppV10({ session, storage, initialLocale }: Management
         <label>{t('settings.language.label')}<select value={locale} onChange={event => { const next = event.currentTarget.value === 'en' ? 'en' : 'zh-CN'; setLocale(next); writeLocalePreference(next); }}><option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option></select></label>
       </div>
     </header>
+    {diagnosticController && <FrameDiagnosticsPanel controller={diagnosticController} locale={locale} />}
     <div className="management-v9-save-summary"><span>{t(storageStatus.summary.key, storageStatus.summary.parameters)}</span>{storage ? <span>{t('managementV9.manualOnly')}</span> : <span>{t('managementV10.storageUnavailable')}</span>}{readOnly && <span className="management-v10-storage-state">{t('save.readOnly')}</span>}</div>
     {storageStatus.notice && <p className="management-v9-storage-notice management-v9-notice" role="status">{t(storageStatus.notice.key, storageStatus.notice.parameters)}</p>}
     <div className="management-v9-command-bar" ref={commandBar} role="region" aria-label={t('managementV9.controls')}><div className="management-v9-command-row">

@@ -426,6 +426,9 @@ export class ApplicationSessionV10 {
   setStorageReadOnly(readOnly: boolean): SessionControlResultV10 { return this.#hold('storage', readOnly); }
   setOverlayPaused(paused: boolean): SessionControlResultV10 { return this.#hold('overlay', paused); }
   setReviewPaused(paused: boolean): SessionControlResultV10 { return this.#hold('review', paused); }
+  /** Fresh scalar-only local diagnostic read; no publication or World access. */
+  readonly getFrameDiagnostics = (): Readonly<{ pendingMicroseconds: number; baselineEstablished: boolean }> =>
+    Object.freeze({ pendingMicroseconds: this.#accumulator.remainderMicroseconds, baselineEstablished: this.#baseline !== null });
   resetFrameBaseline(): void { if (!this.#busy) this.#baseline = null; }
   /** The platform supplies time. At most 20 fixed ticks per call; backlog is kept.
    * Hidden/paused intervals are discarded, retaining an incomplete pre-pause tick. */
