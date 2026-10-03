@@ -252,3 +252,50 @@ button.text-button:hover:not(:disabled) { background: #d7bb7e12; }
   .inspector .cultivation-preparation { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+
+/* Ordinary v7/v8 campaign workspace only. Management owns its own layout. */
+.campaign-shell [hidden] { display: none !important; }
+.campaign-shell .campaign-ledger { margin-bottom: 12px; border: 1px solid #b6b18b3d; border-radius: 7px; background: #203d32; }
+.campaign-shell .campaign-ledger > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; min-height: 44px; padding: 9px 12px; color: #dce4c8; cursor: pointer; }
+.campaign-shell .campaign-ledger > summary::before { content: '▸'; color: var(--gold); }
+.campaign-shell .campaign-ledger[open] > summary::before { content: '▾'; }
+.campaign-shell .campaign-resource-totals { display: flex; flex: 1; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; }
+.campaign-shell .campaign-resource-totals > span { white-space: nowrap; }
+.campaign-shell .campaign-resource-totals strong { margin-left: 4px; color: #eee0b5; font-variant-numeric: tabular-nums; }
+.campaign-shell .campaign-ledger .resource-strip { margin: 0 10px 10px; }
+.campaign-shell .campaign-ledger .inventory-panel { margin: 0 10px 10px; }
+.campaign-shell .sect-workbench { min-width: 0; border: 1px solid #a7b28a75; border-radius: 9px; background: #244436; }
+.campaign-shell .sect-workbench > .workspace-tabs { padding: 9px; border-bottom: 1px solid #a7b28a45; }
+.campaign-shell .sect-workbench > .workspace-tabs > button { flex-basis: calc(50% - 6px); }
+.campaign-shell .sect-workbench .inspector { max-height: none; overflow: visible; border: 0; border-radius: 0 0 8px 8px; box-shadow: none; padding: 15px; }
+.campaign-shell .sect-workbench .sect-roster { margin: 0; padding: 14px; flex-direction: column; align-items: stretch; gap: 12px; }
+.campaign-shell .sect-workbench .disciple-list { grid-template-columns: 1fr; }
+.campaign-shell .sect-workbench .disciple-chip { flex-wrap: wrap; }
+.campaign-shell .sect-workbench .disciple-chip small { width: auto; margin-left: auto; }
+.campaign-shell .sect-directory { min-width: 0; padding: 16px; }
+.campaign-shell .sect-directory h2 { font-size: 20px; }
+.campaign-shell .sect-directory .building-list { display: grid; grid-template-columns: 1fr; }
+.campaign-shell .sect-directory .event-list { margin-bottom: 0; }
+.campaign-shell .play-layout { grid-template-columns: minmax(0, 1fr) minmax(310px, 30%); }
+.campaign-shell .shell-footer { margin-top: 12px; }
+.campaign-shell .build-panel[data-workspace] > .workspace-tabs { margin-top: 14px; }
+.campaign-shell .build-panel[data-workspace] .workspace-tabs > button[aria-selected="true"] { color: #29483f; background: #d8e1bb; border-color: #66855d; }
+.campaign-shell .build-panel[data-workspace] .build-loadout-section { border-top: 0; margin-top: 0; }
+.campaign-shell .build-panel[data-workspace] .build-equipment { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.campaign-shell .build-panel[data-workspace] .build-equipment > :is(h5, p) { grid-column: 1 / -1; }
+.campaign-shell .build-workspace-draft { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding: 10px; border: 1px dashed #7e9464; background: #e0e6c4; color: #425d41; }
+@media (max-width: 960px) {
+  .campaign-shell .play-layout { grid-template-columns: 1fr; }
+  .campaign-shell .sect-workbench > .workspace-tabs > button { flex-basis: 20%; }
+  .campaign-shell .sect-workbench .disciple-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .campaign-shell .sect-directory .building-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .campaign-shell .campaign-ledger > summary { gap: 6px; }
+  .campaign-shell .campaign-resource-totals { flex-basis: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .campaign-shell .build-panel[data-workspace] .build-equipment { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) {
+  .campaign-shell .sect-workbench > .workspace-tabs > button { flex-basis: calc(50% - 6px); }
+  .campaign-shell .sect-workbench .disciple-list, .campaign-shell .sect-directory .building-list { grid-template-columns: 1fr; }
+}

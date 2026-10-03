@@ -8,6 +8,7 @@ import { createManagementCultivationReviewV9, managementCultivationGuardV9, mana
   type ManagementCultivationIntentV9, type ManagementCultivationSessionV9 } from '../application/management-v9-cultivation-contract';
 
 export interface ManagementCultivationPanelV9Props {
+  active?: boolean;
   session: ManagementCultivationSessionV9; snapshot: ManagementSnapshotV9;
   readOnly: boolean; getReadOnly: () => boolean; t: ManagementTranslatorV9; onFeedback: (message: ManagementTextV9) => void;
 }
@@ -32,7 +33,7 @@ export function ManagementCultivationRiskV9({ preview, t }: {
   </div>;
 }
 
-export function ManagementCultivationPanelV9({ session, snapshot, readOnly, getReadOnly, t, onFeedback }: ManagementCultivationPanelV9Props) {
+export function ManagementCultivationPanelV9({ active = true, session, snapshot, readOnly, getReadOnly, t, onFeedback }: ManagementCultivationPanelV9Props) {
   const id = useId();
   const latestReadOnly = useRef(getReadOnly); latestReadOnly.current = () => readOnly || getReadOnly();
   const reviews = useMemo(() => createManagementCultivationReviewV9(session, () => latestReadOnly.current()), [session]);
@@ -45,19 +46,19 @@ export function ManagementCultivationPanelV9({ session, snapshot, readOnly, getR
   useEffect(() => { reviews.start(); return () => reviews.stop(); }, [reviews]);
   useEffect(() => { reviews.invalidate(); }, [reviews, readOnly]);
   useEffect(() => {
-    if (!review) return;
+    if (!active || !review) return;
     return attachManagementReviewEscapeV9(document, () => {
       const current = session.getSnapshot(); return current.holds.overlay || current.holds.storageBusy;
     }, reviews.cancel);
-  }, [review, reviews, session]);
+  }, [active, review, reviews, session]);
   useEffect(() => {
-    const region = reviewRegion.current; if (!review || !region) return;
+    const region = reviewRegion.current; if (!active || !review || !region) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     (region.querySelector<HTMLInputElement | HTMLButtonElement>('input:not(:disabled), button:not(:disabled)') ?? region).focus();
     return () => {
       if (opener?.isConnected && (region.contains(document.activeElement) || document.activeElement === document.body)) opener.focus();
     };
-  }, [review]);
+  }, [active, review]);
   const name = (actorId: string | null) => {
     if (actorId === null) return t('cultivation.ui.sectBeneficiary');
     const actor = snapshot.frame.disciples.find(row => row.id === actorId);

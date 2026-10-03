@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, useId, type CSSProperties, type ReactNode } from 'react';
 import { createWorld, STARTER_RECIPES, TICKS_PER_SECOND, type ResourceLine } from '../core/kernel';
 import { ApplicationSession, type DeepReadonly, type SessionProjection } from '../application/session';
 import { attachBrowserRuntime } from '../application/browser-runtime';
@@ -16,6 +16,7 @@ import type { CampaignRouteId } from '../core/campaign/types';
 import { ExpeditionPanel } from './ExpeditionPanel';
 import { EmergencyRetreatDialog } from './EmergencyRetreatDialog';
 import { BuildPanel } from './BuildPanel';
+import { WorkspaceTabs, workspacePanel } from './WorkspaceTabs';
 import { attachInput } from '../input/actions';
 import { PhaserWorld } from '../phaser/PhaserWorld';
 import type { CampaignSlotId, RepositoryOptions } from '../platform/persistence';
@@ -175,6 +176,11 @@ export function App(props: AppProps) {
   const [saveReturnToEntry, setSaveReturnToEntry] = useState(false);
   const overlayFocus = useRef<HTMLElement | null>(null);
   const entryButton = useRef<HTMLButtonElement>(null);
+  const sectWorkspaceId = useId();
+  const sectDetail = useRef<HTMLDivElement>(null);
+  const sectDetailFocus = useRef(false);
+  const resourceLedger = useRef<HTMLDetailsElement>(null);
+  const [sectWorkspace, setSectWorkspace] = useState<'inspect' | 'roster' | 'buildings' | 'events'>('inspect');
   const [view, setView] = useState<'sect' | 'expedition' | 'builds' | 'routes' | 'growth'>('sect');
   const [campaignPreparation, setCampaignPreparation] = useState<{ routeId: CampaignRouteId; request: number } | null>(null);
   const preparationSequence = useRef(0);
@@ -190,6 +196,14 @@ export function App(props: AppProps) {
   const resolvedPreviewNotice = typeof previewNotice === 'function' ? previewNotice(locale) : previewNotice;
   const buildDiscipleId = world.selection?.kind === 'disciple' ? world.selection.id : world.disciples[1]?.id ?? world.disciples[0]?.id ?? '';
   const buildDisciple = world.disciples.find((entry) => entry.id === buildDiscipleId);
+  const returnOverflow = world.expedition.phase === 'Ending' && world.expedition.settlement && !world.expedition.settlement.committed
+    ? world.resources.map((resource) => ({ resourceId: resource.resourceId, quantity: Math.max(0, resource.owned + [...world.expedition.settlement!.loot, ...world.expedition.settlement!.unusedSupplies].filter((line) => line.resourceId === resource.resourceId).reduce((sum, line) => sum + line.quantity, 0) - resource.capacity) })).filter((line) => line.quantity > 0) : [];
+  const returnOverflowStamp = JSON.stringify(returnOverflow);
+  useEffect(() => { if (resourceLedger.current) resourceLedger.current.open = returnOverflow.length > 0; }, [world.sessionEpoch]);
+  useEffect(() => { if (returnOverflow.length && resourceLedger.current) resourceLedger.current.open = true; }, [returnOverflowStamp]);
+  useLayoutEffect(() => {
+    if (sectDetailFocus.current && sectWorkspace === 'inspect' && sectDetail.current) { sectDetailFocus.current = false; sectDetail.current.focus(); }
+  }, [sectWorkspace, world.selection, view]);
   useLayoutEffect(() => {
     // Layout effects run before the browser runtime is attached and its first frame can execute.
     session.setOverlayPaused(overlay !== null);
@@ -200,7 +214,8 @@ export function App(props: AppProps) {
     }
   }, [session, overlay]);
   useLayoutEffect(() => () => session.setOverlayPaused(false), [session]);
-  useEffect(() => { setCampaignPreparation(null); setView('sect'); }, [world.sessionEpoch]);
+  useEffect(() => { setCampaignPreparation(null); setView('sect'); setSectWorkspace('inspect'); }, [world.sessionEpoch]);
+  useEffect(() => { setSectWorkspace('inspect'); }, [world.selection?.kind, world.selection?.id]);
   useEffect(() => { if (!campaign && (view === 'routes' || view === 'growth')) setView('sect'); }, [campaign, view]);
   useEffect(() => { if (world.expedition.encounterId) setView('expedition'); }, [world.sessionEpoch, world.expedition.encounterId]);
   useEffect(() => {
@@ -216,7 +231,7 @@ export function App(props: AppProps) {
   }, [session, saves]);
   function selectLocale(next: string) { if (next === 'zh-CN' || next === 'en') { setLocale(next); writeLocalePreference(next); } }
   const pauseReason = world.clock.pauseReasons.map((reason) => t(`pause.${reason}`)).join(' · ');
-  return <main className="game-shell" lang={locale} style={{ '--disciple-atlas': `url("${import.meta.env.BASE_URL}assets/portraits/disciples-atlas-v1.png")`, ...Object.fromEntries([0, 1, 2, 3].map(index => [`--disciple-fallback-${index}`, `url("${import.meta.env.BASE_URL}assets/characters/disciple-${index}-96-v2.png")`])) } as CSSProperties}>
+  return <main className="game-shell campaign-shell" lang={locale} style={{ '--disciple-atlas': `url("${import.meta.env.BASE_URL}assets/portraits/disciples-atlas-v1.png")`, ...Object.fromEntries([0, 1, 2, 3].map(index => [`--disciple-fallback-${index}`, `url("${import.meta.env.BASE_URL}assets/characters/disciple-${index}-96-v2.png")`])) } as CSSProperties}>
     <div className="campaign-world" inert={overlay !== null}>
     {overlay === null && resolvedPreviewNotice}
     <header className="shell-header">
@@ -225,13 +240,14 @@ export function App(props: AppProps) {
       <div className="header-actions"><button ref={entryButton} className="secondary" onClick={(event) => { overlayFocus.current = event.currentTarget; setOverlay('entry'); }}>{t('entry.open')}</button><button className="secondary" onClick={(event) => { overlayFocus.current = event.currentTarget; setSaveReturnToEntry(false); setOverlay('saves'); }}>{t('save.open')}</button><label className="language-control"><span className="sr-only">{t('settings.language.label')}</span><select value={locale} onChange={(event) => selectLocale(event.target.value)} aria-label={t('settings.language.switch')}><option value="zh-CN">{t('settings.language.zh-CN')}</option><option value="en">{t('settings.language.en')}</option></select></label></div>
     </header>
     <nav className="game-view-tabs" aria-label={t('expedition.ui.navigation')}><button className="secondary" aria-pressed={view === 'sect'} onClick={() => setView('sect')}>{t('expedition.ui.sect')}</button><button className="secondary" aria-pressed={view === 'expedition'} onClick={() => { setCampaignPreparation(null); setView('expedition'); }}>{t('expedition.ui.title')}</button><button className="secondary" aria-pressed={view === 'builds'} onClick={() => setView('builds')}>{t('expedition.ui.builds')}</button>{campaign && <><button className="secondary" aria-pressed={view === 'routes'} onClick={() => setView('routes')}>{t('campaign.ui.title')}</button><button className="secondary" aria-pressed={view === 'growth'} onClick={() => setView('growth')}>{t('campaign.growth.title')}</button></>}{world.expedition.phase !== 'none' && world.expedition.phase !== 'Ended' && <span className="active-run-label">{t(`expedition.phase.${world.expedition.phase}`)}</span>}</nav>
-    <section className="resource-strip" aria-label={t('live.resources')}>{world.resources.map((resource) => <div className={`resource resource-${resource.resourceId}`} key={resource.resourceId} title={t('live.capacity', { capacity: resource.capacity })}><span className="resource-glyph" aria-hidden="true" /><div><div className="resource-topline"><span>{t(`resource.${resource.resourceId}`)}</span><strong>{resource.owned}</strong></div><span className="resource-detail">{t('live.available', { available: resource.available, reserved: resource.reserved })}</span></div></div>)}</section>
     {world.clock.pauseReasons.includes('save-capacity') && <p className="notice warning-text" role="status">{t(world.capacityStop === 'SAVE_OBLIGATION_UNBOUNDED' ? 'command.error.saveObligation' : 'command.error.saveCapacity')}</p>}
+    <details ref={resourceLedger} className="campaign-ledger"><summary><span>{t('live.resources')}</span><span className="campaign-resource-totals">{world.resources.map(resource => <span key={resource.resourceId}>{t(`resource.${resource.resourceId}`)} <strong>{resource.owned}</strong></span>)}</span></summary>
+    <section className="resource-strip" aria-label={t('live.resources')}>{world.resources.map((resource) => <div className={`resource resource-${resource.resourceId}`} key={resource.resourceId} title={t('live.capacity', { capacity: resource.capacity })}><span className="resource-glyph" aria-hidden="true" /><div><div className="resource-topline"><span>{t(`resource.${resource.resourceId}`)}</span><strong>{resource.owned}</strong></div><span className="resource-detail">{t('live.available', { available: resource.available, reserved: resource.reserved })}</span></div></div>)}</section>
     <InventoryPanel resources={world.resources} sessionEpoch={world.sessionEpoch} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error')} t={t}
-      suggestedDiscard={world.expedition.phase === 'Ending' && world.expedition.settlement && !world.expedition.settlement.committed
-        ? world.resources.map((resource) => ({ resourceId: resource.resourceId, quantity: Math.max(0, resource.owned + [...world.expedition.settlement!.loot, ...world.expedition.settlement!.unusedSupplies].filter((line) => line.resourceId === resource.resourceId).reduce((sum, line) => sum + line.quantity, 0) - resource.capacity) })).filter((line) => line.quantity > 0) : []}
+      suggestedDiscard={returnOverflow}
       onDiscard={(request, guard) => session.dispatchInventoryDiscard(request, guard)} />
-    {world.cultivation.decisions.length > 0 && <section className="cultivation-alerts" aria-live="polite"><p>{t('cultivation.ui.pending', { count: world.cultivation.decisions.length })}</p>{world.cultivation.decisions.map((decision) => { const disciple = world.disciples.find((entry) => entry.id === decision.discipleId); return disciple ? <button className="secondary" key={`${decision.kind}:${decision.discipleId}`} onClick={() => { setView('sect'); session.select({ kind: 'disciple', id: decision.discipleId }); setCultivationReview((prior) => ({ discipleId: decision.discipleId, request: (prior?.request ?? 0) + 1 })); }}>{t('cultivation.ui.review', { name: t(disciple.nameKey as TextKey) })}</button> : null; })}</section>}
+    </details>
+    {world.cultivation.decisions.length > 0 && <section className="cultivation-alerts" aria-live="polite"><p>{t('cultivation.ui.pending', { count: world.cultivation.decisions.length })}</p>{world.cultivation.decisions.map((decision) => { const disciple = world.disciples.find((entry) => entry.id === decision.discipleId); return disciple ? <button className="secondary" key={`${decision.kind}:${decision.discipleId}`} onClick={() => { setView('sect'); setSectWorkspace('inspect'); session.select({ kind: 'disciple', id: decision.discipleId }); setCultivationReview((prior) => ({ discipleId: decision.discipleId, request: (prior?.request ?? 0) + 1 })); }}>{t('cultivation.ui.review', { name: t(disciple.nameKey as TextKey) })}</button> : null; })}</section>}
     {campaign && (view === 'routes' || view === 'growth') ? <CampaignViews session={session} world={world} projection={campaign} locale={locale} view={view}
       readOnly={saveStatus.readOnly || overlay !== null || world.clock.pauseReasons.includes('error')} busy={saveStatus.busy}
       onCommand={(request, guard) => submitCampaignViewCommand(session, () => saves.getSnapshot(), () => modalOpen.current, request, guard)}
@@ -243,10 +259,19 @@ export function App(props: AppProps) {
       }} /> : view === 'sect' ? <>
     <div className="play-layout">
       <section className="world-panel" aria-labelledby="world-title"><div className="map-heading"><div><p className="section-eyebrow">{t('live.mapSubtitle')}</p><h2 id="world-title">{t('live.mapTitle')}</h2></div><p className={`time-status ${world.paused ? 'is-paused' : ''}`}>{t(world.paused ? 'time.paused' : 'time.running', world.paused ? { reason: pauseReason } : undefined)}</p></div><PhaserWorld session={session} locale={locale} /><div className="map-footer"><span>{t('live.provisional')}</span><span>{t('live.tick', { tick: world.clock.simulationTick })}</span></div></section>
+      <div className="sect-workbench">
+        <WorkspaceTabs id={sectWorkspaceId} label={t('live.inspect')} selected={sectWorkspace} onSelect={setSectWorkspace} tabs={[
+          { id: 'inspect', label: t('live.inspect') }, { id: 'roster', label: t('live.disciples') },
+          { id: 'buildings', label: t('live.buildings') }, { id: 'events', label: t('live.events') },
+        ]} />
+        <div ref={sectDetail} {...workspacePanel(sectWorkspaceId, 'inspect', sectWorkspace)}>
       <Inspector session={session} world={world} t={t} readOnly={saveStatus.readOnly} cultivationReview={cultivationReview} />
-    </div>
-    <section className="sect-roster" aria-labelledby="roster-title"><h2 id="roster-title">{t('live.disciples')}</h2><div className="disciple-list">{world.disciples.map((disciple, index) => <button className="disciple-chip" key={disciple.id} aria-pressed={world.selection?.kind === 'disciple' && world.selection.id === disciple.id} onClick={() => session.select({ kind: 'disciple', id: disciple.id })}><span className={`disciple-dot disciple-dot-${disciplePresentation(disciple, index).index}`} aria-hidden="true" /><span>{t(disciple.nameKey as TextKey)}</span><small>{t(discipleStatus(disciple, world.cultivation.summaries))}</small></button>)}</div></section>
-    <div className="lower-details"><details><summary>{t('live.buildings')}</summary><div className="building-list">{world.buildings.map((building) => <button className="secondary" key={building.id} aria-pressed={world.selection?.kind === 'building' && world.selection.id === building.id} onClick={() => session.select({ kind: 'building', id: building.id })}>{t(building.nameKey as TextKey)}</button>)}</div></details><details><summary>{t('live.events')}</summary>{world.recentEvents.length ? <ol className="event-list">{world.recentEvents.map((event) => {
+        </div>
+        <div {...workspacePanel(sectWorkspaceId, 'roster', sectWorkspace)}>
+    <section className="sect-roster" aria-labelledby="roster-title"><h2 id="roster-title">{t('live.disciples')}</h2><div className="disciple-list">{world.disciples.map((disciple, index) => <button className="disciple-chip" key={disciple.id} aria-pressed={world.selection?.kind === 'disciple' && world.selection.id === disciple.id} onClick={() => { sectDetailFocus.current = true; session.select({ kind: 'disciple', id: disciple.id }); setSectWorkspace('inspect'); }}><span className={`disciple-dot disciple-dot-${disciplePresentation(disciple, index).index}`} aria-hidden="true" /><span>{t(disciple.nameKey as TextKey)}</span><small>{t(discipleStatus(disciple, world.cultivation.summaries))}</small></button>)}</div></section>
+        </div>
+        <section {...workspacePanel(sectWorkspaceId, 'buildings', sectWorkspace)} className="sect-directory"><h2>{t('live.buildings')}</h2><div className="building-list">{world.buildings.map((building) => <button className="secondary" key={building.id} aria-pressed={world.selection?.kind === 'building' && world.selection.id === building.id} onClick={() => { sectDetailFocus.current = true; session.select({ kind: 'building', id: building.id }); setSectWorkspace('inspect'); }}>{t(building.nameKey as TextKey)}</button>)}</div></section>
+        <section {...workspacePanel(sectWorkspaceId, 'events', sectWorkspace)} className="sect-directory"><h2>{t('live.events')}</h2>{world.recentEvents.length ? <ol className="event-list">{world.recentEvents.map((event) => {
       const eventTransaction = world.transactions.find((entry) => entry.transactionId === event.transactionId);
       const actorId = event.discipleId ?? event.workerId ?? eventTransaction?.workerId;
       const name = actorId ? session.getDiscipleNameKey(actorId) : null;
@@ -257,10 +282,12 @@ export function App(props: AppProps) {
       const recipe = STARTER_RECIPES[recipeId];
       if (event.kind === 'production.blocked') return <li key={event.eventId}>{t('event.production.paused', { name: name ? t(name as TextKey) : '', reason: typeof event.reason === 'string' ? t(`production.blocked.${event.reason}` as TextKey) : t('command.error.unavailable') })}</li>;
       return <li key={event.eventId}>{t(`event.${event.kind}`, { name: name ? t(name as TextKey) : '', recipe: recipe ? t(recipe.nameKey as TextKey) : '' })}</li>;
-    })}</ol> : <p className="muted small">{t('live.noEvents')}</p>}</details></div>
+    })}</ol> : <p className="muted small">{t('live.noEvents')}</p>}</section>
+      </div>
+    </div>
     </> : view === 'expedition' ? <ExpeditionPanel key={world.sessionEpoch} session={session} world={world} controller={battleController} locale={locale} {...(campaignPreparation ? { selectedRouteId: campaignPreparation.routeId, preparationRequest: campaignPreparation.request } : {})} readOnly={saveStatus.readOnly} onReturnSect={() => setView('sect')} /> : <section className="build-view-shell">
       <label className="build-view-selector">{t('live.disciples')}<select value={buildDiscipleId} onChange={(event) => session.select({ kind: 'disciple', id: event.target.value })}>{world.disciples.map((disciple) => <option value={disciple.id} key={disciple.id}>{t(disciple.nameKey as TextKey)}</option>)}</select></label>
-      <BuildPanel key={`${world.sessionEpoch}:${buildDiscipleId}`} frame={buildFrame} catalog={session.getCombatCatalog()} context={session.getBuildContentContext()} lifeState={buildDisciple?.lifeState} discipleId={buildDiscipleId} locale={locale} discipleName={buildDisciple ? t(buildDisciple.nameKey as TextKey) : t('expedition.ui.none')} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error') || buildDisciple?.lifeState !== 'alive' || world.clock.mode !== 'management'} locked={!!buildFrame.builds.disciples.find((entry) => entry.discipleId === buildDiscipleId)?.lock} onCommand={(request) => { const result = session.dispatchBuild(request); return result.status === 'accepted' ? { ok: true } : result.rejection?.buildCode ? { ok: false, code: result.rejection.buildCode } : { ok: false }; }} />
+      <BuildPanel workspace key={`${world.sessionEpoch}:${buildDiscipleId}`} frame={buildFrame} catalog={session.getCombatCatalog()} context={session.getBuildContentContext()} lifeState={buildDisciple?.lifeState} discipleId={buildDiscipleId} locale={locale} discipleName={buildDisciple ? t(buildDisciple.nameKey as TextKey) : t('expedition.ui.none')} readOnly={saveStatus.readOnly || world.clock.pauseReasons.includes('error') || buildDisciple?.lifeState !== 'alive' || world.clock.mode !== 'management'} locked={!!buildFrame.builds.disciples.find((entry) => entry.discipleId === buildDiscipleId)?.lock} onCommand={(request) => { const result = session.dispatchBuild(request); return result.status === 'accepted' ? { ok: true } : result.rejection?.buildCode ? { ok: false, code: result.rejection.buildCode } : { ok: false }; }} />
       <button className="secondary" onClick={() => setView('sect')}>{t('expedition.ui.returnSect')}</button>
     </section>}
     <footer className="shell-footer"><p>{t('live.help')}</p><p className={saveStatus.mode === 'memory' || saveStatus.readOnly ? 'warning-text' : ''}>{saveStatus.mode === 'memory' ? t('save.memory') : saveStatus.readOnly ? t('save.readOnly') : saveStatus.lastSavedAt ? t('save.lastSuccess', { date: dateLabel(saveStatus.lastSavedAt, locale) }) : t('save.neverSaved')}</p></footer>

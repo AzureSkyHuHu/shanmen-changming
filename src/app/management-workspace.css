@@ -1,0 +1,55 @@
+/* Opt-in compact management workspace. The map and editors retain one mount. */
+.management-v9-workspace .management-v9-command-bar { position: static; }
+.management-v9-workspace .management-v9-resources { display: flex; overflow-x: auto; gap: .4rem; padding-block: .15rem; scrollbar-width: thin; }
+.management-v9-workspace .management-v9-resources article { flex: 1 0 6.4rem; padding: .35rem .55rem; }
+.management-v9-workspace .management-v9-utilities { display: block; margin: 0; }
+.management-v9-workspace .management-v9-ledger { margin-block: .4rem; }
+.management-workspace-navigation { display: flex; flex-wrap: wrap; gap: .3rem; padding-block: .5rem; }
+.management-workspace-navigation [role="tab"] { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .4rem .65rem; min-block-size: 2.75rem; background: #244137; color: #e6dcc0; border: 1px solid #8da48566; border-radius: .35rem; }
+.management-workspace-navigation [role="tab"][aria-selected="true"] { color: #243e32; background: #e7dbb5; border-color: #f3e3b3; box-shadow: inset 0 -3px #96753e; }
+.management-workspace-navigation [aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.management-workspace-navigation [role="tab"]:focus-visible { outline: 2px solid #ffe3a0; outline-offset: 2px; }
+.management-workspace-count { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 1.5em; padding-inline: .25em; border-radius: 1rem; background: #71826544; font-variant-numeric: tabular-nums; }
+.management-workspace-review-lock { margin: .2rem 0 .5rem; padding: .4rem .65rem; border-left: 3px solid #d7bb7e; color: #f0dfa9; }
+.management-workspace { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(23rem, 1fr); gap: .75rem; align-items: stretch; block-size: var(--management-workspace-height, 34rem); min-block-size: 22rem; }
+.management-workspace-map, .management-workspace-detail { min-block-size: 0; min-inline-size: 0; }
+.management-v9-workspace .management-workspace-map .management-v9-world { height: 100%; }
+.management-v9-workspace .management-workspace-map .world-stage { height: 100%; }
+.management-v9-workspace .management-workspace-map .world-canvas { height: 100%; min-height: 0; }
+.management-workspace-detail { overflow: auto; scrollbar-gutter: stable; border: 1px solid #b3a87c; border-radius: .55rem; background: #e8e0c1; color: #2b473c; }
+.management-workspace-detail:focus-visible { outline: 2px solid #ffe3a0; outline-offset: 2px; }
+.management-workspace-detail [hidden] { display: none !important; }
+.management-workspace-detail > .management-v9-panel,
+.management-workspace-detail .management-workspace-pane > .management-v9-panel { margin: 0; border: 0; box-shadow: none; border-radius: 0; }
+.management-workspace-detail .management-v9-panels { display: block; }
+.management-workspace-detail .management-v9-panel-column { display: contents; }
+.management-workspace-detail .management-v9-panel { margin: 0; box-shadow: none; }
+.management-workspace-detail .management-v9-recipe-list { grid-template-columns: minmax(0, 1fr); }
+.management-v9-workspace .management-workspace-detail .management-v9-placement-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.management-workspace-detail .management-v9-selection-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.management-v9-workspace .management-workspace-detail .management-v9-selection-list > button { font-size: 1rem; text-align: start; }
+.management-workspace-worker { padding: .8rem 1.2rem .25rem; background: #ddd8b8; border-bottom: 1px solid #99a07870; }
+.management-workspace-worker .management-v9-field { margin: 0; }
+.management-workspace-worker .management-v9-notice { color: #81402f; }
+.management-workspace-decision { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin: .4rem 0; padding: .5rem .75rem; background: #503c29; border: 1px solid #dab375; border-radius: .35rem; color: #fff0cf; }
+.management-workspace-decision p { margin: 0; }
+.management-workspace-decision button { margin-inline-start: auto; }
+.management-v9-workspace .management-workspace-detail :is(button, input, select, a, summary) { scroll-margin-block: 1rem; }
+/* One selected surface on narrow/zoomed screens; hiding preserves Canvas/editor instances. */
+@media (max-width: 60rem) {
+  .management-workspace { display: block; block-size: auto; min-block-size: 0; }
+  .management-workspace-navigation { flex-wrap: nowrap; overflow-x: auto; padding: .5rem .15rem; scroll-padding-inline: .5rem; scrollbar-width: thin; }
+  .management-workspace-navigation [role="tab"] { flex: 0 0 auto; max-inline-size: 18rem; }
+  .management-workspace-map { display: none; }
+  .management-workspace[data-section="overview"] .management-workspace-map,
+  .management-workspace[data-section="placement"] .management-workspace-map { display: block; }
+  .management-workspace[data-section="overview"] .management-workspace-detail { display: none; }
+  .management-v9-workspace .management-workspace-map .world-canvas { height: clamp(20rem, 58dvh, 38rem); }
+  .management-workspace[data-section="placement"] .management-workspace-map { margin-bottom: .65rem; }
+  .management-v9-workspace .management-workspace[data-section="placement"] .world-canvas { height: 20rem; }
+  .management-workspace-detail { overflow: visible; scrollbar-gutter: auto; }
+}
+@media (max-width: 30rem) {
+  .management-workspace-detail .management-v9-selection-list { grid-template-columns: minmax(0, 1fr); }
+  .management-workspace-worker { padding-inline: .8rem; }
+}

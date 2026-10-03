@@ -10,8 +10,10 @@ import { MANAGEMENT_BASE_RECIPES_V9, MANAGEMENT_RESEARCH_V9, MANAGEMENT_SECT_REC
   type ManagementDomainV9, type ManagementSessionV9, type ManagementSnapshotV9, type ManagementTextV9, type ManagementTranslatorV9,
 } from '../application/management-v9-contract';
 import type { TextKey } from '../i18n';
+import type { ManagementWorkspaceSection } from './ManagementWorkspace';
 
 export interface SectManagementPanelV9Props {
+  activeSection?: ManagementWorkspaceSection;
   session: ManagementSessionV9; snapshot: ManagementSnapshotV9; readOnly: boolean; getReadOnly: () => boolean;
   t: ManagementTranslatorV9; onFeedback: (message: ManagementTextV9) => void;
 }
@@ -50,7 +52,7 @@ export function ManagementCarePatientV9({ session, snapshot, risk, blocked, bloc
   </div>;
 }
 
-export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly, t, onFeedback }: SectManagementPanelV9Props) {
+export function SectManagementPanelV9({ activeSection, session, snapshot, readOnly, getReadOnly, t, onFeedback }: SectManagementPanelV9Props) {
   const id = useId();
   const [workerId, setWorkerId] = useState(() => snapshot.frame.disciples.find(row => managementWorkerAvailableV9(snapshot, row.id))?.id ?? '');
   const [risk, setRisk] = useState<RuntimeReadonlyV9<BreakthroughProposalV9> | null>(null);
@@ -86,11 +88,10 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
     return session.dispatchSect({ domain: 'care', command: { kind: 'care.cancel', jobId: job.jobId, expectedRevision: revision } });
   });
   const startDisabled = !!blocked || !workerAvailable;
+  const visible = (section: ManagementWorkspaceSection) => activeSection === undefined || activeSection === section;
+  const workSection = activeSection === undefined || ['production', 'research', 'placement'].includes(activeSection);
   return <div className="management-v9-panels">
-    <div className="management-v9-panel-column">
-      <section id="management-v9-production" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-work`}>
-        <h2 id={`${id}-work`}>{t('managementV9.production')}</h2>
-        <p className="management-v9-help">{t('managementV9.loopHint')}</p>
+    <div className="management-workspace-worker" hidden={!workSection}>
         <label className="management-v9-field">{t('production.worker')}
           <select value={workerId} disabled={!!blocked} onChange={event => setWorkerId(event.currentTarget.value)}>
             <option value="">{t('managementV9.chooseWorker')}</option>
@@ -99,6 +100,11 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
         </label>
         {blocked && <p className="management-v9-notice">{t(blocked)}</p>}
         {!workerAvailable && !blocked && <p className="management-v9-notice">{t('managementV9.chooseWorker')}</p>}
+    </div>
+    <div className="management-v9-panel-column">
+      <section id="management-v9-production" hidden={!visible('production')} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-work`}>
+        <h2 id={`${id}-work`}>{t('managementV9.production')}</h2>
+        <p className="management-v9-help">{t('managementV9.loopHint')}</p>
         <p className="management-v9-help">{t('managementV9.deliveryHint')}</p>
         <div className="management-v9-recipe-list">
           {MANAGEMENT_BASE_RECIPES_V9.map(recipeId => {
@@ -137,7 +143,7 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
       </section>
     </div>
     <div className="management-v9-panel-column">
-      <section id="management-v9-jobs" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-jobs`}>
+      <section id="management-v9-jobs" hidden={!visible('jobs')} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-jobs`}>
         <h2 id={`${id}-jobs`}>{t('managementV9.jobs')}</h2>
         <p className="management-v9-help">{t('managementV9.cancelHint')}</p>
         {snapshot.frame.transactions.filter(job => job.state !== 'Committed' && job.state !== 'Cancelled').map(job => <article key={job.transactionId} className="management-v9-card">
@@ -158,7 +164,7 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
         </article>)}
         {!snapshot.expansion.jobs.length && !snapshot.frame.transactions.some(job => job.state !== 'Committed' && job.state !== 'Cancelled') && <p>{t('managementV9.noJobs')}</p>}
       </section>
-      <section id="management-v9-research" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-research`}>
+      <section id="management-v9-research" hidden={!visible('research')} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-research`}>
         <h2 id={`${id}-research`}>{t('managementV9.research')}</h2>
         <h3>{t('sectV9.research.basicMedicine')}</h3>
         <p>{costs(MANAGEMENT_RESEARCH_V9.costs)}</p><p>{t('managementV9.workTicks', { ticks: MANAGEMENT_RESEARCH_V9.workTicks })}</p>
@@ -168,7 +174,9 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
           <button disabled={startDisabled || !managementHasResourcesV9(snapshot, MANAGEMENT_RESEARCH_V9.costs) || !snapshot.expansion.buildings.some(row => row.definitionId === 'library.v9' && row.maintenance.operational) || snapshot.expansion.jobs.some(row => row.domain === 'research')}
             onClick={() => performStart('research', current => session.dispatchSect({ domain: 'research', command: { kind: 'research.start', researchId: 'basic-medicine.v9', workerId, expectedRevision: current.expansion.revisions.research } }))}>{t('managementV9.startResearch')}</button>
         </>}
-        <h3 className="management-v9-subheading">{t('managementV9.blueprints')}</h3>
+      </section>
+      <section id="management-v9-blueprints" hidden={!visible('placement')} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-blueprints`}>
+        <h2 id={`${id}-blueprints`}>{t('managementV9.blueprints')}</h2>
         {!snapshot.expansion.blueprints.length && <p className="management-v9-help">{t('managementV9.noBlueprints')}</p>}
         {snapshot.expansion.blueprints.map(blueprint => <article key={blueprint.blueprintId} className="management-v9-card">
           <h3>{t(blueprint.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')}</h3>
@@ -181,7 +189,7 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
           </div>}
         </article>)}
       </section>
-      <section id="management-v9-care" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-care`}>
+      <section id="management-v9-care" hidden={!visible('care')} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-care`}>
         <h2 id={`${id}-care`}>{t('managementV9.care')}</h2>
         <p className="management-v9-help">{t('managementV9.careHint')}</p>
         {selected ? <ManagementCarePatientV9 session={session} snapshot={snapshot} risk={risk} blocked={!!blocked} blockedReason={blocked}
@@ -192,7 +200,7 @@ export function SectManagementPanelV9({ session, snapshot, readOnly, getReadOnly
           })} /> : <p>{t('managementV9.selectPatient')}</p>}
         {snapshot.expansion.recentTerminals.filter(row => row.domain === 'care' && row.beforeInjury !== null && row.afterInjury !== null).map(row => <p key={row.jobId} className="management-v9-success">{t('managementV9.careResult', { name: name(row.actorId), before: row.beforeInjury!, after: row.afterInjury! })}</p>)}
       </section>
-      <section id="management-v9-maintenance" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-maintenance`}>
+      <section id="management-v9-maintenance" hidden={!visible('maintenance')} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby={`${id}-maintenance`}>
         <h2 id={`${id}-maintenance`}>{t('managementV9.maintenance')}</h2><p className="management-v9-help">{t('managementV9.maintenanceHint')}</p>
         {snapshot.expansion.buildings.map(building => <article key={building.buildingId} className="management-v9-card">
           <h3>{t(building.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')} · {t('managementV9.level', { level: building.level })}</h3>

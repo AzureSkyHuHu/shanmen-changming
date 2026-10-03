@@ -20,24 +20,24 @@ function withSession(run: (session: ApplicationSessionV9) => void) {
   try { run(session); } finally { session.close(); }
 }
 
-const sectionIds = ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'research', 'care', 'maintenance'];
+const sectionIds = ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'placement', 'research', 'care', 'maintenance'];
 const commandBarMarkup = (html: string) => /<div class="management-v9-command-bar"[^>]*>[\s\S]*?<\/p><\/div>/.exec(html)?.[0] ?? '';
 describe('v9 long-page navigation semantics', () => {
-  it.each(['zh-CN', 'en'] as const)('retains links to unique focusable named sections in a native disclosure in %s', locale => withSession(session => {
+  it.each(['zh-CN', 'en'] as const)('exposes named workspace tabs with one selected category in %s', locale => withSession(session => {
     const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
     try {
       const before = session.getSnapshot();
       const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves, initialLocale: locale }));
-      const nav = /<nav class="management-v9-section-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[0] ?? '';
-      expect(html).toContain(`<details class="management-v9-navigation-disclosure"><summary>${translate(locale, 'managementV9.navigation')}</summary>${nav}</details>`);
-      expect(nav).toContain(`aria-label="${translate(locale, 'managementV9.navigation')}"`);
+      const nav = /<div class="management-workspace-navigation"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[0] ?? '';
+      expect(nav).toContain(`role="tablist" aria-label="${translate(locale, 'managementV9.navigation')}"`);
       for (const suffix of sectionIds) {
-        const id = `management-v9-${suffix}`;
-        expect(nav).toContain(`href="#${id}"`);
-        expect(html.match(new RegExp(`id="${id}"`, 'g'))).toHaveLength(1);
-        expect(html).toMatch(new RegExp(`<section id="${id}"[^>]*tabindex="-1"[^>]*aria-label(?:ledby)?=`));
+        expect(nav).toContain(`id="management-v9-workspace-tab-${suffix}"`);
+        expect(nav).toContain(`aria-controls="management-v9-workspace-${suffix === 'overview' ? 'map' : 'detail'}"`);
       }
-      expect(html).not.toMatch(/\bhidden(?:="")?|display:\s*none/);
+      expect(nav.match(/role="tab"/g)).toHaveLength(sectionIds.length);
+      expect(nav.match(/aria-selected="true"/g)).toHaveLength(1);
+      expect(html).not.toContain('management-v9-navigation-disclosure');
+      expect(html).toContain('<section id="management-v9-production" hidden=""');
       expect(session.getSnapshot()).toBe(before);
     } finally { saves.stop(); }
   }));
@@ -65,7 +65,7 @@ describe('v9 long-page navigation semantics', () => {
   it('places actual tasks immediately after the production column, before research and care in DOM order', () => withSession(session => {
     const html = renderToStaticMarkup(createElement(SectManagementPanelV9, { session, snapshot: session.getSnapshot(), readOnly: false, getReadOnly: () => false, t, onFeedback: vi.fn() }));
     const order = [...html.matchAll(/<section id="management-v9-([^"]+)"/g)].map(match => match[1]);
-    expect(order).toEqual(['production', 'jobs', 'research', 'care', 'maintenance']);
+    expect(order).toEqual(['production', 'jobs', 'research', 'blueprints', 'care', 'maintenance']);
     expect(html.match(/class="management-v9-panel-column"/g)).toHaveLength(2);
     expect(html).toContain('<div class="management-v9-panel-column"><section id="management-v9-jobs"');
     expect(html).toContain(t('managementV9.noJobs'));
@@ -113,7 +113,7 @@ describe('v9 map-first presentation', () => {
     try {
       const before = session.getSnapshot();
       const html = renderToStaticMarkup(createElement(ManagementAppV9, { session, saves, initialLocale: locale }));
-      expect(html).toContain('class="management-v9 management-v9-map-first"');
+      expect(html).toContain('class="management-v9 management-v9-map-first management-v9-workspace"');
       const scope = /<details class="management-v9-scope">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
       expect(scope).toContain(translate(locale, 'managementV9.candidate'));
       expect(scope).toContain(translate(locale, 'managementV9.scope'));
@@ -129,7 +129,7 @@ describe('v9 map-first presentation', () => {
         expect(ledger).toContain(translate(locale, 'live.capacity', { capacity: row.capacity }));
       }
       const mapAt = html.indexOf('<section class="management-v9-world"');
-      const placementAt = html.indexOf('<details class="management-v9-placement-disclosure">');
+      const placementAt = html.indexOf('<section class="management-v9-panel management-v9-placement"');
       const rosterAt = html.indexOf('<section id="management-v9-roster"');
       expect(mapAt).toBeGreaterThan(0);
       expect(placementAt).toBeGreaterThan(mapAt);
@@ -160,11 +160,10 @@ describe('v9 map-first presentation', () => {
     const app = readFileSync(new URL('../../src/app/ManagementAppV9.tsx', import.meta.url), 'utf8');
     const css = readFileSync(new URL('../../src/app/management-v9.css', import.meta.url), 'utf8');
     const nav = readFileSync(new URL('../../src/app/management-v9-navigation.css', import.meta.url), 'utf8');
-    expect(app).toContain('open={placementOpen || review !== null}');
-    expect(app).toContain('if (review && !event.currentTarget.open) event.currentTarget.open = true');
-    expect(app).toContain('if (review) event.preventDefault()');
-    expect(app).toContain('setPlacementOpen(true); setRequest(next); if (review) prepare(next)');
-    expect(app).not.toContain('placementOpen &&');
+    expect(app).toContain("hidden={activeSection !== 'placement'}");
+    expect(app).toContain('snapshot.holds.review || review !== null || buildReviewOpen');
+    expect(app).toContain('setRequest(next); if (review) prepare(next)');
+    expect(app).not.toContain("activeSection === 'placement' &&");
     expect(css).toContain('.management-v9-map-first .management-v9-map-layout { grid-template-columns: minmax(0, 1fr)');
     expect(css).toContain('.management-v9-map-first :is(button, select, input:not([type="checkbox"]):not([type="radio"]), summary) { min-height: 2.75rem; }');
     expect(css).toContain('.management-v9-map-first .management-v9-resources h2 { font-size: .875rem;');

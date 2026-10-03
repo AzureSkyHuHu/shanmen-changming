@@ -1,0 +1,6 @@
+.workspace-tabs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.workspace-tabs > button { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 8px 10px; font-size: 14px; }
+.workspace-tabs > button[aria-selected="true"] { color: #253e33; background: #e8d5a3; border-color: #e8d5a3; box-shadow: inset 0 -3px #63774f; }
+/* Author display rules must never expose a hidden tab's focusable descendants. */
+[role="tabpanel"][hidden] { display: none !important; }
+[role="tabpanel"]:focus-visible { outline: 3px solid #d5ad61; outline-offset: -3px; }

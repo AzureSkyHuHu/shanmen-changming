@@ -29,3 +29,25 @@
 @media (max-width: 1000px) { .expedition-panel { padding: 18px; }.expedition-card { padding: 14px; }.expedition-card h4 { font-size: 18px; } }
 @media (max-width: 760px) { .expedition-header { flex-direction: column; gap: 12px; }.expedition-preparation { grid-template-columns: 1fr; }.expedition-cards { grid-template-columns: 1fr; }.expedition-route ol { gap: 7px; }.expedition-route li { padding: 10px; }.expedition-route li > strong { font-size: 12px; }.expedition-panel button { min-height: 40px; }.game-view-tabs button { min-width: 0; flex: 1; }.game-view-tabs .active-run-label { width: 100%; margin-left: 0; }.expedition-panel { padding: 16px; }.build-view-shell { padding: 13px; } }
 @media (max-width: 420px) { .expedition-route ol { grid-template-columns: 1fr; }.expedition-route li { grid-template-columns: 20px 1fr; gap: 5px; }.expedition-route li > small { grid-column: 2; }.expedition-results { padding: 15px; } }
+
+/* The active node/battle leads; route history and the carried-party ledger are
+   available on demand after play, rather than a prerequisite scroll. */
+.expedition-workspace { padding: 16px; }
+.expedition-workspace .expedition-header { gap: 12px; padding-bottom: 10px; margin-bottom: 10px; align-items: center; }
+.expedition-workspace .expedition-header h2 { margin: 2px 0; font-size: 23px; }
+.expedition-workspace .expedition-header .section-eyebrow { margin: 0; }
+.expedition-workspace[data-battle="true"] .expedition-header .section-eyebrow { display: none; }
+.expedition-run-summary { display: flex; flex-wrap: wrap; gap: 5px 18px; align-items: baseline; margin: 0 0 10px; color: #e4d39c; font-size: 14px; }
+.expedition-briefing { margin-top: 12px; border: 1px solid var(--border); border-radius: 6px; background: #16372a77; }
+.expedition-briefing > summary { min-height: 44px; padding: 11px 13px; color: var(--gold); cursor: pointer; font-size: 14px; }
+.expedition-briefing > :not(summary) { margin-left: 13px; margin-right: 13px; }
+.expedition-briefing .expedition-route ol { margin-bottom: 12px; }
+.expedition-workspace .expedition-feedback:empty { min-height: 0; margin: 0; }
+.expedition-workspace > .expedition-feedback { margin: 10px 0; }
+.expedition-workspace .expedition-talents { margin: 10px 0; }
+.expedition-workspace .expedition-talents summary { padding: 10px 0; }
+@media (max-width: 760px) {
+  .expedition-workspace { padding: 10px; }
+  .expedition-workspace .expedition-header { flex-direction: row; flex-wrap: wrap; }
+  .expedition-workspace .expedition-phase { padding: 6px 9px; }
+}

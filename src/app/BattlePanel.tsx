@@ -6,6 +6,7 @@ import { queryCastReadiness, type BattleEvent, type CastReadiness } from '../cor
 import { translate, type Locale } from '../i18n';
 import { PhaserBattle, battleAssetUrl, battleDefinitionName, battleText, buildBattleProjection, buildBattleZoneProjection, PAPER_DECOY_OUTLINE } from '../phaser/PhaserBattle';
 import type { BattleEntityPresentations, BattleUnitView } from '../phaser/PhaserBattle';
+import { WorkspaceTabs, workspacePanel } from './WorkspaceTabs';
 import './battle.css';
 
 export interface BattlePanelProps {
@@ -83,7 +84,8 @@ function Roster({ title, units, selected, onSelect, locale }: { title: string; u
   </button>)}</div></section>;
 }
 export function BattlePanel({ controller, catalog, locale, entityPresentation, paused, speed, onPausedChange, onSpeedChange, onTacticalOrder, readOnly = false, retreatStatus = 'unavailable', retreatRemainingTicks = 0, onRetreat, onContinue }: BattlePanelProps) {
-  const titleId = useId(); const commandId = useId(); const reducedMotion = useReducedMotion();
+  const titleId = useId(); const commandId = useId(); const workbenchId = useId(); const reducedMotion = useReducedMotion();
+  const [workspace, setWorkspace] = useState<'command' | 'roster' | 'inspect' | 'log'>('command');
   const units = useMemo(() => buildBattleProjection(controller, catalog, locale, entityPresentation), [controller, catalog, locale, entityPresentation]);
   const zones = useMemo(() => buildBattleZoneProjection(controller, catalog, locale), [controller, catalog, locale]);
   const allies = units.filter(unit => unit.ally && unit.kind === 'combatant'); const enemies = units.filter(unit => !unit.ally && unit.kind === 'combatant'); const summons = units.filter(unit => unit.kind === 'summon'); const availableAllies = allies.filter(unit => unit.kind === 'combatant' && (unit.life === 'Alive' || unit.life === 'Recovered'));
@@ -104,26 +106,15 @@ export function BattlePanel({ controller, catalog, locale, entityPresentation, p
     <header className="battle-header"><div><span className="battle-eyebrow">{battleText(locale, paused ? 'paused' : 'auto')}</span><h2 id={titleId}>{battleText(locale, 'title')}</h2><p>{battleText(locale, 'subtitle')}</p></div><div className="battle-time-controls"><span className="battle-elapsed">{battleText(locale, 'elapsed', { seconds: battleSeconds(controller.elapsedTicks) })}</span><button type="button" className="battle-pause" disabled={!controlsEnabled} aria-pressed={paused} onClick={() => onPausedChange(!paused)}>{translate(locale, paused ? 'time.resume' : 'time.pause')}</button><div className="battle-speed" role="group" aria-label={battleText(locale, 'auto')}><button type="button" aria-pressed={speed === 1} disabled={!controlsEnabled} onClick={() => onSpeedChange(1)}>{translate(locale, 'time.normal')}</button><button type="button" aria-pressed={speed === 3} disabled={!controlsEnabled} onClick={() => onSpeedChange(3)}>{translate(locale, 'time.fast')}</button></div></div></header>
     {!ongoing && <div className="battle-outcome" data-outcome={controller.outcome.status} role="status"><strong>{battleText(locale, `outcome.${controller.outcome.status}`)}</strong><span>{battleText(locale, 'totals', { damage: controller.battle.statistics.healthLost, healing: controller.battle.statistics.effectiveHealing })}</span>{onContinue && <button type="button" disabled={readOnly} onClick={onContinue}>{battleText(locale, 'continue')}</button>}</div>}
     <div className="battle-main"><div className="battle-playfield"><PhaserBattle controller={controller} catalog={catalog} locale={locale} {...(entityPresentation ? { entityPresentation } : {})} selectedEntityId={selected?.id ?? null} onSelect={setSelectedId} paused={paused} reducedMotion={reducedMotion} /><p className="battle-keyboard-help">{battleText(locale, 'keyboardHelp')}</p></div>
-      <aside className="battle-inspector" aria-label={battleText(locale, 'inspect')}>{selected ? <>
-        <div className="battle-inspector-heading" data-kind={selected.kind}><UnitPortrait unit={selected} large /><div><span className="battle-eyebrow">{battleText(locale, selected.ally ? 'side.ally' : 'side.enemy')}</span><h3>{selected.name}</h3><span className="battle-life-badge" data-life={selected.life}>{battleText(locale, `life.${selected.life}`)}</span>{selected.kind === 'summon' && <span className="battle-summon-kind">{battleText(locale, 'summon.kind')}</span>}</div></div>
-        <dl className="battle-vitals"><div><dt>{battleText(locale, 'health')}</dt><dd>{selected.health} / {selected.maximumHealth}</dd><progress aria-label={battleText(locale, 'health')} value={selected.health} max={selected.maximumHealth} /></div>{selected.kind !== 'summon' && <div><dt>{battleText(locale, 'spirit')}</dt><dd>{selected.spirit} / {selected.maximumSpirit}</dd><progress aria-label={battleText(locale, 'spirit')} value={selected.spirit} max={Math.max(1, selected.maximumSpirit)} /></div>}<div className="battle-shield-total"><dt>{battleText(locale, 'shield')}</dt><dd>{selected.shield}</dd></div></dl>
-        {selected.kind === 'summon' ? <div className="battle-summon-details">
-          {selected.summon && <><strong>{selected.summon.lifetimeLabel}</strong><progress aria-label={selected.summon.lifetimeLabel} max={10_000} value={selected.summon.remainingBps} /><span>{battleText(locale, 'summon.owner', { name: units.find(unit => unit.id === selected.summon!.casterId)?.name ?? battleText(locale, 'unitFallback', { number: 0 }) })}</span></>}
-          <small>{battleText(locale, 'summon.rules')}</small>
-        </div> : <div className="battle-casting">{selected.castName ? <><strong>{battleText(locale, 'casting', { skill: selected.castName })}</strong><progress max={10_000} value={selected.castProgressBps} aria-label={battleText(locale, 'casting', { skill: selected.castName })} /><span>{battleText(locale, 'castRemaining', { seconds: battleSeconds(selected.castRemainingTicks) })}</span></> : <strong>{battleText(locale, 'idle')}</strong>}<small>{selected.targetId ? battleText(locale, 'target', { name: units.find(unit => unit.id === selected.targetId)?.name ?? '' }) : battleText(locale, 'untargeted')}</small></div>}
-        <div className="battle-status-list"><h4>{battleText(locale, 'statuses')}</h4>{selected.statuses.length === 0 ? <p>{battleText(locale, 'noStatuses')}</p> : <ul>{selected.statuses.map(status => <li key={status.id} data-category={status.category}><strong>{battleText(locale, 'statusStack', { name: status.name, count: status.stacks })}</strong><small>{status.remainingTicks === null ? battleText(locale, 'statusInfinite') : battleText(locale, 'statusDuration', { seconds: battleSeconds(status.remainingTicks) })}</small></li>)}</ul>}</div>
-      </> : <p>{battleText(locale, 'selectHint')}</p>}</aside></div>
-    {zones.length > 0 && <section className="battle-fields" aria-label={battleText(locale, 'zone.title')}>
-      <h3>{battleText(locale, 'zone.title')}</h3><p>{battleText(locale, 'zone.hint')}</p>
-      <ol>{zones.map(zone => <li key={zone.id} data-zone-id={zone.id} data-side={zone.ally ? 'ally' : 'enemy'} data-purpose={zone.purpose}>
-        <div><strong>{battleText(locale, 'zone.badge', { number: zone.number })} · {zone.name}</strong><span>{battleText(locale, zone.ally ? 'side.ally' : 'side.enemy')} · {battleText(locale, `zone.purpose.${zone.purpose}`)}</span></div>
-        <span>{battleText(locale, `zone.targets.${zone.targets}`)} · {zone.lifetimeLabel}</span>
-        <small>{battleText(locale, 'zone.owner', { name: units.find(unit => unit.id === zone.casterId)?.name ?? battleText(locale, 'unitFallback', { number: 0 }) })}</small>
-        <small>{battleText(locale, 'zone.fixed', { x: zone.anchor.x, y: zone.anchor.y, radius: zone.radiusUnits, cells: zone.cellCount })}</small>
-      </li>)}</ol>
-    </section>}
-    <div className="battle-rosters"><Roster title={battleText(locale, 'allies')} units={allies} selected={selected?.id ?? null} onSelect={setSelectedId} locale={locale} /><Roster title={battleText(locale, 'enemies')} units={enemies} selected={selected?.id ?? null} onSelect={setSelectedId} locale={locale} /></div>
-    {summons.length > 0 && <div className="battle-summons"><Roster title={battleText(locale, 'summon.title')} units={summons} selected={selected?.id ?? null} onSelect={setSelectedId} locale={locale} /></div>}
+      <aside className="battle-workbench" aria-label={battleText(locale, 'commander')}>
+        <WorkspaceTabs id={workbenchId} label={battleText(locale, 'title')} selected={workspace} onSelect={setWorkspace} tabs={[
+          { id: 'command', label: battleText(locale, 'commander') },
+          { id: 'roster', label: `${battleText(locale, 'allies')} · ${battleText(locale, 'enemies')}` },
+          { id: 'inspect', label: battleText(locale, 'inspect') },
+          { id: 'log', label: battleText(locale, 'log') },
+        ]} />
+        {selected && <div className="battle-target-summary"><strong>{battleText(locale, 'target', { name: selected.name })}</strong><span>{battleText(locale, `life.${selected.life}`)} · {selected.health} / {selected.maximumHealth}</span></div>}
+        <div {...workspacePanel(workbenchId, 'command', workspace)}>
     <div className="battle-command-strip"><div className="battle-commander"><label htmlFor={commandId}>{battleText(locale, 'commander')}</label><select id={commandId} value={commander?.id ?? ''} onChange={event => setCommanderId(event.target.value)} disabled={!controlsEnabled || !commander}>{allies.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></div><div className="battle-tactics"><button type="button" disabled={!controlsEnabled || !commander || !issuerUnlocked || !actionableTarget || selected!.ally} onClick={() => issue('focus')}>{battleText(locale, 'focus')}</button><button type="button" disabled={!controlsEnabled || !commander || !issuerUnlocked || !actionableTarget || !selected!.ally || selected!.id === commander.id || !guardReady} onClick={() => issue('guard')}>{battleText(locale, 'guard')}</button><button type="button" disabled={!controlsEnabled || !commanderActive} onClick={() => issue('hold')}>{battleText(locale, 'hold')}</button><button type="button" className="battle-secondary" disabled={!controlsEnabled || !commanderActive || !controller.battle.focusByTeam[controller.config.playerTeam]} onClick={() => commander && commanderActive && controlsEnabled && onTacticalOrder({ kind: 'clearFocus', actorId: commander.id })}>{battleText(locale, 'clearFocus')}</button></div>
       <div className="battle-retreat">{retreatStatus === 'pending' ? <span role="status">{battleText(locale, 'retreatPending', { seconds: battleSeconds(retreatRemainingTicks) })}</span> : <button type="button" className="battle-retreat-button" disabled={!controlsEnabled || retreatStatus !== 'available' || !onRetreat} title={retreatStatus === 'unavailable' ? battleText(locale, 'retreatUnavailable') : undefined} onClick={onRetreat}>{battleText(locale, 'retreat')}</button>}</div>
     </div><p className="battle-command-hint">{battleText(locale, 'commandHint')}</p>
@@ -144,6 +135,34 @@ export function BattlePanel({ controller, catalog, locale, entityPresentation, p
         </div>;
       })}</div>}
     </section>
-    <details className="battle-log"><summary>{battleText(locale, 'log')}</summary>{records.length ? <ol>{records.map(record => <li key={record.id}><time>{record.seconds.toFixed(2)}s</time><span>{record.text}</span></li>)}</ol> : <p>{battleText(locale, 'logEmpty')}</p>}</details>
+        </div>
+        <div {...workspacePanel(workbenchId, 'roster', workspace)}>
+    <div className="battle-rosters"><Roster title={battleText(locale, 'allies')} units={allies} selected={selected?.id ?? null} onSelect={setSelectedId} locale={locale} /><Roster title={battleText(locale, 'enemies')} units={enemies} selected={selected?.id ?? null} onSelect={setSelectedId} locale={locale} /></div>
+    {summons.length > 0 && <div className="battle-summons"><Roster title={battleText(locale, 'summon.title')} units={summons} selected={selected?.id ?? null} onSelect={setSelectedId} locale={locale} /></div>}
+        </div>
+        <div {...workspacePanel(workbenchId, 'inspect', workspace)}>
+      <aside className="battle-inspector" aria-label={battleText(locale, 'inspect')}>{selected ? <>
+        <div className="battle-inspector-heading" data-kind={selected.kind}><UnitPortrait unit={selected} large /><div><span className="battle-eyebrow">{battleText(locale, selected.ally ? 'side.ally' : 'side.enemy')}</span><h3>{selected.name}</h3><span className="battle-life-badge" data-life={selected.life}>{battleText(locale, `life.${selected.life}`)}</span>{selected.kind === 'summon' && <span className="battle-summon-kind">{battleText(locale, 'summon.kind')}</span>}</div></div>
+        <dl className="battle-vitals"><div><dt>{battleText(locale, 'health')}</dt><dd>{selected.health} / {selected.maximumHealth}</dd><progress aria-label={battleText(locale, 'health')} value={selected.health} max={selected.maximumHealth} /></div>{selected.kind !== 'summon' && <div><dt>{battleText(locale, 'spirit')}</dt><dd>{selected.spirit} / {selected.maximumSpirit}</dd><progress aria-label={battleText(locale, 'spirit')} value={selected.spirit} max={Math.max(1, selected.maximumSpirit)} /></div>}<div className="battle-shield-total"><dt>{battleText(locale, 'shield')}</dt><dd>{selected.shield}</dd></div></dl>
+        {selected.kind === 'summon' ? <div className="battle-summon-details">
+          {selected.summon && <><strong>{selected.summon.lifetimeLabel}</strong><progress aria-label={selected.summon.lifetimeLabel} max={10_000} value={selected.summon.remainingBps} /><span>{battleText(locale, 'summon.owner', { name: units.find(unit => unit.id === selected.summon!.casterId)?.name ?? battleText(locale, 'unitFallback', { number: 0 }) })}</span></>}
+          <small>{battleText(locale, 'summon.rules')}</small>
+        </div> : <div className="battle-casting">{selected.castName ? <><strong>{battleText(locale, 'casting', { skill: selected.castName })}</strong><progress max={10_000} value={selected.castProgressBps} aria-label={battleText(locale, 'casting', { skill: selected.castName })} /><span>{battleText(locale, 'castRemaining', { seconds: battleSeconds(selected.castRemainingTicks) })}</span></> : <strong>{battleText(locale, 'idle')}</strong>}<small>{selected.targetId ? battleText(locale, 'target', { name: units.find(unit => unit.id === selected.targetId)?.name ?? '' }) : battleText(locale, 'untargeted')}</small></div>}
+        <div className="battle-status-list"><h4>{battleText(locale, 'statuses')}</h4>{selected.statuses.length === 0 ? <p>{battleText(locale, 'noStatuses')}</p> : <ul>{selected.statuses.map(status => <li key={status.id} data-category={status.category}><strong>{battleText(locale, 'statusStack', { name: status.name, count: status.stacks })}</strong><small>{status.remainingTicks === null ? battleText(locale, 'statusInfinite') : battleText(locale, 'statusDuration', { seconds: battleSeconds(status.remainingTicks) })}</small></li>)}</ul>}</div>
+      </> : <p>{battleText(locale, 'selectHint')}</p>}</aside>
+    {zones.length > 0 && <section className="battle-fields" aria-label={battleText(locale, 'zone.title')}>
+      <h3>{battleText(locale, 'zone.title')}</h3><p>{battleText(locale, 'zone.hint')}</p>
+      <ol>{zones.map(zone => <li key={zone.id} data-zone-id={zone.id} data-side={zone.ally ? 'ally' : 'enemy'} data-purpose={zone.purpose}>
+        <div><strong>{battleText(locale, 'zone.badge', { number: zone.number })} · {zone.name}</strong><span>{battleText(locale, zone.ally ? 'side.ally' : 'side.enemy')} · {battleText(locale, `zone.purpose.${zone.purpose}`)}</span></div>
+        <span>{battleText(locale, `zone.targets.${zone.targets}`)} · {zone.lifetimeLabel}</span>
+        <small>{battleText(locale, 'zone.owner', { name: units.find(unit => unit.id === zone.casterId)?.name ?? battleText(locale, 'unitFallback', { number: 0 }) })}</small>
+        <small>{battleText(locale, 'zone.fixed', { x: zone.anchor.x, y: zone.anchor.y, radius: zone.radiusUnits, cells: zone.cellCount })}</small>
+      </li>)}</ol>
+    </section>}
+        </div>
+        <div {...workspacePanel(workbenchId, 'log', workspace)}>
+    <section className="battle-log"><h3>{battleText(locale, 'log')}</h3>{records.length ? <ol>{records.map(record => <li key={record.id}><time>{record.seconds.toFixed(2)}s</time><span>{record.text}</span></li>)}</ol> : <p>{battleText(locale, 'logEmpty')}</p>}</section>        </div>
+      </aside>
+    </div>
   </section>;
 }

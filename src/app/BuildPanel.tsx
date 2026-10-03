@@ -9,6 +9,7 @@ import { resolveBuildContentContext } from '../content/registry/build-context';
 import { canonicalStringify, cloneJson, compareStable, stableHash } from '../core/kernel/serialization';
 import { combatContentTranslator } from '../application/combat-content-text';
 import { translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
+import { WorkspaceTabs, workspacePanel } from './WorkspaceTabs';
 import './build-panel.css';
 
 type WithoutCommandId<T> = T extends BuildCommand ? Omit<T, 'commandId'> : never;
@@ -30,6 +31,8 @@ export interface BuildPanelProps {
   readonly locked?: boolean;
   readonly nameFor?: (definitionId: string) => string | undefined;
   readonly discipleName?: string;
+  /** Opt-in view-only categories for the ordinary campaign workspace. */
+  readonly workspace?: boolean;
 }
 interface BuildPanelDraft {
   readonly discipleId: string;
@@ -246,6 +249,11 @@ function BuildPanelEditor(props: BuildPanelProps) {
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const content = panelContent(frame, catalog, props.context);
   const disciple = frame.builds.disciples.find(item => item.discipleId === discipleId);
+  const [category, setCategory] = useState<'loadout' | 'tree' | 'skills'>('loadout');
+  const focusCategory = useRef(false);
+  useLayoutEffect(() => {
+    if (focusCategory.current) { focusCategory.current = false; document.getElementById(`${prefix}-workspace-panel-${category}`)?.focus(); }
+  }, [category, prefix]);
   const [browsing, setBrowsing] = useState<{ discipleId: string; school: School } | null>(null);
   const [draft, setDraft] = useState<BuildPanelDraft | null>(null);
   const [notice, setNotice] = useState<BuildPanelCommandResult | null>(null);
@@ -287,15 +295,20 @@ function BuildPanelEditor(props: BuildPanelProps) {
   const treeError = currentDraft?.kind === 'tree' ? nodeSetError(frame, content, disciple, currentDraft.nodeIds) : null;
   const draftAdded = currentDraft?.nodeIds.filter(id => !disciple.allocatedNodeIds.includes(id)).length ?? 0;
   const draftRemoved = disciple.allocatedNodeIds.filter(id => !currentDraft?.nodeIds.includes(id)).length;
-  return <section className="build-panel" aria-labelledby={`${prefix}-title`}>
+  return <section className="build-panel" data-workspace={props.workspace || undefined} aria-labelledby={`${prefix}-title`}>
     <header className="build-header"><span className="build-seal" aria-hidden="true">◇</span><div><span className="build-eyebrow">{t('subtitle')}</span><h3 id={`${prefix}-title`}>{t('title')}</h3><p>{t('disciple', { name: discipleName || t('fallbackDisciple') })}</p></div></header>
     <div className="build-resource-summary"><strong>{t('points', { earned: progress.earnedPoints, allocated: progress.allocatedPoints, remaining: progress.availablePoints })}</strong><span>{t('credits', { remaining: progress.availableLearningCredits, earned: progress.earnedLearningCredits })}</span></div>
     <p className="build-footnote">{t('milestoneHelp')}</p>
     {(readOnly || lifeBlocked || locked || disciple.lock) && <p className="build-notice" role="status">{props.lifeState === 'dead' ? `${translate(locale, 'disciple.dead')} · ` : props.lifeState === 'pendingDeath' ? `${translate(locale, 'cultivation.ui.pendingDeath')} · ` : ''}{t(readOnly || lifeBlocked ? 'readOnly' : 'locked')}</p>}
     {stale && <div className="build-notice build-stale" role="alert"><p>{t('draftStale')}</p><button type="button" className="build-secondary" onClick={discard}>{t('reloadDraft')}</button></div>}
     {pending && <p className="build-notice" role="status">{t('pending')}</p>}
-    <div className="build-schools" role="group" aria-label={t('schools')}>{content.schools.map(item => <button type="button" key={item} aria-pressed={school === item} onClick={() => setBrowsing({ discipleId, school: item })}><span>{t(`school.${item}`)}</span>{disciple.school === item && <small>{t('nativeSchool')}</small>}</button>)}</div>
-    {school !== disciple.school && <p className="build-footnote">{t('browseOnly', { school: t(`school.${disciple.school}`) })}</p>}
+    {props.workspace && <WorkspaceTabs id={`${prefix}-workspace`} label={t('title')} selected={category} onSelect={setCategory} tabs={[
+      { id: 'loadout', label: t('loadout') }, { id: 'tree', label: t('tree') }, { id: 'skills', label: t('skills') },
+    ]} />}
+    {props.workspace && currentDraft && category !== currentDraft.kind && <div className="build-workspace-draft"><span>{t('finishDraft')}</span><button type="button" className="build-secondary" onClick={() => { focusCategory.current = true; setCategory(currentDraft.kind); }}>{t(currentDraft.kind === 'tree' ? 'tree' : 'loadout')}</button></div>}
+    <div className="build-schools" hidden={props.workspace && category === 'loadout'} role="group" aria-label={t('schools')}>{content.schools.map(item => <button type="button" key={item} aria-pressed={school === item} onClick={() => setBrowsing({ discipleId, school: item })}><span>{t(`school.${item}`)}</span>{disciple.school === item && <small>{t('nativeSchool')}</small>}</button>)}</div>
+    {school !== disciple.school && (!props.workspace || category !== 'loadout') && <p className="build-footnote">{t('browseOnly', { school: t(`school.${disciple.school}`) })}</p>}
+    <div {...(props.workspace ? workspacePanel(`${prefix}-workspace`, 'tree', category) : {})}>
     <section className="build-tree-section" aria-labelledby={`${prefix}-tree`}><div className="build-section-heading"><h4 id={`${prefix}-tree`}>{tree ? name(tree.id) : t('tree')}</h4><span>{t('tree')}</span></div><p className="build-help">{t('treeHelp')}</p>
       <div className="build-tree">{(['a', 'b', 'c'] as const).map(branch => <section className="build-branch" key={branch} aria-labelledby={`${prefix}-branch-${branch}`}><h5 id={`${prefix}-branch-${branch}`}>{t(`branch.${branch}`)}</h5><ol>{catalog.treeNodes.filter(node => node.school === school && node.branch === branch).sort((a, b) => a.tier - b.tier).map(node => {
         const selected = nodeIds.includes(node.id); const committed = disciple.allocatedNodeIds.includes(node.id);
@@ -316,6 +329,8 @@ function BuildPanelEditor(props: BuildPanelProps) {
       <p className="build-footnote">{t('removeDependents')}</p>
       {currentDraft?.kind === 'tree' && <div className="build-draft" aria-label={t('draftTree', { count: currentDraft.nodeIds.length, maximum: Math.min(content.maximumAllocatedPoints, progress.earnedPoints) })}><strong>{t('draftTree', { count: currentDraft.nodeIds.length, maximum: Math.min(content.maximumAllocatedPoints, progress.earnedPoints) })}</strong><p>{t('draftChanges', { added: draftAdded, removed: draftRemoved })}</p>{treeError && <p className="build-blocker">{feedback(locale, treeError)}</p>}<div className="build-actions"><button type="button" disabled={blocked || stale || !treeChanged || !!treeError} onClick={() => send({ kind: 'tree.respec', discipleId, nodeIds: [...currentDraft.nodeIds], expectedRevision: currentDraft.expectedRevision })}>{t('applyTree')}</button><button type="button" className="build-secondary" onClick={discard}>{t('discardDraft')}</button></div></div>}
     </section>
+    </div>
+    <div {...(props.workspace ? workspacePanel(`${prefix}-workspace`, 'loadout', category) : {})}>
     <section className="build-loadout-section" data-draft={currentDraft?.kind === 'loadout'} aria-labelledby={`${prefix}-loadout`}><div className="build-section-heading"><h4 id={`${prefix}-loadout`}>{t('loadout')}</h4><span>{t(currentDraft?.kind === 'loadout' ? 'draftEquipped' : 'equipped')}</span></div><p className="build-help">{t('loadoutHelp')}</p>
       <p className="build-basic"><span>{t('basic')}</span><strong>{name(disciple.loadout.basicId)}</strong></p>
       {currentDraft && <p className="build-footnote">{t('finishDraft')}</p>}
@@ -334,6 +349,8 @@ function BuildPanelEditor(props: BuildPanelProps) {
       })}</div>
       {currentDraft?.kind === 'loadout' && <div className="build-draft"><strong>{t('draftLoadout')}</strong><div className="build-actions"><button type="button" disabled={blocked || stale || !loadoutChanged} onClick={() => send({ kind: 'loadout.set', discipleId, loadout: cloneJson(currentDraft.loadout), expectedRevision: currentDraft.expectedRevision })}>{t('applyLoadout')}</button><button type="button" className="build-secondary" onClick={discard}>{t('discardDraft')}</button></div></div>}
     </section>
+    </div>
+    <div {...(props.workspace ? workspacePanel(`${prefix}-workspace`, 'skills', category) : {})}>
     <details className="build-library" open><summary><span>{t('skills')}</span><small>{t('learnedCount', { count: disciple.learnedSkills.length })}</small></summary><p className="build-help">{t('skillsHelp')}</p><p className="build-library-credits">{t('credits', { remaining: progress.availableLearningCredits, earned: progress.earnedLearningCredits })}</p><div className="build-skill-library">{catalog.skills.filter(skill => skill.school === school).map(skill => {
       const learned = learnedIds.has(skill.id); const equipped = equippedIds.includes(skill.id); const rule = content.lessons.find(rule => rule.skillId === skill.id); const timing = buildSkillTiming(skill);
       const support = combatDefinitionSupport(catalog, skill.id, frame.builds.contentMode); const requirements = skillRequirementsMet(disciple, skill.id, content);
@@ -342,6 +359,7 @@ function BuildPanelEditor(props: BuildPanelProps) {
       const canLearn = !blocked && !currentDraft && !learned && support.supported && requirements && enoughCredits;
       return <article className="build-skill-card" key={skill.id} data-supported={support.supported} data-learned={learned}><header><h5>{name(skill.id)}</h5><span>{t(skill.activation === 'passive' ? 'passive' : skill.ultimate ? 'ultimate' : 'active')}</span></header><div className="build-skill-badges"><span>{t(learned ? 'learned' : 'notLearned')}</span>{equipped && <strong>{t('equipped')}</strong>}</div><p>{buildDefinitionDescription(locale, skill, catalog)}</p>{timing && <p className="build-skill-timing">{t('skillTiming', timing)}</p>}{prerequisites.length > 0 && <small>{t('requires', { names: prerequisites.map(name).join('、') })}</small>}{!support.supported && <p className="build-blocker">{buildSupportExplanation(locale, support.reasons)}</p>}{skill.school !== disciple.school && <p className="build-footnote">{t('foreignSkill')}</p>}{!learned && <div className="build-study"><span>{t('learningCost', { cost })}</span><button type="button" disabled={!canLearn} onClick={() => { if (canLearn) send({ kind: 'skill.learn', discipleId, skillId: skill.id, expectedRevision: frame.builds.revision }); }}>{t('learn', { cost })}</button>{support.supported && !requirements && <p className="build-blocker">{t('missingPrerequisite')}</p>}{support.supported && requirements && !enoughCredits && <p className="build-blocker">{t('insufficientCredits')}</p>}</div>}</article>;
     })}</div></details>
+    </div>
     <div className="build-feedback" role="status" aria-live="polite">{notice ? notice.ok ? pending ? t('submitted') : null : feedback(locale, notice.code) : null}</div>
   </section>;
 }

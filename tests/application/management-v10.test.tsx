@@ -168,7 +168,7 @@ describe('v10 map-first presentation', () => {
   it.each(['zh-CN', 'en'] as const)('retains test-build identity, full ledgers and map-before-placement order in %s', locale => {
     const session = fresh(); const before = session.getSnapshot(); const t = createManagementTranslatorV10(locale);
     const html = renderToStaticMarkup(createElement(ManagementAppV10, { session, initialLocale: locale }));
-    expect(html).toContain('class="management-v9 management-v9-map-first management-v10"');
+    expect(html).toContain('class="management-v9 management-v9-map-first management-v9-workspace management-v10"');
     const scope = /<details class="management-v9-scope">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
     expect(scope).toContain(t('managementV10.candidate')); expect(scope).toContain(t('managementV10.scope'));
     expect(scope).toContain(locale === 'en' ? 'v10 management test build' : 'v10 经营测试版');
@@ -185,28 +185,27 @@ describe('v10 map-first presentation', () => {
       expect(ledger).toContain(t('live.capacity', { capacity: row.capacity }));
     }
     const mapAt = html.indexOf('<section class="management-v9-world"');
-    const placementAt = html.indexOf('<details class="management-v9-placement-disclosure">');
+    const placementAt = html.indexOf('<section class="management-v9-panel management-v9-placement"');
     expect(mapAt).toBeGreaterThan(0); expect(placementAt).toBeGreaterThan(mapAt);
     expect(html.indexOf('<section id="management-v10-roster"')).toBeGreaterThan(placementAt);
     expect(html).toContain(`<h2 id="management-v10-selection">${t('managementV9.people')}</h2>`);
     expect(html).toContain(`aria-description="${t('managementV9.selection')}"`);
-    const placementMarkup = html.slice(placementAt, html.indexOf('</details>', placementAt));
+    const placementMarkup = html.slice(placementAt, html.indexOf('</section>', placementAt));
     expect(placementMarkup).toContain('aria-labelledby="management-v10-placement-heading"');
     expect(placementMarkup).toContain('class="management-v9-placement-fields"');
     expect(placementMarkup.match(/type="number"/g)).toHaveLength(2);
     expect(placementMarkup).toContain(t('managementV9.preview')); expect(session.getSnapshot()).toBe(before);
   });
-  it.each(['zh-CN', 'en'] as const)('keeps all v10 section links in a native navigation disclosure in %s', locale => {
+  it.each(['zh-CN', 'en'] as const)('keeps all v10 categories in the compact tab navigation in %s', locale => {
     const session = fresh(); const t = createManagementTranslatorV10(locale);
     const html = renderToStaticMarkup(createElement(ManagementAppV10, { session, initialLocale: locale }));
-    const navigation = /<details class="management-v9-navigation-disclosure">([\s\S]*?)<\/details>/.exec(html)?.[0] ?? '';
-    expect(navigation).toContain(`<summary>${t('managementV9.navigation')}</summary>`);
+    const navigation = /<div class="management-workspace-navigation"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[0] ?? '';
     expect(navigation).toContain(`aria-label="${t('managementV9.navigation')}"`);
-    for (const suffix of ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'research', 'upgrade', 'care', 'maintenance']) {
-      const id = `management-v10-${suffix}`;
-      expect(navigation).toContain(`href="#${id}"`); expect(html.match(new RegExp(`id="${id}"`, 'g'))).toHaveLength(1);
-      expect(html).toMatch(new RegExp(`<section[^>]*id="${id}"[^>]*tabindex="-1"`));
+    for (const suffix of ['overview', 'roster', 'cultivation', 'build', 'production', 'jobs', 'placement', 'research', 'upgrade', 'care', 'maintenance']) {
+      expect(navigation).toContain(`id="management-v10-workspace-tab-${suffix}"`);
     }
+    expect(navigation.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(html).toContain('<section id="management-v10-upgrade" hidden=""');
   });
   it.each(['slot', 'session'] as const)('keeps manual-only, dirty, %s read-only and storage notices outside collapsed content', origin => {
     const session = fresh(); if (origin === 'session') session.setStorageReadOnly(true);
@@ -238,16 +237,14 @@ describe('v10 map-first presentation', () => {
   });
   it('keeps the global review outside disclosures and placement fields mounted through a live preview', () => {
     const source = readFileSync(new URL('../../src/app/ManagementAppV10.tsx', import.meta.url), 'utf8');
-    const shell = source.slice(source.indexOf('return <main className="management-v9 management-v9-map-first management-v10"'));
+    const shell = source.slice(source.indexOf('return <main className="management-v9 management-v9-map-first management-v9-workspace management-v10"'));
     const beforeReview = shell.slice(0, shell.indexOf('<ReviewPanelV10'));
     expect(shell.match(/<ReviewPanelV10/g)).toHaveLength(1);
     expect(beforeReview.match(/<details\b/g)?.length).toBe(beforeReview.match(/<\/details>/g)?.length);
     expect(shell.indexOf('<ReviewPanelV10')).toBeLessThan(shell.indexOf('className="management-v9-utilities"'));
-    expect(shell).toContain('open={placementOpen || placementReview}');
-    expect(shell).toContain('if (placementReview && !event.currentTarget.open) event.currentTarget.open = true');
-    expect(shell).toContain('if (placementReview) event.preventDefault()');
-    expect(source).toContain('setPlacementOpen(true); setPlacement(next); if (placementReview) prepare(next)');
-    expect(source).not.toContain('placementOpen &&'); expect(shell).not.toContain('.focus(');
+    expect(shell).toContain("hidden={activeSection !== 'placement'}");
+    expect(source).toContain('setPlacement(next); if (placementReview) prepare(next)');
+    expect(source).not.toContain("activeSection === 'placement' &&"); expect(shell).not.toContain('.focus(');
     expect(source).toContain('}, [focus, region, session])');
     const css = readFileSync(new URL('../../src/app/management-v10.css', import.meta.url), 'utf8');
     expect(css).toContain('@media (max-width: 48rem), (max-height: 34rem)');

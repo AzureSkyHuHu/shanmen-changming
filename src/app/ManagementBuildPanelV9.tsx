@@ -14,6 +14,8 @@ import type { RuntimeReadonlyV9 } from '../core/world/runtime-view-types-v9';
 import { translate, type Locale, type TextKey, type TranslationParams } from '../i18n';
 
 export interface ManagementBuildPanelV9Props {
+  active?: boolean;
+  onReviewChange?: (open: boolean) => void;
   session: ManagementBuildSessionV9;
   snapshot: ManagementSnapshotV9;
   locale: Locale;
@@ -78,7 +80,7 @@ export function ManagementBuildPanelV9(props: ManagementBuildPanelV9Props) {
   return <ManagementBuildEditorV9 key={`${props.snapshot.sessionEpoch}/${props.snapshot.selection?.kind}/${props.snapshot.selection?.id}`} {...props} />;
 }
 function ManagementBuildEditorV9(props: ManagementBuildPanelV9Props) {
-  const { session, snapshot, locale, readOnly } = props;
+  const { session, snapshot, locale, readOnly, active = true, onReviewChange } = props;
   const prefix = useId(); const mounted = useRef(false);
   const latest = useRef(props); latest.current = props;
   const controller = useMemo(() => createManagementBuildControllerV9(session, () => latest.current.readOnly || latest.current.getReadOnly()), [session]);
@@ -93,16 +95,17 @@ function ManagementBuildEditorV9(props: ManagementBuildPanelV9Props) {
     mounted.current = true; reviewRef.current = null; setDraft(null); setReview(null); setNotice(null);
     return () => { mounted.current = false; controller.cancel(); reviewRef.current = null; };
   }, [controller]);
+  useEffect(() => { onReviewChange?.(review !== null); return () => onReviewChange?.(false); }, [review, onReviewChange]);
   const cancel = () => { controller.cancel(); reviewRef.current = null; setReview(null); setDraft(null); setNotice(null); };
   useEffect(() => {
-    if (!draft && !review) return;
+    if (!active || !draft && !review) return;
     return attachManagementReviewEscapeV9(document, () => {
       const current = session.getSnapshot(); return current.holds.storageBusy || current.holds.overlay || current.holds.review;
     }, () => { controller.cancel(); reviewRef.current = null; setReview(null); setDraft(null); setNotice(null); });
-  }, [draft, review, session, controller]);
+  }, [active, draft, review, session, controller]);
   useEffect(() => {
     const focus = reviewFocus.current; const region = reviewRegion.current;
-    if (!review || !focus || focus.review !== review || !region) return;
+    if (!active || !review || !focus || focus.review !== review || !region) return;
     const sameOwner = () => mounted.current && liveController.current === controller && latest.current.session === session;
     const release = focusManagementBuildReviewV9({ region, opener: focus.opener, document,
       canEnter: () => sameOwner() && reviewRef.current === review
@@ -118,7 +121,7 @@ function ManagementBuildEditorV9(props: ManagementBuildPanelV9Props) {
       },
     });
     return () => { release(); if (reviewFocus.current === focus) reviewFocus.current = null; };
-  }, [review, session, controller]);
+  }, [active, review, session, controller]);
   const t = (key: TextKey, parameters?: TranslationParams) => translate(locale, key, parameters);
   const b = (suffix: string, parameters?: TranslationParams) => t(`buildView.${suffix}` as TextKey, parameters);
   const v = (suffix: string, parameters?: TranslationParams) => t(`managementV9.build${suffix}` as TextKey, parameters);

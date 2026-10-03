@@ -24,3 +24,58 @@
 .battle-panel .battle-roster h3,
 .battle-panel .battle-fields h3,
 .battle-panel .battle-skills h3 { color: var(--battle-ink); }
+
+/* Compact battle workspace: the field is always primary; one support category
+   is visible at a time. Tab panels remain mounted, with no artificial height cap. */
+.battle-panel .battle-header { padding: 12px 16px; gap: 12px; }
+.battle-panel .battle-header h2 { font-size: 24px; margin: 2px 0; }
+.battle-panel .battle-header > div:first-child > p { display: none; }
+.battle-panel .battle-main { grid-template-columns: minmax(0, 1fr) minmax(340px, 38%); align-items: start; }
+.battle-workbench { min-width: 0; background: var(--battle-paper); border-left: 1px solid #a9b392; }
+.battle-workbench > .workspace-tabs { padding: 10px; gap: 5px; border-bottom: 1px solid #b9bfa2; }
+.battle-workbench > .workspace-tabs > button { flex: 1 1 calc(50% - 5px); }
+.battle-workbench .workspace-tabs > button[aria-selected="true"] { color: #263e3c; background: #e2d19e; border-color: #8a956d; box-shadow: inset 0 -3px #6d8059; }
+.battle-target-summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 9px 13px; color: var(--battle-ink); background: #e4dec0; border-bottom: 1px solid #b9bfa2; font-size: 14px; }
+.battle-target-summary > span { color: #53664f; }
+.battle-workbench .battle-command-strip { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 12px 13px 8px; }
+.battle-workbench .battle-commander { min-width: 0; }
+.battle-workbench .battle-commander select { width: 100%; max-width: none; }
+.battle-workbench .battle-tactics { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.battle-workbench .battle-retreat { margin: 0; max-width: 170px; }
+.battle-workbench .battle-command-hint { padding: 0 13px 10px; }
+.battle-workbench .battle-skills { padding: 12px 13px; }
+.battle-workbench .battle-skills-heading { gap: 4px; margin-bottom: 8px; }
+.battle-workbench .battle-skill-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.battle-workbench .battle-skill { padding: 8px; gap: 5px; }
+.battle-workbench .battle-rosters { grid-template-columns: 1fr; }
+.battle-workbench .battle-roster { padding: 12px; }
+.battle-workbench .battle-roster-units { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.battle-workbench .battle-roster-detail strong { white-space: normal; overflow: visible; }
+.battle-workbench .battle-inspector { display: block; border: 0; }
+.battle-workbench .battle-vitals { margin: 12px 0; }
+.battle-workbench .battle-inspector-heading { border-bottom: 1px solid #b9bfa2; padding-bottom: 10px; }
+.battle-workbench .battle-log { padding: 13px; }
+.battle-workbench .battle-log h3 { color: var(--battle-ink); font-size: 16px; margin: 0; }
+.battle-workbench .battle-log ol, .battle-workbench .battle-fields ol { max-height: none; overflow: visible; }
+.battle-panel .battle-workbench :is(p, small, label, li, button, select, dt, dd, .battle-roster-numbers, .battle-roster-life, .battle-life-badge, .battle-skill-verb, .battle-skill > span) { font-size: 14px; }
+.battle-panel .battle-workbench :is(button, select) { min-height: 44px; }
+.battle-panel .battle-eyebrow, .battle-panel .battle-keyboard-help { font-size: 12px; }
+.battle-panel .battle-elapsed { font-size: 14px; }
+@media (max-width: 900px) {
+  .battle-panel .battle-main { grid-template-columns: 1fr; }
+  .battle-workbench { border-left: 0; border-top: 1px solid #a9b392; }
+  .battle-workbench > .workspace-tabs > button { flex: 1 1 20%; }
+  .battle-panel .battle-stage { min-height: 230px; }
+  .battle-workbench .battle-skill-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 460px) {
+  .battle-panel .battle-header { flex-wrap: wrap; }
+  .battle-panel .battle-time-controls { justify-content: flex-start; }
+  .battle-panel .battle-elapsed { flex-basis: auto; text-align: left; }
+  .battle-workbench > .workspace-tabs > button { flex-basis: calc(50% - 5px); }
+  .battle-workbench .battle-skill-list { grid-template-columns: 1fr; }
+  .battle-workbench .battle-roster-units { grid-template-columns: 1fr; }
+}
+.battle-panel .battle-workbench .battle-roster-detail strong { font-size: 14px; }
+.battle-panel .battle-workbench :is(h3, h4) { font-size: 16px; }
+.battle-panel .battle-keyboard-help { font-size: 14px; }

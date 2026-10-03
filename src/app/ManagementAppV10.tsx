@@ -20,6 +20,7 @@ import { copySectRenderTerrain, copySectRenderLegacyBuildings, freezeSectRendere
 import { PhaserWorld } from '../phaser/PhaserWorld';
 import { ManagementCultivationRiskV9 } from './ManagementCultivationPanelV9';
 import { managementBuildNameV9 } from './ManagementBuildPanelV9';
+import { ManagementWorkspace, type ManagementWorkspaceSection, type ManagementWorkspaceTab, type ManagementWorkspaceFocusRequest } from './ManagementWorkspace';
 import './app.css';
 import './management-v9.css';
 import './management-v9-navigation.css';
@@ -512,7 +513,7 @@ export function managementCareReasonV10(snapshot: ManagementSnapshotV10, readOnl
   if (selected.activityLocked || selected.workOwner !== null) return 'managementV9.careOccupied';
   return snapshot.expansion.stock.some(row => row.resourceId === 'wound-powder' && row.available > 0) ? null : 'managementV9.carePowderMissing';
 }
-export function ManagementSectPanelsV10({ context }: { context: UiContext }) {
+export function ManagementSectPanelsV10({ context, activeSection }: { context: UiContext; activeSection?: ManagementWorkspaceSection }) {
   const { session, snapshot, readOnly, t, reviews, feedback } = context;
   const careCostId = `${useId()}-care-cost`;
   const [workerId, setWorkerId] = useState(() => snapshot.frame.disciples.find(row => managementWorkerAvailableV10(snapshot, row.id))?.id ?? '');
@@ -532,11 +533,16 @@ export function ManagementSectPanelsV10({ context }: { context: UiContext }) {
             : { domain: 'care', command: { kind: 'care.cancel', jobId: job.jobId, expectedRevision: revision } } };
     const notice = reviews.open(snapshot, request, { key: 'managementV9.cancelJob' }, { key: job.domain === 'upgrade' ? 'managementV10.upgradeCancelled' : 'managementV9.cancelHint' }, false, 'ordinary', { opener }); if (notice) feedback(notice);
   };
+  const visible = (section: ManagementWorkspaceSection) => activeSection === undefined || activeSection === section;
+  const workSection = activeSection === undefined || ['production', 'research', 'placement', 'upgrade'].includes(activeSection);
   return <div className="management-v9-panels">
-    <div className="management-v9-panel-column"><section id="management-v10-production" className="management-v9-panel management-v9-anchor" tabIndex={-1}>
-      <h2>{t('managementV9.production')}</h2><p className="management-v9-help">{t('managementV9.loopHint')}</p>
+    <div className="management-workspace-worker" hidden={!workSection}>
       <label className="management-v9-field">{t('production.worker')}<select value={workerId} disabled={!!blocked} onChange={event => setWorkerId(event.currentTarget.value)}><option value="">{t('managementV9.chooseWorker')}</option>{snapshot.frame.disciples.map(actor => <option key={actor.id} value={actor.id} disabled={!managementWorkerAvailableV10(snapshot, actor.id)}>{name(actor.id)} · {t(managementWorkerAvailableV10(snapshot, actor.id) ? 'managementV9.availableWorker' : 'managementV9.busyWorker')}</option>)}</select></label>
-      {blocked && <p className="management-v9-notice">{t(blocked)}</p>}<p>{t('managementV9.deliveryHint')}</p>
+      {blocked && <p className="management-v9-notice">{t(blocked)}</p>}
+    </div>
+    <div className="management-v9-panel-column"><section id="management-v10-production" hidden={!visible('production')} className="management-v9-panel management-v9-anchor" tabIndex={-1}>
+      <h2>{t('managementV9.production')}</h2><p className="management-v9-help">{t('managementV9.loopHint')}</p>
+      <p>{t('managementV9.deliveryHint')}</p>
       <div className="management-v9-recipe-list">{MANAGEMENT_BASE_RECIPES_V9.map(id => {
         const recipe = STARTER_RECIPES[id]!; const inputs: SectResourceLine[] = recipe.inputs.map(line => ({ ...line, ledger: 'base' }));
         return <article className="management-v9-card" key={id}><h3>{content(recipe.nameKey, t)}</h3><p>{t('production.recipeFlow', { inputs: costs(inputs), outputs: costs(recipe.outputs.map(line => ({ ...line, ledger: 'base' }))) })}</p><p>{t('managementV9.workTicks', { ticks: recipe.workTicks })}</p><button disabled={startDisabled || !managementHasResourcesV10(snapshot, inputs)} onClick={() => start(() => ({ kind: 'production.start', payload: { recipeId: id, workerId } }))}>{t('managementV9.start')}</button></article>;
@@ -549,7 +555,7 @@ export function ManagementSectPanelsV10({ context }: { context: UiContext }) {
       })}</div><p className="management-v9-help">{t('managementV10.recipeAdvisory')}</p>
     </section></div>
     <div className="management-v9-panel-column">
-      <section id="management-v10-jobs" className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.jobs')}</h2><p>{t('managementV9.cancelHint')}</p>
+      <section id="management-v10-jobs" hidden={!visible('jobs')} className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.jobs')}</h2><p>{t('managementV9.cancelHint')}</p>
         {snapshot.frame.transactions.filter(job => job.state !== 'Committed' && job.state !== 'Cancelled').map(job => <article className="management-v9-card" key={job.transactionId}><h3>{recipeName(job.recipeId, t)} · {name(job.workerId)}</h3><p>{t(managementPhaseKeyV9(job.phase))}</p><p>{t('managementV9.owner', { id: job.transactionId })}</p><progress value={job.activeTicks} max={job.requiredTicks} aria-label={t('managementV9.progress', { active: job.activeTicks, required: job.requiredTicks })} /><p>{t('managementV9.progress', { active: job.activeTicks, required: job.requiredTicks })}</p>{job.blockedReason && <p>{reasonText(job.blockedReason, t)}</p>}<button className="secondary" disabled={!!blocked} onClick={() => performV10(context, () => ({ kind: 'production.cancel', payload: { transactionId: job.transactionId } }))}>{t('managementV9.cancelJob')}</button></article>)}
         {snapshot.expansion.jobs.map(job => <article className="management-v9-card" key={job.jobId}><h3>{job.domain === 'production' ? recipeName(job.recipeId, t) : job.domain === 'research' ? content(SECT_V9_CANDIDATE.research.find(row => row.id === job.researchId)?.nameKey ?? '', t) : t(job.domain === 'upgrade' ? 'managementV10.upgrade' : job.domain === 'care' ? 'managementV9.care' : 'managementV9.construction')} · {name(job.domain === 'care' ? job.patientId : job.workerId)}</h3><p>{t(managementPhaseKeyV9(job.phase))}</p><p>{t('managementV9.owner', { id: job.jobId })}</p><progress value={job.activeTicks} max={job.requiredTicks} aria-label={t('managementV9.progress', { active: job.activeTicks, required: job.requiredTicks })} /><p>{t('managementV9.progress', { active: job.activeTicks, required: job.requiredTicks })}</p>
           {job.domain === 'upgrade' && <><p>{t('managementV10.checkpointPolicy', { half: 200, end: 400, active: job.activeTicks })}</p><p>{t('managementV10.upgradeRule')}</p>{job.checkpoints.length === 0 && <p>{t('managementV10.noCheckpoint')}</p>}{job.checkpoints.map(checkpoint => <div key={checkpoint.checkpointId}><p>{t('managementV10.checkpointRecord', { active: checkpoint.activeTicks, tick: checkpoint.tick })}</p><p>{t('managementV10.consumed', { cost: costs(checkpoint.consumed) })}</p></div>)}</>}
@@ -557,17 +563,19 @@ export function ManagementSectPanelsV10({ context }: { context: UiContext }) {
           {job.blocked && <p className="management-v9-notice">{reasonText(job.blocked, t)}</p>}<button className="secondary" disabled={!!blocked} onClick={event => cancel(job, event.currentTarget)}>{t('managementV9.cancelJob')}</button></article>)}
         {!snapshot.expansion.jobs.length && !snapshot.frame.transactions.some(job => job.state !== 'Committed' && job.state !== 'Cancelled') && <p>{t('managementV9.noJobs')}</p>}
       </section>
-      <section id="management-v10-research" className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.research')}</h2>
+      <section id="management-v10-research" hidden={!visible('research')} className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.research')}</h2>
         {SECT_V9_CANDIDATE.research.map(research => {
           const done = snapshot.expansion.completedResearch.some(row => row.researchId === research.id);
           const prerequisites = research.prerequisites.every(id => snapshot.expansion.completedResearch.some(row => row.researchId === id));
           const station = snapshot.expansion.buildings.some(row => row.definitionId === 'library.v9' && row.maintenance.operational);
           return <article className="management-v9-card" key={research.id}><h3>{content(research.nameKey, t)}</h3><p>{costs(research.costs)}</p><p>{t('managementV9.workTicks', { ticks: research.workTicks })}</p>{done ? <p>{t('managementV9.researched')}</p> : <>{!prerequisites && <p>{t('managementV9.reason.research')}</p>}{!station && <p>{t('managementV9.reason.station')}</p>}<button disabled={startDisabled || !prerequisites || !station || !managementHasResourcesV10(snapshot, research.costs) || snapshot.expansion.jobs.some(row => row.domain === 'research')} onClick={() => start(current => ({ kind: 'sect.command', payload: { domain: 'research', command: { kind: 'research.start', researchId: research.id, workerId, expectedRevision: current.expansion.revisions.research } } }))}>{t('managementV9.startResearch')}</button></>}</article>;
         })}
-        <h3>{t('managementV9.blueprints')}</h3>{!snapshot.expansion.blueprints.length && <p>{t('managementV9.noBlueprints')}</p>}
+      </section>
+      <section id="management-v10-blueprints" hidden={!visible('placement')} className="management-v9-panel management-v9-anchor" tabIndex={-1}>
+        <h2>{t('managementV9.blueprints')}</h2>{!snapshot.expansion.blueprints.length && <p>{t('managementV9.noBlueprints')}</p>}
         {snapshot.expansion.blueprints.map(blueprint => <article className="management-v9-card" key={blueprint.blueprintId}><h3>{t(blueprint.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')}</h3><p>{t('managementV9.geometry', { x: blueprint.anchor.x, y: blueprint.anchor.y, rotation: blueprint.rotation, entranceX: blueprint.footprint.entrance.x, entranceY: blueprint.footprint.entrance.y })}</p><p>{t(blueprint.status === 'planned' ? 'managementV9.blueprintPlanned' : 'managementV9.blueprintStarted')}</p>{blueprint.status === 'planned' && <div className="management-v9-actions"><button disabled={startDisabled} onClick={() => start(current => ({ kind: 'sect.command', payload: { domain: 'construction', command: { kind: 'construction.start', blueprintId: blueprint.blueprintId, workerId, expectedRevision: current.expansion.revisions.construction } } }))}>{t('managementV9.startConstruction')}</button><button className="secondary" disabled={!!blocked} onClick={() => performV10(context, current => ({ kind: 'sect.command', payload: { domain: 'construction', command: { kind: 'construction.cancel', blueprintId: blueprint.blueprintId, expectedRevision: current.expansion.revisions.construction } } }))}>{t('managementV9.cancelBlueprint')}</button></div>}</article>)}
       </section>
-      <section id="management-v10-upgrade" className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV10.upgrade')}</h2><p>{t('managementV10.upgradeRule')}</p>
+      <section id="management-v10-upgrade" hidden={!visible('upgrade')} className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV10.upgrade')}</h2><p>{t('managementV10.upgradeRule')}</p>
         {!snapshot.expansion.buildings.some(row => row.definitionId === 'alchemy.v9') && <p>{t('managementV10.noAlchemy')}</p>}
         {snapshot.expansion.buildings.filter(row => row.definitionId === 'alchemy.v9').map(building => <article className="management-v9-card" key={building.buildingId}><h3>{t('sectV9.building.alchemy')} · {t('managementV9.level', { level: building.level })}</h3><p>{t('managementV9.owner', { id: building.buildingId })}</p><p>{t('managementV10.origin', { construction: building.levelEvidence.constructionJobId, upgrade: building.levelEvidence.upgradeJobId ?? t('managementV10.none') })}</p>{building.level === 1 && <button disabled={startDisabled || building.activeUpgradeJobId !== null} onClick={event => {
           if (!managementWorkerAvailableV10(session.getSnapshot(), workerId)) { feedback({ key: 'managementV9.reason.worker' }); return; }
@@ -575,13 +583,13 @@ export function ManagementSectPanelsV10({ context }: { context: UiContext }) {
         }}>{t('managementV10.upgradePreview')}</button>}</article>)}
         {snapshot.expansion.recentTerminals.filter(row => row.domain === 'upgrade').map(row => <article key={row.jobId} className="management-v9-card">{row.resultLevel !== null && <p>{t('managementV10.terminalLevel', { job: row.jobId, state: t(row.kind === 'completed' ? 'managementV9.phase.completed' : 'managementV9.phase.cancelled'), level: row.resultLevel })}</p>}<p>{t('managementV10.consumed', { cost: costs(row.consumed) })}</p><p>{t('managementV10.released', { cost: costs(row.released) })}</p></article>)}
       </section>
-      <section id="management-v10-care" className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.care')}</h2><p>{t('managementV9.careHint')}</p><p>{t('managementV10.noDoseChoice')}</p>
+      <section id="management-v10-care" hidden={!visible('care')} className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.care')}</h2><p>{t('managementV9.careHint')}</p><p>{t('managementV10.noDoseChoice')}</p>
         {snapshot.cultivation.selected ? <><h3>{name(snapshot.cultivation.selected.discipleId)}</h3><p>{t('managementV9.injury', { injury: snapshot.cultivation.selected.injury })}</p><p id={careCostId}>{t('managementV9.careCost')}<span className="management-v9-care-reason">{careReason ? t(careReason) : null}</span></p><button aria-describedby={careCostId} disabled={!!careReason} onClick={() => performV10(context, current => {
           const selected = current.cultivation.selected; return selected && selected.discipleId === snapshot.cultivation.selected?.discipleId && selected.lifeState === 'alive' && selected.injury > 0 && !selected.activityLocked && !selected.workOwner ? { kind: 'sect.command', payload: { domain: 'care', command: { kind: 'care.start', patientId: selected.discipleId, expectedRevision: current.expansion.revisions.care } } } : null;
         })}>{t('managementV9.startCare')}</button></> : <p>{t('managementV9.selectPatient')}</p>}
         {snapshot.expansion.recentTerminals.filter(row => row.domain === 'care').map(row => <article className="management-v9-card" key={row.jobId}>{row.beforeInjury !== null && row.afterInjury !== null && <p>{t('managementV9.careResult', { name: name(row.actorId), before: row.beforeInjury, after: row.afterInjury })}</p>}{row.doseSource && <DoseSourceV10 source={row.doseSource} t={t} />}</article>)}
       </section>
-      <section id="management-v10-maintenance" className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.maintenance')}</h2><p>{t('managementV9.maintenanceHint')}</p><p>{t('managementV10.maintenanceRate')}</p>
+      <section id="management-v10-maintenance" hidden={!visible('maintenance')} className="management-v9-panel management-v9-anchor" tabIndex={-1}><h2>{t('managementV9.maintenance')}</h2><p>{t('managementV9.maintenanceHint')}</p><p>{t('managementV10.maintenanceRate')}</p>
         {snapshot.expansion.buildings.map(building => <article className="management-v9-card" key={building.buildingId}><h3>{t(building.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')} · {t('managementV9.level', { level: building.level })}</h3><p>{t(building.maintenance.operational ? 'managementV9.operational' : 'managementV9.suspended')}</p><p>{t('managementV9.maintenanceDue', { tick: building.maintenance.dueCalendarTick, remaining: Math.max(0, building.maintenance.dueCalendarTick - snapshot.frame.clock.calendarTick) })}</p>
           {building.maintenance.currentPeriod ? <p>{t('managementV10.currentPeriod', { level: building.maintenance.currentPeriod.level, paid: building.maintenance.currentPeriod.paidCalendarTick, due: building.maintenance.currentPeriod.dueCalendarTick })}</p> : <p>{t('managementV10.noPaidPeriod')}</p>}
           <p>{t('managementV10.nextMaintenance', { cost: costs(building.maintenance.nextMaintenanceCosts) })}</p>{building.maintenance.deficits.length > 0 && <p className="management-v9-notice">{t('managementV9.reason.resources')} · {costs(building.maintenance.deficits)}</p>}{building.maintenance.renewalBlock && <p>{reasonText(building.maintenance.renewalBlock, t)}</p>}</article>)}
@@ -635,7 +643,7 @@ function CultivationPanelV10({ context }: { context: UiContext }) {
     </>}
   </section>;
 }
-function BuildPanelV10({ context, locale }: { context: UiContext; locale: Locale }) {
+function BuildPanelV10({ context, locale, active = true }: { context: UiContext; locale: Locale; active?: boolean }) {
   const { session, snapshot, readOnly, t, reviews, feedback } = context;
   const selected = snapshot.build.selected; const [draft, setDraft] = useState<{ basis: ManagementSnapshotV10; request: Exclude<BuildRequestV10, { kind: 'skill.learn' }> } | null>(null);
   const region = useRef<HTMLElement>(null); const draftOpener = useRef<HTMLElement | null>(null);
@@ -657,9 +665,9 @@ function BuildPanelV10({ context, locale }: { context: UiContext; locale: Locale
     } });
   };
   useEffect(() => {
-    if (!draft) return;
+    if (!active || !draft) return;
     return attachManagementDraftEscapeV10({ target: document, canDiscard, discard });
-  }, [draft, reviews, session]);
+  }, [active, draft, reviews, session]);
   const registry = useMemo(() => { try { return managementV9BuildContext(snapshot.build.contentIdentity); } catch { return null; } }, [snapshot.build.contentIdentity]);
   const blocked = managementBlockedV10(snapshot, readOnly, false, 'build');
   const stale = !!draft && !managementBoundaryV10(draft.basis, snapshot); const locked = !selected || selected.lifeState !== 'alive' || selected.locked;
@@ -707,7 +715,8 @@ export function ManagementAppV10({ session, storage, initialLocale }: Management
   const [locale, setLocale] = useState<Locale>(() => initialLocale ?? (typeof window === 'undefined' ? DEFAULT_LOCALE : readLocalePreference()));
   const [notice, setNotice] = useState<ManagementTextV10 | null>(null); const [saveOpen, setSaveOpen] = useState(false);
   const [placement, setPlacement] = useState<SectPlacementRequest>({ definitionId: 'library.v9', anchor: { x: 2, y: 2 }, rotation: 0 });
-  const [placementOpen, setPlacementOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<ManagementWorkspaceSection>('overview');
+  const [workspaceFocus, setWorkspaceFocus] = useState<ManagementWorkspaceFocusRequest | null>(null);
   const shell = useRef<HTMLElement>(null); const commandBar = useRef<HTMLDivElement>(null);
   const readOnly = storageStatus.readOnly || snapshot.holds.storage;
   const latestReadOnly = useRef<() => boolean>(() => false); latestReadOnly.current = () => (storage?.getSnapshot().readOnly ?? false) || session.getSnapshot().holds.storage;
@@ -745,21 +754,40 @@ export function ManagementAppV10({ session, storage, initialLocale }: Management
     source.setPlacementPreview(value ? { anchor: value.request.anchor, footprint: value.footprint, allowed: value.allowed } : null);
     return () => source.setPlacementPreview(null);
   }, [source, review]);
-  const choose = (selection: SessionSelectionV10) => {
+  const choose = (selection: SessionSelectionV10, opener?: HTMLButtonElement) => {
     const current = session.getSnapshot();
     if (!managementBoundaryV10(snapshot, current) || current.closed || current.holds.storageBusy || current.holds.overlay) { setNotice({ key: 'managementV9.stale' }); return; }
-    reviews.cancel(); const result = session.select(selection); if (!result.ok) setNotice(managementResultV10(result));
+    if (review || current.holds.review) { setNotice({ key: 'managementV9.reviewHeld' }); return; }
+    const result = session.select(selection); if (!result.ok) setNotice(managementResultV10(result));
+    else if (selection && (activeSection === 'overview' || activeSection === 'roster')) {
+      const next: ManagementWorkspaceSection = selection.kind === 'disciple' ? 'cultivation' : selection.kind === 'blueprint' ? 'placement' : selection.kind === 'sect-building' ? 'maintenance' : 'production';
+      if (opener && document.activeElement === opener) setWorkspaceFocus({ section: next, opener });
+      setActiveSection(next);
+    }
   };
   selectionHandler.current = choose;
   const prepare = (next: SectPlacementRequest, opener?: HTMLElement) => { const result = reviews.prepare(snapshot, () => session.preparePlacement(next), { key: 'managementV9.placement' }, false, opener ? { opener } : null); if (result) setNotice(result); };
-  const changePlacement = (next: SectPlacementRequest) => { setPlacementOpen(true); setPlacement(next); if (placementReview) prepare(next); };
+  const changePlacement = (next: SectPlacementRequest) => { setPlacement(next); if (placementReview) prepare(next); };
   pointHandler.current = cell => { if (review?.kind === 'proposal' && review.proposal.kind === 'placement') changePlacement({ ...placement, anchor: cell }); };
   const pausedByUser = snapshot.frame.clock.pauseReasons.some(reason => reason === 'hidden' || reason === 'player') || snapshot.holds.hidden || snapshot.holds.player;
   const controlsDisabled = readOnly || storageStatus.busy || snapshot.holds.storageBusy || snapshot.holds.review || snapshot.holds.overlay || snapshot.holds.staging || snapshot.closed || !!snapshot.stopped || !!snapshot.runtimeFailure;
-  const navigation: readonly [string, TextKey | ManagementLocalKeyV10][] = [['overview', 'managementV9.overview'], ['roster', 'managementV9.people'], ['cultivation', 'cultivation.ui.title'], ['build', 'managementV9.buildTitle'], ['production', 'managementV9.production'], ['jobs', 'managementV9.jobs'], ['research', 'managementV9.research'], ['upgrade', 'managementV10.upgrade'], ['care', 'managementV9.care'], ['maintenance', 'managementV9.maintenance']];
+  const navigationLocked = !!review || snapshot.holds.review || saveOpen || storageStatus.busy || snapshot.holds.storageBusy;
+  const tabs: ManagementWorkspaceTab[] = [
+    { id: 'overview', label: t('managementV9.overview') },
+    { id: 'roster', label: t('managementV9.people'), count: snapshot.frame.disciples.length },
+    { id: 'cultivation', label: t('cultivation.ui.title'), count: snapshot.cultivation.decisions.length },
+    { id: 'build', label: t('managementV9.buildTitle') },
+    { id: 'production', label: t('managementV9.production') },
+    { id: 'jobs', label: t('managementV9.jobs'), count: snapshot.expansion.jobs.length + snapshot.frame.transactions.filter(job => job.state !== 'Committed' && job.state !== 'Cancelled').length },
+    { id: 'placement', label: t('managementV9.construction'), count: snapshot.expansion.blueprints.length },
+    { id: 'research', label: t('managementV9.research') },
+    { id: 'upgrade', label: t('managementV10.upgrade') },
+    { id: 'care', label: t('managementV9.care') },
+    { id: 'maintenance', label: t('managementV9.maintenance'), count: snapshot.expansion.buildings.length },
+  ];
   const resources = [...snapshot.frame.resources.map(row => ({ ...row, name: t(`resource.${row.resourceId}`), ledger: 'base' })),
     ...snapshot.expansion.stock.map(row => ({ ...row, name: content(SECT_V9_CANDIDATE.resources.find(resource => resource.resourceId === row.resourceId)!.nameKey, t), ledger: 'sect' }))];
-  return <main className="management-v9 management-v9-map-first management-v10" lang={locale} ref={shell}>
+  return <main className="management-v9 management-v9-map-first management-v9-workspace management-v10" lang={locale} ref={shell}>
     <header className="management-v9-header">
       <div className="management-v9-brand"><h1>{t('app.title')}</h1><p>{t('managementV10.subtitle')}</p></div>
       <div className="management-v9-header-controls">
@@ -784,17 +812,16 @@ export function ManagementAppV10({ session, storage, initialLocale }: Management
     <ReviewPanelV10 context={context} review={review} locale={locale} />
     <section id="management-v10-overview" className="management-v9-resources management-v9-anchor" tabIndex={-1} aria-label={t('live.resources')}>{resources.map(row => <article key={`${row.ledger}:${row.resourceId}`}><h2>{row.name}</h2><strong>{row.owned}</strong></article>)}</section>
     <div className="management-v9-utilities">
-      <details className="management-v9-navigation-disclosure"><summary>{t('managementV9.navigation')}</summary><nav className="management-v9-section-nav" aria-label={t('managementV9.navigation')}>{navigation.map(([id, key]) => <a key={id} href={`#management-v10-${id}`}>{t(key)}</a>)}</nav></details>
       <details className="management-v9-ledger"><summary>{t('inventory.stockTitle')}</summary><div className="management-v9-ledger-grid">{resources.map(row => <article key={`${row.ledger}:${row.resourceId}`}><h2>{row.name}</h2><strong>{row.owned}</strong><p>{t('live.available', { available: row.available, reserved: row.reserved })}</p><p>{t('live.capacity', { capacity: row.capacity })}</p></article>)}</div></details>
     </div>
-    <div className="management-v9-map-layout">
-      <section className="management-v9-world" aria-label={t('live.worldLabel')}><PhaserWorld source={source} locale={locale} /></section>
-      <details className="management-v9-placement-disclosure" open={placementOpen || placementReview} onToggle={event => {
-        // A live placement remains editable; toggling never remounts or focuses its fields.
-        if (placementReview && !event.currentTarget.open) event.currentTarget.open = true;
-        setPlacementOpen(event.currentTarget.open);
-      }}>
-      <summary aria-disabled={placementReview} onClick={event => { if (placementReview) event.preventDefault(); }}>{t('managementV9.placement')}</summary>
+    {snapshot.cultivation.decisions.length > 0 && <div className="management-workspace-decision" role="status">
+      <p>{t('cultivation.ui.pending', { count: snapshot.cultivation.decisions.length })}</p>
+      <button type="button" className="secondary" disabled={navigationLocked && activeSection !== 'cultivation'} onClick={() => { if (!navigationLocked) setActiveSection('cultivation'); }}>{t('cultivation.ui.title')}</button>
+    </div>}
+    <ManagementWorkspace id="management-v10-workspace" active={activeSection} tabs={tabs} navigationLabel={t('managementV9.navigation')}
+      locked={navigationLocked} reviewLabel={t('managementV9.reviewHeld')} onSelect={setActiveSection} focusRequest={workspaceFocus}
+      map={<section className="management-v9-world" aria-label={t('live.worldLabel')}><PhaserWorld source={source} locale={locale} /></section>}>
+      <div className="management-workspace-pane" hidden={activeSection !== 'placement'}>
       <section className="management-v9-panel management-v9-placement" aria-labelledby="management-v10-placement-heading"><h2 id="management-v10-placement-heading">{t('managementV9.placement')}</h2><p className="management-v9-help">{t('managementV9.placementHint')}</p>
       <div className="management-v9-placement-fields">
       <label className="management-v9-field">{t('managementV9.buildingType')}<select disabled={storageStatus.busy || readOnly || !!review && !(review.kind === 'proposal' && review.proposal.kind === 'placement')} value={placement.definitionId} onChange={event => changePlacement({ ...placement, definitionId: event.currentTarget.value === 'alchemy.v9' ? 'alchemy.v9' : 'library.v9' })}><option value="library.v9">{t('sectV9.building.library')}</option><option value="alchemy.v9">{t('sectV9.building.alchemy')}</option></select></label>
@@ -802,11 +829,12 @@ export function ManagementAppV10({ session, storage, initialLocale }: Management
       <label className="management-v9-field">{t('managementV9.rotation')}<select value={placement.rotation} disabled={storageStatus.busy || readOnly} onChange={event => { const value = Number(event.currentTarget.value); if ([0, 90, 180, 270].includes(value)) changePlacement({ ...placement, rotation: value as SectRotation }); }}>{([0, 90, 180, 270] as const).map(rotation => <option key={rotation} value={rotation}>{t('managementV9.degrees', { rotation })}</option>)}</select></label>
       </div><p>{t('managementV9.placementAdvisory')}</p><div className="management-v9-actions"><button disabled={!!blocked} onClick={event => prepare(placement, event.currentTarget)}>{t('managementV9.preview')}</button></div>
       </section>
-      </details>
-    </div>
-    <section id="management-v10-roster" className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby="management-v10-selection" aria-description={t('managementV9.selection')}><h2 id="management-v10-selection">{t('managementV9.people')}</h2><div className="management-v9-selection-list">{snapshot.frame.disciples.map(actor => <button className="secondary" key={actor.id} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'disciple' && snapshot.selection.id === actor.id} onClick={() => choose({ kind: 'disciple', id: actor.id })}>{content(actor.nameKey, t)} · {t('live.position', actor.position)}</button>)}{snapshot.frame.buildings.map(building => <button className="secondary" key={building.id} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'building' && snapshot.selection.id === building.id} onClick={() => choose({ kind: 'building', id: building.id })}>{content(building.nameKey, t)}</button>)}{snapshot.expansion.blueprints.map(blueprint => <button className="secondary" key={blueprint.blueprintId} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'blueprint' && snapshot.selection.id === blueprint.blueprintId} onClick={() => choose({ kind: 'blueprint', id: blueprint.blueprintId })}>{t('managementV9.blueprintLabel', { name: t(blueprint.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy') })}</button>)}{snapshot.expansion.buildings.map(building => <button className="secondary" key={building.buildingId} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'sect-building' && snapshot.selection.id === building.buildingId} onClick={() => choose({ kind: 'sect-building', id: building.buildingId })}>{t(building.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')} · {t('managementV9.level', { level: building.level })}</button>)}</div></section>
-    <div className="management-v9-panels"><CultivationPanelV10 key={`cultivation:${snapshot.sessionEpoch}:${snapshot.selection?.kind}:${snapshot.selection?.id}`} context={context} /><BuildPanelV10 key={`build:${snapshot.sessionEpoch}:${snapshot.selection?.kind}:${snapshot.selection?.id}`} context={context} locale={locale} /></div>
-    <ManagementSectPanelsV10 context={context} />
+      </div>
+    <section id="management-v10-roster" hidden={activeSection !== 'overview' && activeSection !== 'roster'} className="management-v9-panel management-v9-anchor" tabIndex={-1} aria-labelledby="management-v10-selection" aria-description={t('managementV9.selection')}><h2 id="management-v10-selection">{t('managementV9.people')}</h2><div className="management-v9-selection-list">{snapshot.frame.disciples.map(actor => <button className="secondary" key={actor.id} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'disciple' && snapshot.selection.id === actor.id} onClick={event => choose({ kind: 'disciple', id: actor.id }, event.currentTarget)}>{content(actor.nameKey, t)} · {t('live.position', actor.position)}</button>)}{snapshot.frame.buildings.map(building => <button className="secondary" key={building.id} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'building' && snapshot.selection.id === building.id} onClick={event => choose({ kind: 'building', id: building.id }, event.currentTarget)}>{content(building.nameKey, t)}</button>)}{snapshot.expansion.blueprints.map(blueprint => <button className="secondary" key={blueprint.blueprintId} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'blueprint' && snapshot.selection.id === blueprint.blueprintId} onClick={event => choose({ kind: 'blueprint', id: blueprint.blueprintId }, event.currentTarget)}>{t('managementV9.blueprintLabel', { name: t(blueprint.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy') })}</button>)}{snapshot.expansion.buildings.map(building => <button className="secondary" key={building.buildingId} disabled={storageStatus.busy || snapshot.holds.overlay} aria-pressed={snapshot.selection?.kind === 'sect-building' && snapshot.selection.id === building.buildingId} onClick={event => choose({ kind: 'sect-building', id: building.buildingId }, event.currentTarget)}>{t(building.definitionId === 'library.v9' ? 'sectV9.building.library' : 'sectV9.building.alchemy')} · {t('managementV9.level', { level: building.level })}</button>)}</div></section>
+    <div className="management-workspace-pane" hidden={activeSection !== 'cultivation'}><CultivationPanelV10 key={`cultivation:${snapshot.sessionEpoch}:${snapshot.selection?.kind}:${snapshot.selection?.id}`} context={context} /></div>
+    <div className="management-workspace-pane" hidden={activeSection !== 'build'}><BuildPanelV10 active={activeSection === 'build'} key={`build:${snapshot.sessionEpoch}:${snapshot.selection?.kind}:${snapshot.selection?.id}`} context={context} locale={locale} /></div>
+    <ManagementSectPanelsV10 context={context} activeSection={activeSection} />
+    </ManagementWorkspace>
     {saveOpen && <StorageDialogV10 session={session} {...(storage ? { storage } : {})} locale={locale} t={t} onClose={() => { if (session.getSnapshot().holds.storageBusy || storage?.getSnapshot().busy) return; setSaveOpen(false); overlay.current?.set('overlay', false); }} />}
   </main>;
 }
