@@ -121,3 +121,12 @@
   .management-v9-map-first .management-v9-placement-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .management-v9-map-first .management-v9-selection-list > button { flex: 1 1 9rem; }
 }
+
+/* Paper panels need an ink focus ring; nested dark reviews keep the brass ring. */
+.management-v9 .management-v9-panel :is(button, select, input, summary, a):focus-visible {
+  outline: 2px solid #375d47;
+  outline-offset: 3px;
+}
+.management-v9 .management-v9-panel .management-v9-review :is(button, select, input, summary, a):focus-visible {
+  outline-color: #ffe3a0;
+}

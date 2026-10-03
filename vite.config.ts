@@ -10,6 +10,6 @@ export default defineConfig({
   build: {
     target: 'es2023', sourcemap: false,
     // The candidate page remains locked unless its explicit build-time flag is exactly '1'.
-    rolldownOptions: { input: { main: 'index.html', candidate: 'candidate.html', management: 'management.html' } },
+    rolldownOptions: { input: { main: 'index.html', candidate: 'candidate.html', management: 'management.html', managementNext: 'management-next.html' } },
   },
 });

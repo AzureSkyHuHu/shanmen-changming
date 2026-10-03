@@ -102,6 +102,12 @@ describe('v9 long-page navigation semantics', () => {
 });
 
 describe('v9 map-first presentation', () => {
+  it('uses contrasting focus rings on paper while preserving nested dark-review contrast', () => {
+    const css = readFileSync(new URL('../../src/app/management-v9.css', import.meta.url), 'utf8');
+    expect(css).toContain('.management-v9 .management-v9-panel :is(button, select, input, summary, a):focus-visible {\n  outline: 2px solid #375d47;');
+    expect(css).toContain('.management-v9 .management-v9-panel .management-v9-review :is(button, select, input, summary, a):focus-visible {\n  outline-color: #ffe3a0;');
+  });
+
   it.each(['zh-CN', 'en'] as const)('keeps the map ahead of contextual placement and retains the complete ledger in %s', locale => withSession(session => {
     const saves = new ManagementSaveControllerV9(session, { indexedDB: new IDBFactory() });
     try {
