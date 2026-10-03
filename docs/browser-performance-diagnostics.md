@@ -232,3 +232,36 @@ import across module resets. Per-test fresh imports and complete dynamic-import
 settlement fixed the test isolation; all 34 preview assertions/gate traps remain.
 No production gate or storage behavior was relaxed. Real published observation
 has not been run at this point.
+
+### Published idle-scene capture — 2026-10-03 10:26 UTC
+
+The exact main `ba02264550971e73e867cafed28301b8f68ddef2` passed
+Actions 37113675942 (216 files / 4372 tests, 1985.86 s) and Pages deployment
+111181572139, with terminal success at 10:11:16 UTC. Actual cloud Chrome loaded
+`management.html?frameDiagnostics=local`; explicit Start was used after the
+local heavy validation lane finished. The fresh unbound v9 scene had four
+disciples, zero active jobs and speed 1x. No save was loaded or overwritten.
+
+The capture finished naturally at its 60-second window:
+
+- 3599 measured frames; 1200 actual simulation ticks, from 610 to 1810
+- 2399 zero-tick frames and zero multi-tick frames
+- rAF span 60003.50 ms; wall duration 60000.40 ms
+- rAF interval p50 / p95 / max: 16.70 / 16.70 / 33.30 ms
+- Session call p50 / p95 / max: 0 / 1 / 27.60 ms; total 1097.10 ms
+- Pending time 25773 -> 26871 microseconds; maximum 49976
+- Demand 60001098 microseconds; exact conservation residual 0 and tick mismatch 0
+- Zero delivered long-task entries; each of three segments advanced 400 ticks
+
+The panel remained readable and the final report survived an ordinary game pause.
+This is an idle four-person instrumentation check, not an active-workload,
+36-person, v10, mobile-device or full-game performance acceptance. The viewport
+was the existing narrow desktop Chrome window; no hardware-target claim is made.
+Strict full-state equivalence remains the separate deterministic test evidence.
+
+The matching frozen local snapshot passed all 216 files / 4372 tests in
+2861.50 s. Its npm aggregate then hit a blocked registry network request
+before completing the build chain. Existing local compiler and Vite binaries
+completed both type configurations and the default build (864 ms) without a
+network request. This records separately completed stages, not an uninterrupted
+successful npm aggregate exit.
