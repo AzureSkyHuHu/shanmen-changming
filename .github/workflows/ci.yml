@@ -42,6 +42,7 @@ jobs:
           VITE_BASE_PATH: /shanmen-changming/
           VITE_ENABLE_V8_CANDIDATE: '1'
           VITE_ENABLE_V9_MANAGEMENT: '1'
+          VITE_ENABLE_FRAME_DIAGNOSTICS: '1'
         run: |
           npm run build
           test -f dist/index.html

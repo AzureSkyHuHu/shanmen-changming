@@ -208,3 +208,27 @@ multi-tick calls, manual stop, overlay/foreground holds, resume and repeated
 cleanup match the direct Session path. Seven logical ticks per Session are
 covered. Both passed in the combined six-file/55-test run (6.87 seconds); this
 is deterministic regression evidence, not real browser throughput measurement.
+
+### Existing public-v9 observation lane — 2026-10-03 09:26 UTC
+
+Pages builds now include only the independent diagnostics flag, as an ordinary
+update to the already-public v9 game. Default/index and v8 behavior are unchanged;
+the v10 entry remains compile-time disabled. The exact query plus explicit Start
+are still required; ordinary visitors see no panel or automatic observation.
+There is no upload, telemetry, save export or private-Site data in this change.
+The existing full-check/exact-main-SHA deployment workflow is unchanged.
+
+Purpose: obtain actual browser instrumentation, interruption and observer-overhead
+evidence on the currently accessible v9 page, without changing the owner-only
+Site or bypassing its pending login. This is not v10 performance evidence or
+permission to enable v10. Record actual build/scenario/browser/viewport and
+small-scene limitations, and keep strict-oracle comparisons outside capture.
+
+Integration checks for that Pages-only flag passed: both strict type
+configurations, six diagnostic/preview/copy-preview files with 73 tests in 15.90
+seconds, and enabled-v8/v9/diagnostics Pages build (847 ms). The first combined
+run exposed a pre-existing preview-test mock graph retained by a static entry
+import across module resets. Per-test fresh imports and complete dynamic-import
+settlement fixed the test isolation; all 34 preview assertions/gate traps remain.
+No production gate or storage behavior was relaxed. Real published observation
+has not been run at this point.

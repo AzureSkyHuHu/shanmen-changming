@@ -39,6 +39,13 @@ describe('local-only frame diagnostics presentation', () => {
     const css = readFileSync(new URL('../../src/app/frame-diagnostics.css', import.meta.url), 'utf8');
     expect(css).not.toMatch(/line-clamp|text-overflow:\s*ellipsis/); expect(css).toContain('overflow-wrap: anywhere');
   });
+  it('allows opt-in Pages instrumentation without enabling the newer candidate', () => {
+    const workflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    expect(workflow).toContain("VITE_ENABLE_FRAME_DIAGNOSTICS: '1'");
+    expect(workflow).not.toContain('VITE_ENABLE_V10_MANAGEMENT');
+    expect(workflow.indexOf('npm run check')).toBeLessThan(workflow.indexOf('VITE_ENABLE_FRAME_DIAGNOSTICS'));
+    expect(workflow).toContain('Reject deployment of an outdated main commit');
+  });
 });
 
 describe('frame diagnostic browser event ownership', () => {

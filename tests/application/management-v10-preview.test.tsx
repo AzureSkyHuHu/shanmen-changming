@@ -3,13 +3,16 @@ import { IDBFactory } from 'fake-indexeddb';
 import { StrictMode, isValidElement, type ReactElement, type ReactNode } from 'react';
 import type { RootOptions } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createManagementPreviewTranslatorV10, managementPreviewEntryV10, managementPreviewMessagesV10,
-  managementPreviewMessageSpecificationsV10, mountManagementPreviewV10 } from '../../src/management-next';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createManagementPreviewTranslatorV10, managementPreviewMessagesV10,
+  managementPreviewMessageSpecificationsV10 } from '../../src/management-next';
 import { validateLocales } from '../../src/i18n';
 
 const root = vi.hoisted(() => ({ render: vi.fn<(node: ReactNode) => void>(), unmount: vi.fn(), options: null as RootOptions | null }));
 vi.mock('react-dom/client', () => ({ createRoot: vi.fn((_container: HTMLElement, options?: RootOptions) => { root.options = options ?? null; return root; }) }));
+type PreviewModule = typeof import('../../src/management-next');
+let managementPreviewEntryV10: PreviewModule['managementPreviewEntryV10'];
+let mountManagementPreviewV10: PreviewModule['mountManagementPreviewV10'];
 type Entry = NonNullable<Awaited<ReturnType<typeof managementPreviewEntryV10>>>;
 type Services = ReturnType<Entry['createServices']>;
 const cleanups: Array<() => Promise<void>> = [];
@@ -53,11 +56,24 @@ async function readLegacyDatabase(factory: IDBFactory, name: string): Promise<un
     });
   } finally { database.close(); }
 }
-afterEach(async () => {
-  for (const stop of cleanups.splice(0)) await stop().catch(() => {});
+beforeEach(async () => {
+  // An entry retained across resetModules can retain the disabled-import
+  // sentinel graph. Give every case a fresh entry after removing those traps.
   for (const path of candidateModules) vi.doUnmock(path);
-  vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
-  root.render.mockReset(); root.unmount.mockReset(); root.options = null;
+  vi.resetModules();
+  ({ managementPreviewEntryV10, mountManagementPreviewV10 } = await import('../../src/management-next'));
+});
+afterEach(async () => {
+  try {
+    for (const stop of cleanups.splice(0)) await stop().catch(() => {});
+    // A rejected Promise.all does not settle its sibling imports. Keep this
+    // case's mock factories alive until the whole import graph has finished.
+    await vi.dynamicImportSettled();
+  } finally {
+    for (const path of candidateModules) vi.doUnmock(path);
+    vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
+    root.render.mockReset(); root.unmount.mockReset(); root.options = null;
+  }
 });
 
 describe('private v10 preview build gate', () => {
