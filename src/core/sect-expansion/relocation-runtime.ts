@@ -1,10 +1,10 @@
-import { getSectBuildingDefinition } from '../../content/sect-v9/catalog';
+import { getSectBuildingDefinition, getSectResearchDefinition } from '../../content/sect-v9/catalog';
 import type { SectCell } from '../../content/sect-v9/types';
 import { cardinalDistance, emptyNavigation, findCardinalPath, isWalkable, MOVEMENT_TICKS_PER_CELL, sameCell } from '../agents/navigation';
 import { advanceWorkNavigationWithBudget, type WorkPathBudget } from '../agents/work-navigation';
-import { canonicalStringify, cloneJson } from '../kernel/serialization';
-import { validateConstructionContext } from './construction-record-validation';
-import { constructionClaims, tickConstructionForRelocationDomain } from './construction-runtime';
+import { canonicalStringify, cloneJson, compareStable } from '../kernel/serialization';
+import { isConstructionCommand, validateConstructionContext } from './construction-record-validation';
+import { applyConstructionCommandForRelocationDomain, constructionClaims, tickConstructionForRelocationDomain } from './construction-runtime';
 import { relocationOwnerCurrentSpatialContext, relocationOwnerEffectiveMap, inspectRelocationOwnerSpatialRecords } from '../world/relocation-owner/spatial-records';
 import { assessSectPlacement } from './queries';
 import type { JobNavigation } from '../agents/navigation';
@@ -17,6 +17,14 @@ import type { SectRelocationBlock, SectRelocationRejection, SectRelocationResult
 import type { SectRelocationJob, SectRelocationPhase, SectRelocationRecordFrame, SectRelocationVisit } from './relocation-types';
 import { inspectRelocationProvenanceForOwner, isSectRelocationCommand, SECT_RELOCATION_DESCRIPTOR_NODE_BOUND, validateSectRelocationRecords } from './relocation-validation';
 import type { SectPlacementRequest } from './types';
+import { SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND } from './descriptor-bounds';
+import { sectBuildingPaidAt, sectMaintenanceStatusFromRecords } from './maintenance-periods';
+import { SECT_RESEARCH_LIMITS, type SectResearchCommand, type SectResearchJob,
+  type SectResearchRejection, type SectResearchSiteProof } from './research-types';
+import { isSectResearchCommand } from './research-validation';
+import { relocationResearchSitesFromRecordsAt } from '../world/relocation-owner/history-sites';
+import { inspectRelocationOwnerResearchRecords, type RelocationOwnerResearchSource } from '../world/relocation-owner/research-records';
+import type { ConstructionRelocationResearchDomainCandidate, ConstructionRelocationResearchDomainFrame } from '../world/relocation-owner/research-domain-types';
 
 const MAX = Number.MAX_SAFE_INTEGER;
 type RuntimePolicy = 'permanent-origin' | 'construction-relocation-domain';
@@ -28,8 +36,8 @@ const eligible = (p: ConstructionPerson): boolean => p.lifeState === 'alive' && 
   && p.productionTransactionId === null && p.cultivationOwnerId === null && p.otherOwnerId === null;
 const rejected = (frame: SectRelocationRuntimeFrame, code: SectRelocationRejection): SectRelocationResult => ({ ok: false, frame, code });
 function door(p: SectPlacementRequest): SectCell { const g = deriveSectFootprint(p); if (!g.ok) throw new Error('Relocation geometry invariant'); return g.footprint.entrance; }
-function safeTree(input: unknown): boolean {
-  const seen = new Set<object>(); let remaining = SECT_RELOCATION_DESCRIPTOR_NODE_BOUND + 36 * (65536 * 3 + 30);
+function safeTree(input: unknown, bound = SECT_RELOCATION_DESCRIPTOR_NODE_BOUND + 36 * (65536 * 3 + 30)): boolean {
+  const seen = new Set<object>(); let remaining = bound;
   const visit = (v: unknown, depth: number): boolean => {
     if (--remaining < 0 || depth > 32) return false;
     if (v === null || typeof v === 'boolean') return true;
@@ -401,4 +409,303 @@ function runAlreadyClockedWork(frame: SectRelocationRuntimeFrame, clocked: SectR
       relocation: { ...next.records.relocation, revision } }, live: next.live.map(s => ({ ...s, navigation: emptyNavigation() })) };
   }
   return publish(frame, next, null, false, policy);
+}
+
+// Separate bounded owner; both existing complete ticks keep their original policy.
+type ResearchDomainFrame = ConstructionRelocationResearchDomainFrame;
+type ResearchDomainResult = ConstructionRelocationResearchDomainCandidate;
+const RESEARCH_SCOPE = 'construction-relocation-research-domain-candidate' as const;
+const RESEARCH_DESCRIPTOR_BOUND = SECT_RELOCATION_DESCRIPTOR_NODE_BOUND
+  + SECT_MAINTENANCE_DESCRIPTOR_NODE_BOUND + 36 * (65536 * 3 + 30) + 4;
+const researchRejected = (input: unknown, code: SectRelocationRejection | SectResearchRejection,
+  issues: readonly string[] = []): ResearchDomainResult => ({ ok: false, scope: RESEARCH_SCOPE, frame: input, code, issues });
+/** A real two-book mechanical leaf, NEVER complete source/candidate admission.
+ * All shared ledger owners survive; no empty six-domain/v10 root is manufactured. */
+function researchRelocationLeaf(frame: ResearchDomainFrame): SectRelocationRuntimeFrame {
+  return cloneJson({ records: { construction: frame.records.construction, relocation: frame.records.relocation }, live: frame.live });
+}
+function researchOnlyClaims(records: RelocationOwnerResearchSource): readonly ConstructionClaim[] {
+  return records.research.jobs.filter(job => job.terminal === null).flatMap(job => [
+    { kind: 'worker' as const, key: job.workerId, ownerId: job.jobId },
+    { kind: 'seat' as const, key: job.site.buildingId, ownerId: job.jobId },
+    { kind: 'entrance' as const, key: key(job.site.position), ownerId: job.jobId },
+  ]);
+}
+function researchAllClaims(records: RelocationOwnerResearchSource): readonly ConstructionClaim[] {
+  return [...constructionClaims(records.construction), ...records.relocation.jobs.filter(job => job.terminal === null).flatMap(job => [
+    { kind: 'worker' as const, key: job.workerId, ownerId: job.jobId },
+    { kind: 'seat' as const, key: job.buildingId, ownerId: job.jobId },
+    ...Array.from(new Set([key(door(job.from)), key(door(job.to))])).map(token => ({ kind: 'entrance' as const, key: token, ownerId: job.jobId })),
+  ]), ...researchOnlyClaims(records)];
+}
+function researchActiveCount(records: RelocationOwnerResearchSource): number {
+  return records.construction.jobs.filter(job => job.terminal === null).length
+    + records.relocation.jobs.filter(job => job.terminal === null).length + records.research.jobs.filter(job => job.terminal === null).length;
+}
+function researchClaimsConflict(claims: readonly ConstructionClaim[]): boolean {
+  const tokens = new Set<string>();
+  return claims.some(claim => { const token = `${claim.kind}:${claim.key}`; if (tokens.has(token)) return true; tokens.add(token); return false; });
+}
+function researchContextProblem(frame: ResearchDomainFrame, context: ConstructionContext): SectResearchRejection | null {
+  if (researchActiveCount(frame.records) + context.externalActiveJobs > 36) return 'CAPACITY_EXCEEDED';
+  return researchClaimsConflict([...researchAllClaims(frame.records), ...context.externalClaims]) ? 'CLAIM_CONFLICT' : null;
+}
+function researchEffectiveMap(records: RelocationOwnerResearchSource): WorldMap {
+  const map = effectiveMap(cloneJson({ construction: records.construction, relocation: records.relocation }), 'construction-relocation-domain');
+  if (!map) throw new Error('Authenticated research map was lost'); return map;
+}
+/** Complete fixed local inspection: descriptor/alias capture, all four books,
+ * lifetime/site joins, current routes and local obligations. Never World/save,
+ * lifecycle/archive or arbitrary historical terrain/navigation certification. */
+export function validateConstructionRelocationResearchDomainRuntime(input: unknown): readonly string[] {
+  const fail = (issue: string): readonly string[] => [issue];
+  try {
+    if (!safeTree(input, RESEARCH_DESCRIPTOR_BOUND) || !fields(input, ['records', 'live'])) return fail('INVALID_RESEARCH_RUNTIME_SHAPE');
+    // Descriptor capture permits reading only; all domain authority is proved below.
+    const frame = cloneJson(input) as ResearchDomainFrame;
+    const inspected = inspectRelocationOwnerResearchRecords(frame.records);
+    if (!inspected.ok) return inspected.issues.map(issue => `${issue.code}:${issue.path}`);
+    const records = frame.records; const source = records.construction;
+    // Every historical blueprint, including cancelled/unstarted ones, stays in scope.
+    if (source.blueprints.some(bp => bp.definitionId !== 'library.v9' || Object.hasOwn(bp, 'researchGate'))
+      || source.buildings.some(building => building.definitionId !== 'library.v9' || building.level !== 1)
+      || records.relocation.jobs.some(job => job.from.definitionId !== 'library.v9' || job.to.definitionId !== 'library.v9')
+      || records.maintenance.payments.some(payment => Object.hasOwn(payment, 'rate'))) return fail('UNSUPPORTED_RESEARCH_DOMAIN_HISTORY');
+    const mechanical = validateRuntime(researchRelocationLeaf(frame), 'construction-relocation-domain');
+    if (mechanical.length) return mechanical;
+    if (researchActiveCount(records) > 36 || source.ledger.reservations.length > 384) return fail('RESEARCH_DOMAIN_CAPACITY');
+    if (researchClaimsConflict(researchAllClaims(records))) return fail('RESEARCH_DOMAIN_CLAIM_CONFLICT');
+    const map = researchEffectiveMap(records);
+    for (const job of records.research.jobs.filter(value => value.terminal === null)) {
+      const worker = source.people.find(person => person.id === job.workerId)!;
+      if (!currentRoute(job.navigation, worker, job.site.position, map, source.lastSimulationTick)) return fail('INVALID_RESEARCH_ROUTE');
+      if (job.phase === 'working' && (!same(job.navigation, emptyNavigation()) || !sameCell(worker.position, job.site.position))) return fail('INVALID_RESEARCH_WORK_POSITION');
+      const span = job.workSpans.at(-1); const visit = job.visits.at(-1);
+      const observed = span && (!visit || span.lastTick >= visit.tick) ? { tick: span.lastTick, calendar: span.lastCalendarTick, position: job.site.position }
+        : visit ? { tick: visit.tick, calendar: visit.calendarTick, position: visit.position }
+          : { tick: job.startedTick, calendar: job.startedCalendarTick, position: job.origin };
+      const travel = cardinalDistance(observed.position, worker.position) * MOVEMENT_TICKS_PER_CELL + job.navigation.movementTicks;
+      if (source.lastCalendarTick - observed.calendar < travel || source.lastSimulationTick - observed.tick < travel) return fail('INVALID_RESEARCH_WORKER_CONTINUITY');
+    }
+    return [];
+  } catch { return fail('INVALID_RESEARCH_RUNTIME'); }
+}
+function researchCaptured(input: unknown): ResearchDomainFrame | null {
+  return validateConstructionRelocationResearchDomainRuntime(input).length ? null : cloneJson(input as ResearchDomainFrame);
+}
+function researchPublish(input: unknown, next: ResearchDomainFrame, context: ConstructionContext,
+  relatedId: string | null = null, repeated = false, cancellation = false): ResearchDomainResult {
+  const frame = cloneJson(next); const issues = validateConstructionRelocationResearchDomainRuntime(frame);
+  if (issues.length) return researchRejected(input, 'INVALID_FRAME', issues);
+  // External availability is not authority to suppress a real cancellation. Internal
+  // ownership, lifetime, receipts and paid evidence above are always authenticated.
+  const problem = cancellation ? null : researchContextProblem(frame, context); if (problem) return researchRejected(input, problem);
+  return { ok: true, scope: RESEARCH_SCOPE, frame, relatedId, repeated };
+}
+function researchAfterLeaf(frame: ResearchDomainFrame, leaf: SectRelocationRuntimeFrame): ResearchDomainFrame {
+  const changed = leaf.records.construction.map.navVersion !== frame.records.construction.map.navVersion;
+  return { records: { ...frame.records, construction: leaf.records.construction, relocation: leaf.records.relocation,
+    research: changed ? { ...frame.records.research, jobs: frame.records.research.jobs.map(job => job.terminal ? job : { ...job, navigation: emptyNavigation() }) } : frame.records.research }, live: leaf.live };
+}
+function researchOtherContext(frame: ResearchDomainFrame, context: ConstructionContext): ConstructionContext {
+  return { ...context, externalActiveJobs: context.externalActiveJobs + frame.records.research.jobs.filter(job => job.terminal === null).length,
+    externalClaims: [...context.externalClaims, ...researchOnlyClaims(frame.records)] };
+}
+/** All commands authenticate complete source and candidate, including retries. */
+export function prepareConstructionRelocationResearchCommandCandidate(input: unknown, rawContext: unknown, command: unknown): ResearchDomainResult {
+  const frame = researchCaptured(input); if (!frame) return researchRejected(input, 'INVALID_FRAME');
+  if (!safeTree(rawContext) || !validateConstructionContext(rawContext)) return researchRejected(input, 'INVALID_CONTEXT');
+  const context = cloneJson(rawContext); const source = frame.records.construction;
+  if (context.simulationTick !== source.lastSimulationTick || context.calendarTick !== source.lastCalendarTick) return researchRejected(input, 'STALE_CLOCK');
+  if (!safeTree(command, 100) || !(isConstructionCommand(command) || isSectRelocationCommand(command) || isSectResearchCommand(command))) return researchRejected(input, 'INVALID_COMMAND');
+  const cancellation = command.kind === 'construction.cancel' || command.kind === 'relocation.cancel' || command.kind === 'research.cancel';
+  const previous = [...source.receipts, ...frame.records.relocation.receipts, ...frame.records.research.receipts].find(receipt => receipt.command.commandId === command.commandId);
+  if (previous) return same(previous.command, command) ? researchPublish(input, frame, context, 'relatedId' in previous ? previous.relatedId : previous.jobId, true, cancellation)
+    : researchRejected(input, 'IDENTITY_CONFLICT');
+  const problem = cancellation ? null : researchContextProblem(frame, context); if (problem) return researchRejected(input, problem);
+  if (isSectResearchCommand(command)) {
+    const result = researchCommand(frame.records, context, command);
+    return result.ok ? researchPublish(input, { ...frame, records: result.frame }, context, result.jobId, result.repeated, cancellation) : researchRejected(input, result.code);
+  }
+  // A cancellation does not acquire work ownership. Keep its already-validated
+  // original context; derived research claims/counts must not overflow that
+  // context's shape or duplicate external tokens before the private cancel leaf.
+  const leaf = researchRelocationLeaf(frame); const others = cancellation ? context : researchOtherContext(frame, context);
+  if (isConstructionCommand(command)) {
+    if (command.kind === 'blueprint.place' && command.placement.definitionId !== 'library.v9') return researchRejected(input, 'RESEARCH_AUTHORITY_REQUIRED');
+    const result = applyConstructionCommandForRelocationDomain(leaf.records, others, command);
+    if (!result.ok) return researchRejected(input, result.code);
+    const changed = result.frame.map.navVersion !== source.map.navVersion;
+    return researchPublish(input, researchAfterLeaf(frame, { records: { construction: result.frame, relocation: leaf.records.relocation },
+      live: changed ? leaf.live.map(state => ({ ...state, navigation: emptyNavigation() })) : leaf.live }), context, result.relatedId, result.repeated, cancellation);
+  }
+  const result = applyRelocationCommand(leaf, others, command, 'construction-relocation-domain');
+  return result.ok ? researchPublish(input, researchAfterLeaf(frame, result.frame), context, result.jobId, result.repeated, cancellation) : researchRejected(input, result.code);
+}
+/** construction -> L1 maintenance -> private relocation -> private research. Only
+ * the complete old source and next context enter; no clocked-stage export exists.
+ * Rejection preserves input; real budget already spent is never restored/retried. */
+export function tickConstructionRelocationResearchDomain(input: unknown, rawContext: unknown, budget: WorkPathBudget): ResearchDomainResult {
+  const frame = researchCaptured(input); if (!frame) return researchRejected(input, 'INVALID_FRAME');
+  if (!safeTree(rawContext) || !validateConstructionContext(rawContext)) return researchRejected(input, 'INVALID_CONTEXT');
+  const context = cloneJson(rawContext); const source = frame.records.construction;
+  if (context.simulationTick === source.lastSimulationTick && context.calendarTick === source.lastCalendarTick) return researchPublish(input, frame, context, null, true);
+  if (context.simulationTick <= source.lastSimulationTick || context.calendarTick < source.lastCalendarTick) return researchRejected(input, 'STALE_CLOCK');
+  const productive = context.mode === 'management' && !context.paused && !context.expeditionActive;
+  if (context.simulationTick !== source.lastSimulationTick + 1 || context.calendarTick !== source.lastCalendarTick + (productive ? 1 : 0)) return researchRejected(input, 'CLOCK_GAP');
+  const problem = researchContextProblem(frame, context); if (problem) return researchRejected(input, problem);
+  if (context.simulationTick > MAX - 20 || productive && frame.records.research.revision >= MAX - frame.records.research.jobs.filter(job => job.terminal === null).length) return researchRejected(input, 'CAPACITY_EXCEEDED');
+  try {
+    const position = source.people[0]?.position ?? { x: 0, y: 0 };
+    // Zero-cost real-budget authentication; equal-clock does not even inspect it.
+    advanceWorkNavigationWithBudget({ map: source.map, position, target: position, navigation: emptyNavigation(), simulationTick: context.simulationTick }, budget);
+    const leaf = researchRelocationLeaf(frame);
+    const construction = tickConstructionForRelocationDomain(leaf.records, researchOtherContext(frame, context), budget);
+    if (!construction.ok) return researchRejected(input, construction.code);
+    let next = researchAfterLeaf(frame, { records: { construction: construction.frame, relocation: leaf.records.relocation },
+      live: construction.frame.map.navVersion === source.map.navVersion ? leaf.live : leaf.live.map(state => ({ ...state, navigation: emptyNavigation() })) });
+    if (!productive) return researchPublish(input, next, context);
+    next = { ...next, records: researchMaintenance(next.records, context) };
+    const relocated = runAlreadyClockedWork(leaf, researchRelocationLeaf(next), researchOtherContext(next, context), budget, 'construction-relocation-domain');
+    if (!relocated.ok) return researchRejected(input, relocated.code);
+    next = researchAfterLeaf(next, relocated.frame);
+    return researchPublish(input, { ...next, records: researchWork(next.records, context, budget) }, context);
+  } catch { return researchRejected(input, 'INVALID_CONTEXT'); }
+}
+/** Stable L1 reserve+commit. Inventory-only renewal is allowed during relocation;
+ * failed attempts allocate nothing, and actual payment starts one fresh period. */
+function researchMaintenance(frame: RelocationOwnerResearchSource, context: ConstructionContext): RelocationOwnerResearchSource {
+  let next = frame;
+  for (const building of frame.construction.buildings.slice().sort((a, b) => compareStable(a.buildingId, b.buildingId))) {
+    const status = sectMaintenanceStatusFromRecords(next, building); if (status.operational || status.renewalBlock !== null) continue;
+    const definition = getSectBuildingDefinition(building.definitionId)!.levels[0]!;
+    const paymentId = `sect-maintenance:${next.maintenance.nextId}`; const reservationId = `sect-maintenance-reservation:${next.maintenance.nextId + 1}`;
+    const identity = { reservationId, ownerTransactionId: paymentId };
+    const reserved = reserveSectResources(next.construction.ledger, identity, definition.maintenance.costs, 'on-completion'); if (!reserved.ok) continue;
+    const paid = commitSectReservation(reserved.context, identity, `maintain:${paymentId}`, []); if (!paid.ok) continue;
+    const previous = next.maintenance.payments.filter(payment => payment.buildingId === building.buildingId).at(-1);
+    next = { ...next, construction: { ...next.construction, ledger: paid.context }, maintenance: { nextId: next.maintenance.nextId + 2,
+      payments: [...next.maintenance.payments, { paymentId, reservationId, buildingId: building.buildingId, sourceJobId: building.sourceJobId,
+        predecessorPaymentId: previous?.paymentId ?? null, previousDueCalendarTick: status.dueCalendarTick,
+        paidTick: context.simulationTick, paidCalendarTick: context.calendarTick, dueCalendarTick: context.calendarTick + definition.maintenance.intervalTicks }] } };
+  }
+  return next;
+}
+function researchSites(frame: RelocationOwnerResearchSource, definition: NonNullable<ReturnType<typeof getSectResearchDefinition>>): readonly SectResearchSiteProof[] {
+  return relocationResearchSitesFromRecordsAt(frame, definition, { tick: frame.construction.lastSimulationTick, phase: 'research', side: 'after' });
+}
+type PrivateResearchResult =
+  | { readonly ok: true; readonly frame: RelocationOwnerResearchSource; readonly repeated: boolean; readonly jobId: string | null }
+  | { readonly ok: false; readonly frame: RelocationOwnerResearchSource; readonly code: SectResearchRejection };
+
+
+const researchLive = (job: SectResearchJob): boolean => job.terminal === null;
+const researchAccepted = (frame: RelocationOwnerResearchSource, jobId: string | null = null, repeated = false): PrivateResearchResult => ({ ok: true, frame, jobId, repeated });
+const privateResearchRejected = (frame: RelocationOwnerResearchSource, code: SectResearchRejection): PrivateResearchResult => ({ ok: false, frame, code });
+function researchReplace(frame: RelocationOwnerResearchSource, job: SectResearchJob): RelocationOwnerResearchSource {
+  return { ...frame, research: { ...frame.research, jobs: frame.research.jobs.map(value => value.jobId === job.jobId ? job : value) } };
+}
+function researchContextConflict(frame: RelocationOwnerResearchSource, context: ConstructionContext): boolean {
+  return researchClaimsConflict([...researchAllClaims(frame), ...context.externalClaims]);
+}
+function researchCapacityExceeded(frame: RelocationOwnerResearchSource, context: ConstructionContext): boolean {
+  return researchActiveCount(frame) + context.externalActiveJobs > 36;
+}
+function researchSiteUsable(frame: RelocationOwnerResearchSource, job: SectResearchJob): boolean {
+  const definition = getSectResearchDefinition(job.researchId)!;
+  return sectBuildingPaidAt(frame, job.site.buildingId, frame.construction.lastSimulationTick, frame.construction.lastCalendarTick) && researchSites(frame, definition).some(site => same(site, job.site))
+    && !frame.relocation.jobs.some(move => move.terminal === null && move.buildingId === job.site.buildingId)
+    && job.prerequisites.every(ref => frame.research.jobs.some(parent => parent.jobId === ref.completionJobId && parent.researchId === ref.researchId && parent.terminal?.kind === 'completed'));
+}
+function researchSiteFree(frame: RelocationOwnerResearchSource, context: ConstructionContext, site: SectResearchSiteProof, ownerId?: string): boolean {
+  return ![...researchAllClaims(frame), ...context.externalClaims].some(claim => claim.ownerId !== ownerId
+    && (claim.kind === 'seat' && claim.key === site.buildingId || claim.kind === 'entrance' && claim.key === `${site.position.x},${site.position.y}`));
+}
+/** Bounded copy of v10 mechanics. Three deliberate substitutions: three-domain
+ * claims, historical placement sites and the current effective relocated map.
+ * Complete owner validation surrounds this PRIVATE stage; no equal-clock work
+ * entry or old six-domain root is exposed. Cancellation headroom is checked. */
+function researchCommand(frame: RelocationOwnerResearchSource, context: ConstructionContext, command: SectResearchCommand): PrivateResearchResult {
+  const previous = frame.research.receipts.find(receipt => receipt.command.commandId === command.commandId);
+  if (previous) return same(previous.command, command) ? researchAccepted(frame, previous.jobId, true) : privateResearchRejected(frame, 'IDENTITY_CONFLICT');
+  if (command.expectedRevision !== frame.research.revision) return privateResearchRejected(frame, 'STALE_REVISION');
+  if (frame.research.revision === MAX) return privateResearchRejected(frame, 'CAPACITY_EXCEEDED');
+  let next = frame; let jobId: string;
+  if (command.kind === 'research.start') {
+    const definition = getSectResearchDefinition(command.researchId);
+    if (!definition) return privateResearchRejected(frame, 'UNKNOWN_RESEARCH');
+    if (frame.research.jobs.some(job => job.researchId === command.researchId && job.terminal?.kind === 'completed')) return privateResearchRejected(frame, 'RESEARCH_COMPLETED');
+    if (frame.research.jobs.some(researchLive)) return privateResearchRejected(frame, 'RESEARCH_ACTIVE');
+    const prerequisites = definition.prerequisites.map(researchId => ({ researchId, completionJobId: frame.research.jobs.find(job => job.researchId === researchId && job.terminal?.kind === 'completed')?.jobId ?? '' }));
+    if (prerequisites.some(ref => !ref.completionJobId)) return privateResearchRejected(frame, 'PREREQUISITE_REQUIRED');
+    if (context.mode !== 'management' || context.paused || context.expeditionActive) return privateResearchRejected(frame, 'MANAGEMENT_REQUIRED');
+    if (researchCapacityExceeded(frame, { ...context, externalActiveJobs: context.externalActiveJobs + 1 }) || frame.research.jobs.length >= SECT_RESEARCH_LIMITS.records
+      || frame.research.receipts.length + 2 > SECT_RESEARCH_LIMITS.receipts || frame.research.nextId > MAX - 2 || frame.research.revision > MAX - 2
+      || frame.construction.ledger.reservations.length >= 384 || context.simulationTick > MAX - 20 || context.calendarTick === MAX) return privateResearchRejected(frame, 'CAPACITY_EXCEEDED');
+    if (researchContextConflict(frame, context)) return privateResearchRejected(frame, 'CLAIM_CONFLICT');
+    const worker = frame.construction.people.find(person => person.id === command.workerId);
+    if (!worker || !eligible(worker)) return privateResearchRejected(frame, 'WORKER_UNAVAILABLE');
+    if ([...researchAllClaims(frame), ...context.externalClaims].some(claim => claim.kind === 'worker' && claim.key === worker.id)) return privateResearchRejected(frame, 'CLAIM_CONFLICT');
+    const sites = researchSites(frame, definition).filter(site => sectBuildingPaidAt(frame, site.buildingId, context.simulationTick, context.calendarTick));
+    if (!sites.length) return privateResearchRejected(frame, 'WORKSTATION_UNAVAILABLE');
+    const site = sites.filter(value => researchSiteFree(frame, context, value)).sort((a, b) => cardinalDistance(worker.position, a.position) - cardinalDistance(worker.position, b.position) || compareStable(a.buildingId, b.buildingId))[0];
+    if (!site) return privateResearchRejected(frame, 'CLAIM_CONFLICT');
+    jobId = `sect-research:${frame.research.nextId}`;
+    const reservationId = `sect-research-reservation:${frame.research.nextId + 1}`;
+    const reserved = reserveSectResources(frame.construction.ledger, { reservationId, ownerTransactionId: jobId }, definition.costs, 'on-completion');
+    if (!reserved.ok) return privateResearchRejected(frame, reserved.rejection.code === 'INSUFFICIENT_INVENTORY' ? 'INSUFFICIENT_INVENTORY' : 'INVALID_RESERVATION');
+    const job: SectResearchJob = { jobId, reservationId, researchId: definition.id, workerId: worker.id, startedTick: context.simulationTick,
+      startedCalendarTick: context.calendarTick, origin: { ...worker.position }, site: cloneJson(site), prerequisites, phase: 'to-site', activeTicks: 0,
+      requiredTicks: definition.workTicks, visits: [], workSpans: [], navigation: emptyNavigation(), blocked: null, terminal: null };
+    next = { ...frame, construction: { ...frame.construction, ledger: reserved.context },
+      research: { ...frame.research, nextId: frame.research.nextId + 2, jobs: [...frame.research.jobs, job] } };
+  } else {
+    const job = frame.research.jobs.find(value => value.jobId === command.jobId);
+    if (!job) return privateResearchRejected(frame, 'UNKNOWN_JOB');
+    if (!researchLive(job)) return privateResearchRejected(frame, 'TRANSACTION_FINISHED');
+    const person = frame.construction.people.find(value => value.id === job.workerId)!;
+    // Expiry, away/death and new external worker ownership never suppress a real cancellation.
+    if (!isWalkable(researchEffectiveMap(frame), person.position)) return privateResearchRejected(frame, 'UNSAFE_POSITION');
+    jobId = job.jobId;
+    const claim = frame.construction.ledger.reservations.find(value => value.reservationId === job.reservationId)!;
+    const released = releaseSectReservation(frame.construction.ledger, { reservationId: job.reservationId, ownerTransactionId: jobId }, `cancel:${jobId}`);
+    if (!released.ok) return privateResearchRejected(frame, 'INVALID_RESERVATION');
+    next = researchReplace({ ...frame, construction: { ...frame.construction, ledger: released.context } }, { ...job, phase: 'cancelled', navigation: emptyNavigation(), blocked: null,
+      terminal: { kind: 'cancelled', previousPhase: job.phase as 'to-site' | 'working', tick: context.simulationTick, calendarTick: context.calendarTick,
+        position: { ...person.position }, consumed: [], released: sectReservationLines(claim, 'remainingReservation') } });
+  }
+  next = { ...next, research: { ...next.research, revision: frame.research.revision + 1,
+    receipts: [...next.research.receipts, { command: cloneJson(command), revision: frame.research.revision + 1, jobId }] } };
+  return researchAccepted(next, jobId);
+}
+function researchWork(frame: RelocationOwnerResearchSource, context: ConstructionContext, budget: WorkPathBudget): RelocationOwnerResearchSource {
+  let next: RelocationOwnerResearchSource = { ...frame, research: { ...frame.research, revision: frame.research.revision + 1 } };
+  if (context.mode !== 'management' || context.expeditionActive || context.paused) return next;
+  const job = next.research.jobs.find(researchLive); if (!job) return next;
+  const worker = next.construction.people.find(person => person.id === job.workerId)!;
+  if (!eligible(worker)) return researchReplace(next, { ...job, blocked: 'WORKER_UNAVAILABLE' });
+  if (!researchSiteUsable(next, job)) return researchReplace(next, { ...job, blocked: 'WORKSTATION_UNAVAILABLE' });
+  if (!researchSiteFree(next, context, job.site, job.jobId)) return researchReplace(next, { ...job, blocked: 'ENTRANCE_BUSY' });
+  const map = researchEffectiveMap(next);
+  if (job.phase === 'to-site' || !sameCell(worker.position, job.site.position) || !isWalkable(map, worker.position)) {
+    if (job.visits.length >= SECT_RESEARCH_LIMITS.visits) return researchReplace(next, { ...job, blocked: 'VISIT_CAPACITY' });
+    const effect = advanceWorkNavigationWithBudget({ map, position: worker.position, target: job.site.position, navigation: job.navigation, simulationTick: context.simulationTick }, budget);
+    if (effect.position) next = { ...next, construction: { ...next.construction,
+      people: next.construction.people.map(person => person.id === job.workerId ? { ...person, position: { ...effect.position! } } : person) } };
+    return researchReplace(next, { ...job, phase: effect.status === 'arrived' ? 'working' : 'to-site', navigation: effect.navigation,
+      blocked: effect.status === 'path-blocked' ? 'PATH_BLOCKED' : effect.status === 'path-budget-exhausted' ? 'PATH_BUDGET' : null,
+      visits: effect.status === 'arrived' ? [...job.visits, { tick: context.simulationTick, calendarTick: context.calendarTick, position: { ...job.site.position } }] : job.visits });
+  }
+  const last = job.workSpans.at(-1); const visitIndex = job.visits.length - 1;
+  const workSpans = last && last.visitIndex === visitIndex && last.lastTick + 1 === context.simulationTick && last.lastCalendarTick + 1 === context.calendarTick
+    ? [...job.workSpans.slice(0, -1), { ...last, lastTick: context.simulationTick, lastCalendarTick: context.calendarTick }]
+    : [...job.workSpans, { firstTick: context.simulationTick, lastTick: context.simulationTick, firstCalendarTick: context.calendarTick, lastCalendarTick: context.calendarTick, visitIndex }];
+  const progressed = { ...job, activeTicks: job.activeTicks + 1, workSpans, blocked: null };
+  if (progressed.activeTicks !== getSectResearchDefinition(job.researchId)!.workTicks) return researchReplace(next, progressed);
+  // Eligibility and the applicable paid interval were checked on this exact final work boundary.
+  const paid = commitSectReservation(next.construction.ledger, { reservationId: job.reservationId, ownerTransactionId: job.jobId }, `complete:${job.jobId}`, []);
+  if (!paid.ok) throw new Error(`Validated research payment failed: ${paid.rejection.code}`);
+  return researchReplace({ ...next, construction: { ...next.construction, ledger: paid.context } }, { ...progressed, phase: 'completed', navigation: emptyNavigation(),
+    terminal: { kind: 'completed', previousPhase: 'working', tick: context.simulationTick, calendarTick: context.calendarTick,
+      position: { ...worker.position }, consumed: sectReservationLines(paid.reservation, 'consumed'), released: [] } });
 }
